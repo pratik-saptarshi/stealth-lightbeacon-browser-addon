@@ -305,7 +305,7 @@ async function ensureContentScriptLoaded(tabs: NonNullable<RuntimeTabs>, tabId: 
     target: {
       tabId
     },
-    files: ['src/content/content-script.js']
+    files: ['content-script.js']
   });
 }
 
