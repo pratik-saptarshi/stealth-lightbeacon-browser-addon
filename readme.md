@@ -1,17 +1,18 @@
 # Stealth Lightbeacon Browser Addon
 
-Stealth Lightbeacon Browser Addon is the browser-only companion to the Stealth Lightbeacon audit workflow. It performs local DOM auditing in the active tab, groups issues by domain and severity, supports a manual rescan flow, and can optionally talk to a local or remote backend when you opt in.
+Stealth Lightbeacon Browser Addon is the browser-only companion to the Stealth Lightbeacon audit workflow. It performs local DOM auditing in the active tab, groups issues by domain and severity, supports manual rescan flows, and can optionally talk to a local or remote backend when you opt in.
 
-Current release: `0.1.4`
+Current release: `0.1.5`
 
 ## What it does
-- Audits the active tab from a popup/side-panel UI.
+- Audits the active tab from a popup and side-panel UI.
 - Groups findings by domain and severity.
-- Exports issue data locally as JSON or Markdown.
+- Exports issue data locally as JSON, Markdown, or PDF.
 - Supports limited same-origin crawl discovery from the active origin.
 - Keeps the default posture local-first with no broad host permissions.
 - Supports optional backend-assisted recommendations over HTTP or stdio.
 - Uses machine-readable rulesets for SEO, accessibility, AEO/GEO, UX, Drupal, and security-header checks.
+- Surfaces the backend OpenAPI contract directly from the extension UI.
 
 ## Supported browsers
 - Google Chrome
@@ -56,6 +57,8 @@ npm run test:integration
 npm run test:ui-load
 npm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0
 ```
+
+When the environment supports it, validate the extension in a real browser session with Playwright or the browser automation toolchain already available on the machine.
 
 ## Repository layout
 - `src/background/` - orchestration, history, ruleset catalog, host policy, service worker
