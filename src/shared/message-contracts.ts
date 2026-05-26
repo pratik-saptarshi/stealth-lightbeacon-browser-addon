@@ -11,6 +11,7 @@ import type {
 } from './types';
 import type { RuleContext } from './rule-engine';
 import type { AddonRulesCatalog } from './rulesets/catalog';
+import type { AddonKnowledgeBaseCatalog } from './knowledge-base/catalog';
 
 export interface ScanStartMessage {
   type: 'scan:start';
@@ -26,6 +27,15 @@ export interface RulesetGetMessage {
 export interface RulesetUpdateMessage {
   type: 'ruleset:update';
   catalog: AddonRulesCatalog;
+}
+
+export interface KnowledgeBaseGetMessage {
+  type: 'knowledge-base:get';
+}
+
+export interface KnowledgeBaseUpdateMessage {
+  type: 'knowledge-base:update';
+  catalog: AddonKnowledgeBaseCatalog;
 }
 
 export interface IssueListMessage {
@@ -68,6 +78,8 @@ export type ClientMessage =
   | HistoryCompareMessage
   | RulesetGetMessage
   | RulesetUpdateMessage
+  | KnowledgeBaseGetMessage
+  | KnowledgeBaseUpdateMessage
   | IssueListMessage
   | ReportBuildMessage;
 
@@ -106,6 +118,10 @@ export interface RulesetResponse {
   catalog: AddonRulesCatalog;
 }
 
+export interface KnowledgeBaseResponse {
+  catalog: AddonKnowledgeBaseCatalog;
+}
+
 export interface ScanStartResponse {
   ok: true;
   payload: ScanStartResult;
@@ -124,6 +140,8 @@ export type HistoryLatestReply = { ok: true; payload: HistoryLatestResult } | Sc
 export type HistoryCompareReply = { ok: true; payload: HistoryCompareResult } | ScanFailure;
 export type RulesetGetReply = { ok: true; payload: RulesetResponse } | ScanFailure;
 export type RulesetUpdateReply = { ok: true; payload: RulesetResponse } | ScanFailure;
+export type KnowledgeBaseGetReply = { ok: true; payload: KnowledgeBaseResponse } | ScanFailure;
+export type KnowledgeBaseUpdateReply = { ok: true; payload: KnowledgeBaseResponse } | ScanFailure;
 
 export type MessageResponseByType = {
   'scan:start': ScanStartReply;
@@ -132,6 +150,8 @@ export type MessageResponseByType = {
   'history:compare': HistoryCompareReply;
   'ruleset:get': RulesetGetReply;
   'ruleset:update': RulesetUpdateReply;
+  'knowledge-base:get': KnowledgeBaseGetReply;
+  'knowledge-base:update': KnowledgeBaseUpdateReply;
   'issues:list': IssueListReply;
   'report:build': ReportBuildReply;
 };

@@ -115,3 +115,20 @@ it('resolves scan context from active tab when pageContext is omitted', async ()
     text: String(reply.payload.snapshot.summary.total)
   });
 });
+
+it('returns the bundled knowledge base catalog', async () => {
+  const reply = await handleMessage({ type: 'knowledge-base:get' } as const);
+
+  expect(reply.ok).toBe(true);
+  if (!reply.ok) {
+    throw new Error(reply.error);
+  }
+
+  expect('catalog' in reply.payload).toBe(true);
+  if (!('catalog' in reply.payload)) {
+    throw new Error('Expected knowledge base catalog payload');
+  }
+
+  expect(reply.payload.catalog.version).toBeTruthy();
+  expect(reply.payload.catalog.categories.length).toBeGreaterThan(0);
+});

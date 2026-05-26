@@ -324,6 +324,48 @@ function assertAddonRulesetPayload(input) {
     categories
   };
 }
+function assertKnowledgeBaseEntry(input) {
+  assert(isRecord(input), "knowledge base entry must be an object");
+  assert(isNonEmptyString(input.id), "knowledge base entry.id must be a non-empty string");
+  assert(isNonEmptyString(input.title), "knowledge base entry.title must be a non-empty string");
+  assert(isNonEmptyString(input.summary), "knowledge base entry.summary must be a non-empty string");
+  assert(Array.isArray(input.notes), "knowledge base entry.notes must be an array");
+  assert(input.notes.every((entry) => isNonEmptyString(entry)), "knowledge base entry.notes must contain non-empty strings");
+  if ("enabled" in input && input.enabled !== void 0) {
+    assert(typeof input.enabled === "boolean", "knowledge base entry.enabled must be a boolean when present");
+  }
+  return {
+    id: input.id,
+    title: input.title,
+    summary: input.summary,
+    notes: input.notes,
+    enabled: input.enabled
+  };
+}
+function assertKnowledgeBaseCategory(input) {
+  assert(isRecord(input), "knowledge base category must be an object");
+  assert(isEnumValue(input.category, DOMAINS), "knowledge base category must be supported");
+  assert(Array.isArray(input.entries), "knowledge base category.entries must be an array");
+  if ("enabled" in input && input.enabled !== void 0) {
+    assert(typeof input.enabled === "boolean", "knowledge base category.enabled must be a boolean when present");
+  }
+  return {
+    category: input.category,
+    enabled: input.enabled,
+    entries: input.entries.map(assertKnowledgeBaseEntry)
+  };
+}
+function assertKnowledgeBasePayload(input) {
+  assert(isRecord(input), "knowledge base must be an object");
+  assert(isNonEmptyString(input.version), "knowledge base.version must be a non-empty string");
+  assert(isNonEmptyString(input.generatedAt), "knowledge base.generatedAt must be a non-empty string");
+  assert(Array.isArray(input.categories) && input.categories.length > 0, "knowledge base.categories must be a non-empty array");
+  return {
+    version: input.version,
+    generatedAt: input.generatedAt,
+    categories: input.categories.map(assertKnowledgeBaseCategory)
+  };
+}
 var issueSchema = createSchema(assertIssue);
 var scanRequestSchema = createSchema(assertScanRequestInput);
 var scanSnapshotSchema = createSchema(assertScanSnapshotInput);
@@ -332,6 +374,7 @@ var scanResultSchema = createSchema(assertScanResultInput);
 var diffResultSchema = createSchema(assertDiffResultInput);
 var backendRulesetCategorySchema = createSchema(assertBackendRulesetCategoryArray);
 var addonRulesetSchema = createSchema(assertAddonRulesetPayload);
+var knowledgeBaseSchema = createSchema(assertKnowledgeBasePayload);
 function summarizeIssues(issues) {
   const bySeverity = {
     critical: 0,
@@ -1656,6 +1699,186 @@ function createRulesetCatalogStorage(candidate) {
   return new ChromeRulesetCatalogStorage(candidate);
 }
 
+// src/shared/knowledge-base/default-knowledge-base.json
+var default_knowledge_base_default = {
+  version: "1.0.0",
+  generatedAt: "2026-05-26T00:00:00Z",
+  categories: [
+    {
+      category: "seo",
+      enabled: true,
+      entries: [
+        {
+          id: "seo-core-summary",
+          title: "SEO core checks",
+          summary: "Baseline SEO guidance for title, meta description, headings, and canonical behavior.",
+          notes: [
+            "Keep one descriptive title per page.",
+            "Preserve canonical consistency across the crawl boundary."
+          ],
+          enabled: true
+        }
+      ]
+    },
+    {
+      category: "geo",
+      enabled: true,
+      entries: [
+        {
+          id: "geo-core-summary",
+          title: "GEO core checks",
+          summary: "Generative engine optimization guidance for semantic structure and answerability.",
+          notes: [
+            "Prefer cohesive long-form answers over shallow sub-query pages.",
+            "Keep answer sections machine-readable and model-friendly."
+          ],
+          enabled: true
+        }
+      ]
+    },
+    {
+      category: "aeo",
+      enabled: true,
+      entries: [
+        {
+          id: "aeo-core-summary",
+          title: "AEO core checks",
+          summary: "Answer engine optimization guidance for direct-answer content.",
+          notes: [
+            "Lead with concise answers and support with structured follow-up.",
+            "Avoid content fragmentation that obscures the primary answer."
+          ],
+          enabled: true
+        }
+      ]
+    },
+    {
+      category: "security-headers",
+      enabled: true,
+      entries: [
+        {
+          id: "security-headers-core-summary",
+          title: "Security header checks",
+          summary: "Header hygiene guidance for browser-delivered content.",
+          notes: [
+            "Validate HSTS and CSP presence where applicable.",
+            "Prefer explicit allowlists and restrictive defaults."
+          ],
+          enabled: true
+        }
+      ]
+    },
+    {
+      category: "WCAG2.1AA",
+      enabled: true,
+      entries: [
+        {
+          id: "wcag21-core-summary",
+          title: "WCAG 2.1 AA guidance",
+          summary: "Accessibility guidance focused on operable, perceivable, and understandable UI patterns.",
+          notes: [
+            "Ensure keyboard reachability and visible focus states.",
+            "Provide labels or equivalent accessible names for form and action controls."
+          ],
+          enabled: true
+        }
+      ]
+    },
+    {
+      category: "WCAG2.2AA",
+      enabled: true,
+      entries: [
+        {
+          id: "wcag22-core-summary",
+          title: "WCAG 2.2 AA guidance",
+          summary: "Accessibility guidance for newer input assistance and error prevention requirements.",
+          notes: [
+            "Reduce interaction ambiguity and avoid hidden state changes.",
+            "Expose correction and recovery guidance for destructive actions."
+          ],
+          enabled: true
+        }
+      ]
+    }
+  ]
+};
+
+// src/shared/knowledge-base/catalog.ts
+function loadEmbeddedKnowledgeBase() {
+  return knowledgeBaseSchema.parse(default_knowledge_base_default);
+}
+function normalizeKnowledgeBaseCatalog(catalog) {
+  return {
+    ...catalog,
+    categories: catalog.categories.map((category) => ({
+      ...category,
+      entries: category.entries.map((entry) => ({
+        ...entry,
+        title: entry.title.trim() || entry.id,
+        summary: entry.summary.trim(),
+        notes: entry.notes.map((note) => note.trim()).filter(Boolean),
+        enabled: entry.enabled ?? true
+      }))
+    }))
+  };
+}
+
+// src/background/knowledge-base.ts
+var KNOWLEDGE_BASE_STORAGE_KEY = "addon_knowledge_base_catalog";
+var KnowledgeBaseManager = class {
+  constructor(storage2) {
+    this.storage = storage2;
+  }
+  loadedPromise = null;
+  async getKnowledgeBase() {
+    if (!this.loadedPromise) {
+      this.loadedPromise = this.loadOrCreateKnowledgeBase();
+    }
+    return this.loadedPromise;
+  }
+  async replaceKnowledgeBase(nextCatalog) {
+    const normalized = normalizeKnowledgeBaseCatalog(nextCatalog);
+    await this.storage.save(normalized);
+    this.loadedPromise = Promise.resolve(normalized);
+  }
+  async loadOrCreateKnowledgeBase() {
+    const stored = await this.storage.load();
+    if (!stored?.categories?.length) {
+      const embedded = normalizeKnowledgeBaseCatalog(loadEmbeddedKnowledgeBase());
+      await this.storage.save(embedded);
+      return embedded;
+    }
+    return normalizeKnowledgeBaseCatalog(stored);
+  }
+};
+var MemoryKnowledgeBaseStorage = class {
+  catalog;
+  async load() {
+    return this.catalog;
+  }
+  async save(catalog) {
+    this.catalog = catalog;
+  }
+};
+var ChromeKnowledgeBaseStorage = class {
+  constructor(storage2) {
+    this.storage = storage2;
+  }
+  async load() {
+    const payload = await this.storage.get([KNOWLEDGE_BASE_STORAGE_KEY]);
+    return payload[KNOWLEDGE_BASE_STORAGE_KEY];
+  }
+  async save(catalog) {
+    await this.storage.set({ [KNOWLEDGE_BASE_STORAGE_KEY]: catalog });
+  }
+};
+function createKnowledgeBaseStorage(candidate) {
+  if (!candidate?.get || !candidate?.set) {
+    return void 0;
+  }
+  return new ChromeKnowledgeBaseStorage(candidate);
+}
+
 // src/ui/export.ts
 function toJsonExport(bundle) {
   return JSON.stringify(bundle, null, 2);
@@ -1918,6 +2141,8 @@ var storage = chromeStorage ?? new MemoryHistoryStorage();
 var historyManager = new ScanHistoryManager(storage);
 var rulesetStorage = createRulesetCatalogStorage(resolveHistoryStorage(globalRuntime)?.storage?.local);
 var rulesetManager = new RulesetCatalogManager(rulesetStorage ?? new MemoryRulesetCatalogStorage());
+var knowledgeBaseStorage = createKnowledgeBaseStorage(resolveHistoryStorage(globalRuntime)?.storage?.local);
+var knowledgeBaseManager = new KnowledgeBaseManager(knowledgeBaseStorage ?? new MemoryKnowledgeBaseStorage());
 async function handleMessage(message) {
   try {
     if (isScanStartMessage(message)) {
@@ -2025,6 +2250,15 @@ async function handleMessage(message) {
       const catalog = await rulesetManager.getCatalog();
       return { ok: true, payload: { catalog } };
     }
+    if (message.type === "knowledge-base:get") {
+      const catalog = await knowledgeBaseManager.getKnowledgeBase();
+      return { ok: true, payload: { catalog } };
+    }
+    if (message.type === "knowledge-base:update") {
+      await knowledgeBaseManager.replaceKnowledgeBase(message.catalog);
+      const catalog = await knowledgeBaseManager.getKnowledgeBase();
+      return { ok: true, payload: { catalog } };
+    }
     return { ok: false, error: createFailure("Unknown message type") };
   } catch (error) {
     return {
@@ -2047,7 +2281,7 @@ function startRuntimeListeners() {
   });
 }
 function isKnownMessageType(type) {
-  return type === "scan:start" || type === "history:list" || type === "history:latest" || type === "history:compare" || type === "ruleset:get" || type === "ruleset:update" || type === "issues:list" || type === "report:build";
+  return type === "scan:start" || type === "history:list" || type === "history:latest" || type === "history:compare" || type === "ruleset:get" || type === "ruleset:update" || type === "knowledge-base:get" || type === "knowledge-base:update" || type === "issues:list" || type === "report:build";
 }
 function resolveHistoryStorage(context) {
   const chromeStorageArea = context.chrome?.storage?.local;

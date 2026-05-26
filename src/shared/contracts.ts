@@ -85,6 +85,26 @@ const SCAN_ENGINES = ['dom-lite', 'crawl-lite'] as const;
 const BACKEND_MODES = ['http', 'stdin'] as const;
 const CRAWL_ERROR_TYPES = ['cors', 'timeout', 'blocked', 'non_html', 'other'] as const;
 
+export interface KnowledgeBaseEntry {
+  id: string;
+  title: string;
+  summary: string;
+  notes: string[];
+  enabled?: boolean;
+}
+
+export interface KnowledgeBaseCategory {
+  category: RuleDomain;
+  enabled?: boolean;
+  entries: KnowledgeBaseEntry[];
+}
+
+export interface AddonKnowledgeBase {
+  version: string;
+  generatedAt: string;
+  categories: KnowledgeBaseCategory[];
+}
+
 function assertIssueCountsBySeverity(input: unknown, path: string): Record<Severity, number> {
   assert(isRecord(input), `${path} must be an object`);
   for (const key of SEVERITIES) {
@@ -373,6 +393,54 @@ function assertAddonRulesetPayload(input: unknown): BackendRulesetPayload {
   };
 }
 
+function assertKnowledgeBaseEntry(input: unknown): KnowledgeBaseEntry {
+  assert(isRecord(input), 'knowledge base entry must be an object');
+  assert(isNonEmptyString(input.id), 'knowledge base entry.id must be a non-empty string');
+  assert(isNonEmptyString(input.title), 'knowledge base entry.title must be a non-empty string');
+  assert(isNonEmptyString(input.summary), 'knowledge base entry.summary must be a non-empty string');
+  assert(Array.isArray(input.notes), 'knowledge base entry.notes must be an array');
+  assert(input.notes.every((entry: unknown) => isNonEmptyString(entry)), 'knowledge base entry.notes must contain non-empty strings');
+  if ('enabled' in input && input.enabled !== undefined) {
+    assert(typeof input.enabled === 'boolean', 'knowledge base entry.enabled must be a boolean when present');
+  }
+
+  return {
+    id: input.id,
+    title: input.title,
+    summary: input.summary,
+    notes: input.notes as string[],
+    enabled: input.enabled as boolean | undefined
+  };
+}
+
+function assertKnowledgeBaseCategory(input: unknown): KnowledgeBaseCategory {
+  assert(isRecord(input), 'knowledge base category must be an object');
+  assert(isEnumValue(input.category, DOMAINS), 'knowledge base category must be supported');
+  assert(Array.isArray(input.entries), 'knowledge base category.entries must be an array');
+  if ('enabled' in input && input.enabled !== undefined) {
+    assert(typeof input.enabled === 'boolean', 'knowledge base category.enabled must be a boolean when present');
+  }
+
+  return {
+    category: input.category as KnowledgeBaseCategory['category'],
+    enabled: input.enabled as boolean | undefined,
+    entries: input.entries.map(assertKnowledgeBaseEntry)
+  };
+}
+
+function assertKnowledgeBasePayload(input: unknown): AddonKnowledgeBase {
+  assert(isRecord(input), 'knowledge base must be an object');
+  assert(isNonEmptyString(input.version), 'knowledge base.version must be a non-empty string');
+  assert(isNonEmptyString(input.generatedAt), 'knowledge base.generatedAt must be a non-empty string');
+  assert(Array.isArray(input.categories) && input.categories.length > 0, 'knowledge base.categories must be a non-empty array');
+
+  return {
+    version: input.version,
+    generatedAt: input.generatedAt,
+    categories: input.categories.map(assertKnowledgeBaseCategory)
+  };
+}
+
 export const issueSchema = createSchema(assertIssue);
 export const scanRequestSchema = createSchema(assertScanRequestInput);
 export const scanSnapshotSchema = createSchema(assertScanSnapshotInput);
@@ -381,6 +449,7 @@ export const scanResultSchema = createSchema(assertScanResultInput);
 export const diffResultSchema = createSchema(assertDiffResultInput);
 export const backendRulesetCategorySchema = createSchema(assertBackendRulesetCategoryArray);
 export const addonRulesetSchema = createSchema(assertAddonRulesetPayload);
+export const knowledgeBaseSchema = createSchema(assertKnowledgeBasePayload);
 
 export function summarizeIssues(issues: Issue[]) {
   const bySeverity = {

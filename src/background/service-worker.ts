@@ -6,6 +6,7 @@ import { assertBackendEndpointAllowed, isLoopbackHost, sanitizeBackendHostPolicy
 import { MemoryHistoryStorage, ScanHistoryManager } from './scan-history';
 import { createChromeHistoryStorage, type ChromeLike, type ChromeLikeStorageArea } from './storage';
 import { createRulesetCatalogStorage, MemoryRulesetCatalogStorage, RulesetCatalogManager } from './ruleset-catalog';
+import { createKnowledgeBaseStorage, KnowledgeBaseManager, MemoryKnowledgeBaseStorage } from './knowledge-base';
 import { buildReport } from '../ui/export';
 import { applyToolbarState } from './toolbar-state';
 import type { RuleContext } from '../shared/rule-engine';
@@ -116,6 +117,8 @@ const storage = chromeStorage ?? new MemoryHistoryStorage();
 const historyManager = new ScanHistoryManager(storage);
 const rulesetStorage = createRulesetCatalogStorage(resolveHistoryStorage(globalRuntime)?.storage?.local);
 const rulesetManager = new RulesetCatalogManager(rulesetStorage ?? new MemoryRulesetCatalogStorage());
+const knowledgeBaseStorage = createKnowledgeBaseStorage(resolveHistoryStorage(globalRuntime)?.storage?.local);
+const knowledgeBaseManager = new KnowledgeBaseManager(knowledgeBaseStorage ?? new MemoryKnowledgeBaseStorage());
 
 export async function handleMessage(message: ClientMessage): Promise<MessageResponseByType[keyof MessageResponseByType]> {
   try {
@@ -245,6 +248,17 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
       return { ok: true, payload: { catalog } };
     }
 
+    if (message.type === 'knowledge-base:get') {
+      const catalog = await knowledgeBaseManager.getKnowledgeBase();
+      return { ok: true, payload: { catalog } };
+    }
+
+    if (message.type === 'knowledge-base:update') {
+      await knowledgeBaseManager.replaceKnowledgeBase(message.catalog);
+      const catalog = await knowledgeBaseManager.getKnowledgeBase();
+      return { ok: true, payload: { catalog } };
+    }
+
     return { ok: false, error: createFailure('Unknown message type') };
   } catch (error) {
     return {
@@ -282,6 +296,8 @@ function isKnownMessageType(type: unknown): type is ClientMessage['type'] {
     type === 'history:compare' ||
     type === 'ruleset:get' ||
     type === 'ruleset:update' ||
+    type === 'knowledge-base:get' ||
+    type === 'knowledge-base:update' ||
     type === 'issues:list' ||
     type === 'report:build'
   );

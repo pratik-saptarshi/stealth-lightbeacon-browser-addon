@@ -115,12 +115,238 @@ function collectSelectors(issues) {
   );
 }
 
+// src/shared/backend-settings.ts
+var BACKEND_SETTINGS_STORAGE_KEY = "addon_backend_settings";
+var DEFAULT_BACKEND_SETTINGS = {
+  enabled: false,
+  mode: "http",
+  endpoint: "http://127.0.0.1",
+  port: "5000",
+  requestSigningSecret: "",
+  authUsername: "",
+  authPassword: "",
+  required: false
+};
+function normalizeBackendSettings(input) {
+  if (!isRecord(input)) {
+    return { ...DEFAULT_BACKEND_SETTINGS };
+  }
+  return {
+    enabled: coerceBoolean(input.enabled, DEFAULT_BACKEND_SETTINGS.enabled),
+    mode: input.mode === "stdin" ? "stdin" : "http",
+    endpoint: coerceString(input.endpoint, DEFAULT_BACKEND_SETTINGS.endpoint),
+    port: coerceString(input.port, DEFAULT_BACKEND_SETTINGS.port),
+    requestSigningSecret: coerceString(input.requestSigningSecret, DEFAULT_BACKEND_SETTINGS.requestSigningSecret),
+    authUsername: coerceString(input.authUsername ?? input.username, DEFAULT_BACKEND_SETTINGS.authUsername),
+    authPassword: coerceString(input.authPassword ?? input.password, DEFAULT_BACKEND_SETTINGS.authPassword),
+    required: coerceBoolean(input.required, DEFAULT_BACKEND_SETTINGS.required)
+  };
+}
+function buildBackendRequestFromSettings(settings) {
+  if (!settings.enabled) {
+    return void 0;
+  }
+  const request = {
+    enabled: true,
+    mode: settings.mode,
+    required: settings.required
+  };
+  if (settings.requestSigningSecret.trim()) {
+    request.requestSigningSecret = settings.requestSigningSecret.trim();
+  }
+  if (settings.authUsername.trim() && settings.authPassword.trim()) {
+    request.auth = {
+      username: settings.authUsername.trim(),
+      password: settings.authPassword.trim()
+    };
+  }
+  if (settings.mode === "stdin") {
+    return request;
+  }
+  const endpoint = composeEndpoint(settings.endpoint, settings.port);
+  if (!endpoint) {
+    return void 0;
+  }
+  request.endpoint = endpoint;
+  return request;
+}
+function composeEndpoint(endpoint, port) {
+  const trimmedEndpoint = endpoint.trim();
+  if (!trimmedEndpoint) {
+    return void 0;
+  }
+  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmedEndpoint) ? trimmedEndpoint : `http://${trimmedEndpoint.replace(/^\/+/, "")}`;
+  try {
+    const url = new URL(withScheme);
+    const trimmedPort = port.trim();
+    if (trimmedPort) {
+      url.port = trimmedPort;
+    }
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return void 0;
+  }
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function coerceString(value, fallback) {
+  return typeof value === "string" ? value : fallback;
+}
+function coerceBoolean(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+// src/ui/pdf.ts
+var PAGE_WIDTH = 612;
+var PAGE_HEIGHT = 792;
+var LEFT_MARGIN = 50;
+var TOP_MARGIN = 54;
+var LINE_HEIGHT = 14;
+var LINES_PER_PAGE = 42;
+function buildIssuesPdfBlob(snapshot, issues) {
+  const lines = buildIssueReportLines(snapshot, issues);
+  const pdf = buildPdfDocument("Stealth Lightbeacon Issue Export", lines);
+  return new Blob([pdf], { type: "application/pdf" });
+}
+function buildIssueReportLines(snapshot, issues) {
+  const lines = [
+    `Scan ID: ${snapshot.id}`,
+    `URL: ${snapshot.url}`,
+    `Origin: ${snapshot.origin}`,
+    `Engine: ${snapshot.engine}`,
+    `Generated: ${new Date(snapshot.timestamp).toISOString()}`,
+    "",
+    `Selected issues: ${issues.length}`,
+    `Total issues on page: ${snapshot.summary.total}`,
+    ""
+  ];
+  for (const issue of issues) {
+    lines.push(`[${issue.severity}] ${issue.title}`);
+    lines.push(`Rule: ${issue.ruleId}`);
+    lines.push(`Domain: ${issue.domain}`);
+    lines.push(`Summary: ${issue.summary}`);
+    lines.push(`Evidence: ${issue.evidence}`);
+    if (issue.selector) {
+      lines.push(`Selector: ${issue.selector}`);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+function buildPdfDocument(title, lines) {
+  const pages = chunkLines([title, "", ...lines], LINES_PER_PAGE);
+  const objectParts = [];
+  const pageObjects = [];
+  const contentObjects = [];
+  objectParts.push({
+    number: 1,
+    content: `<< /Type /Catalog /Pages 2 0 R >>`
+  });
+  const firstPageObject = 4;
+  const firstContentObject = 5;
+  for (let index = 0; index < pages.length; index++) {
+    pageObjects.push(firstPageObject + index * 2);
+    contentObjects.push(firstContentObject + index * 2);
+  }
+  objectParts.push({
+    number: 2,
+    content: `<< /Type /Pages /Kids [${pageObjects.map((pageObject) => `${pageObject} 0 R`).join(" ")}] /Count ${pages.length} >>`
+  });
+  objectParts.push({
+    number: 3,
+    content: `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`
+  });
+  pages.forEach((pageLines, index) => {
+    const pageObject = pageObjects[index];
+    const contentObject = contentObjects[index];
+    const contentStream = buildPageContentStream(pageLines);
+    objectParts.push({
+      number: pageObject,
+      content: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObject} 0 R >>`
+    });
+    objectParts.push({
+      number: contentObject,
+      content: `<< /Length ${byteLength(contentStream)} >>
+stream
+${contentStream}
+endstream`
+    });
+  });
+  objectParts.sort((left, right) => left.number - right.number);
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const part of objectParts) {
+    offsets[part.number] = byteLength(pdf);
+    pdf += `${part.number} 0 obj
+${part.content}
+endobj
+`;
+  }
+  const xrefStart = byteLength(pdf);
+  const totalObjects = objectParts.length + 1;
+  const xrefLines = [`xref`, `0 ${totalObjects}`, `0000000000 65535 f `];
+  for (let objectNumber = 1; objectNumber < totalObjects; objectNumber++) {
+    const offset = offsets[objectNumber] ?? 0;
+    xrefLines.push(`${offset.toString().padStart(10, "0")} 00000 n `);
+  }
+  pdf += `${xrefLines.join("\n")}
+`;
+  pdf += `trailer << /Size ${totalObjects} /Root 1 0 R >>
+`;
+  pdf += `startxref
+`;
+  pdf += `${xrefStart}
+`;
+  pdf += `%%EOF`;
+  return pdf;
+}
+function buildPageContentStream(lines) {
+  const escapedLines = lines.map(escapePdfText);
+  const textParts = [
+    "BT",
+    "/F1 12 Tf",
+    `${LINE_HEIGHT} TL`,
+    `1 0 0 1 ${LEFT_MARGIN} ${PAGE_HEIGHT - TOP_MARGIN} Tm`
+  ];
+  escapedLines.forEach((line, index) => {
+    if (index === 0) {
+      textParts.push(`(${line}) Tj`);
+      return;
+    }
+    textParts.push("T*");
+    textParts.push(`(${line}) Tj`);
+  });
+  textParts.push("ET");
+  return textParts.join("\n");
+}
+function chunkLines(lines, chunkSize) {
+  if (lines.length === 0) {
+    return [[""]];
+  }
+  const chunks = [];
+  for (let index = 0; index < lines.length; index += chunkSize) {
+    chunks.push(lines.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+function escapePdfText(input) {
+  return input.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+function byteLength(input) {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(input).length;
+  }
+  return input.length;
+}
+
 // src/popup/popup.ts
 var runtimeHost = typeof globalThis === "undefined" ? {} : globalThis;
 var state = {
   status: "idle",
   scanId: "",
-  selectedIssueIds: /* @__PURE__ */ new Set()
+  selectedIssueIds: /* @__PURE__ */ new Set(),
+  backendSettings: { ...DEFAULT_BACKEND_SETTINGS }
 };
 var dom = {
   shell: null,
@@ -134,7 +360,17 @@ var dom = {
   rescanButton: null,
   exportJsonButton: null,
   exportMarkdownButton: null,
-  copySelectorsButton: null
+  exportPdfButton: null,
+  copySelectorsButton: null,
+  backendEnabled: null,
+  backendMode: null,
+  backendEndpoint: null,
+  backendPort: null,
+  backendSecret: null,
+  backendAuthUsername: null,
+  backendAuthPassword: null,
+  backendRequired: null,
+  saveBackendButton: null
 };
 document.addEventListener("DOMContentLoaded", () => {
   bindDom();
@@ -153,7 +389,17 @@ function bindDom() {
   dom.rescanButton = document.getElementById("rescan-button");
   dom.exportJsonButton = document.getElementById("export-json-button");
   dom.exportMarkdownButton = document.getElementById("export-markdown-button");
+  dom.exportPdfButton = document.getElementById("export-pdf-button");
   dom.copySelectorsButton = document.getElementById("copy-selectors-button");
+  dom.backendEnabled = document.getElementById("backend-enabled");
+  dom.backendMode = document.getElementById("backend-mode");
+  dom.backendEndpoint = document.getElementById("backend-endpoint");
+  dom.backendPort = document.getElementById("backend-port");
+  dom.backendSecret = document.getElementById("backend-secret");
+  dom.backendAuthUsername = document.getElementById("backend-auth-username");
+  dom.backendAuthPassword = document.getElementById("backend-auth-password");
+  dom.backendRequired = document.getElementById("backend-required");
+  dom.saveBackendButton = document.getElementById("save-backend-button");
 }
 function bindActions() {
   dom.rescanButton?.addEventListener("click", () => {
@@ -165,9 +411,16 @@ function bindActions() {
   dom.exportMarkdownButton?.addEventListener("click", () => {
     void exportCurrentSelection("markdown");
   });
+  dom.exportPdfButton?.addEventListener("click", () => {
+    void exportCurrentSelection("pdf");
+  });
   dom.copySelectorsButton?.addEventListener("click", () => {
     void copySelectedSelectors();
   });
+  dom.saveBackendButton?.addEventListener("click", () => {
+    void persistBackendSettings();
+  });
+  bindSettingsInputs();
 }
 async function initialize() {
   if (!hasExtensionRuntime()) {
@@ -176,6 +429,7 @@ async function initialize() {
     render({ offline: true, statusLine: "Popup shell loaded outside the extension runtime." });
     return;
   }
+  await loadBackendSettings();
   await startScan(false);
 }
 function hasExtensionRuntime() {
@@ -209,13 +463,15 @@ async function startScan(manual) {
     state.tabId = activeTab.id;
     state.tabUrl = activeTab.url;
     state.scanId = createScanId();
+    const backend = buildBackendRequestFromSettings(state.backendSettings);
     const reply = await runtime.runtime.sendMessage({
       type: "scan:start",
       request: {
         requestId: state.scanId,
         tabId: activeTab.id,
         url: activeTab.url,
-        engine: "dom-lite"
+        engine: "dom-lite",
+        backend
       },
       persistHistory: true
     });
@@ -267,6 +523,7 @@ function render(options) {
   if (dom.copySelectorsButton) {
     dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
   }
+  renderSettings();
   renderSummary();
   renderDelta();
   renderIssues();
@@ -442,6 +699,78 @@ function hideError() {
   dom.errorPanel.classList.remove("hidden");
   dom.errorPanel.textContent = state.error;
 }
+function bindSettingsInputs() {
+  const update = () => {
+    state.backendSettings = readBackendSettingsFromDom();
+  };
+  dom.backendEnabled?.addEventListener("change", update);
+  dom.backendMode?.addEventListener("change", update);
+  dom.backendEndpoint?.addEventListener("input", update);
+  dom.backendPort?.addEventListener("input", update);
+  dom.backendSecret?.addEventListener("input", update);
+  dom.backendAuthUsername?.addEventListener("input", update);
+  dom.backendAuthPassword?.addEventListener("input", update);
+  dom.backendRequired?.addEventListener("change", update);
+}
+async function loadBackendSettings() {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    state.backendSettings = { ...DEFAULT_BACKEND_SETTINGS };
+    renderSettings();
+    return;
+  }
+  const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
+  state.backendSettings = normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
+  renderSettings();
+}
+async function persistBackendSettings() {
+  state.backendSettings = readBackendSettingsFromDom();
+  const storage = getRuntime()?.storage?.local;
+  if (storage?.set) {
+    await storage.set({ [BACKEND_SETTINGS_STORAGE_KEY]: state.backendSettings });
+  }
+  state.note = state.backendSettings.enabled ? "Backend settings saved" : "Backend settings cleared";
+  render();
+}
+function renderSettings() {
+  if (!dom.backendEnabled) {
+    return;
+  }
+  dom.backendEnabled.checked = state.backendSettings.enabled;
+  if (dom.backendMode) {
+    dom.backendMode.value = state.backendSettings.mode;
+  }
+  if (dom.backendEndpoint) {
+    dom.backendEndpoint.value = state.backendSettings.endpoint;
+  }
+  if (dom.backendPort) {
+    dom.backendPort.value = state.backendSettings.port;
+  }
+  if (dom.backendSecret) {
+    dom.backendSecret.value = state.backendSettings.requestSigningSecret;
+  }
+  if (dom.backendAuthUsername) {
+    dom.backendAuthUsername.value = state.backendSettings.authUsername;
+  }
+  if (dom.backendAuthPassword) {
+    dom.backendAuthPassword.value = state.backendSettings.authPassword;
+  }
+  if (dom.backendRequired) {
+    dom.backendRequired.checked = state.backendSettings.required;
+  }
+}
+function readBackendSettingsFromDom() {
+  return normalizeBackendSettings({
+    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
+    mode: dom.backendMode?.value === "stdin" ? "stdin" : "http",
+    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
+    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
+    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
+    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
+    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
+    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+  });
+}
 function getSelectedIssues() {
   if (!state.snapshot) {
     return [];
@@ -450,20 +779,22 @@ function getSelectedIssues() {
 }
 async function exportCurrentSelection(format) {
   const issues = getSelectedIssues();
-  if (!issues.length || !state.snapshot) {
+  const selectedIssues = issues.length ? issues : state.snapshot?.issues ?? [];
+  if (!selectedIssues.length || !state.snapshot) {
     return;
   }
-  const payload = format === "json" ? buildIssueExportJson(issues, {
+  const metadata = {
     scanId: state.snapshot.id,
     origin: state.snapshot.origin,
     url: state.snapshot.url,
     generatedAt: new Date(state.snapshot.timestamp).toISOString()
-  }) : buildIssueExportMarkdown(issues, {
-    scanId: state.snapshot.id,
-    origin: state.snapshot.origin,
-    url: state.snapshot.url,
-    generatedAt: new Date(state.snapshot.timestamp).toISOString()
-  });
+  };
+  if (format === "pdf") {
+    const blob = buildIssuesPdfBlob(state.snapshot, selectedIssues);
+    downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
+    return;
+  }
+  const payload = format === "json" ? buildIssueExportJson(selectedIssues, metadata) : buildIssueExportMarkdown(selectedIssues, metadata);
   const extension = format === "json" ? "json" : "md";
   downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
 }
@@ -502,6 +833,9 @@ async function copyToClipboard(text) {
 }
 function downloadText(content, filename) {
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  downloadBlob(blob, filename);
+}
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

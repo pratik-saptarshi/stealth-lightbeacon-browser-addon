@@ -21,7 +21,55 @@
         <button class="primary" id="rescan-button" type="button">Re-scan this page</button>
         <button id="export-json-button" type="button">Export JSON</button>
         <button id="export-markdown-button" type="button">Export Markdown</button>
+        <button id="export-pdf-button" type="button">Download PDF</button>
         <button id="copy-selectors-button" type="button">Copy selected selectors</button>
+      </section>
+
+      <section class="settings" aria-label="Backend settings">
+        <div class="settings-head">
+          <p class="eyebrow">Local backend settings</p>
+          <p class="settings-note">Configure a local or remote backend before rescanning. Stdin mode is useful for direct Python adapters.</p>
+        </div>
+        <div class="settings-grid">
+          <label>
+            <span>Backend enabled</span>
+            <input id="backend-enabled" type="checkbox" />
+          </label>
+          <label>
+            <span>Mode</span>
+            <select id="backend-mode">
+              <option value="http">HTTP</option>
+              <option value="stdin">Stdin</option>
+            </select>
+          </label>
+          <label>
+            <span>Endpoint</span>
+            <input id="backend-endpoint" type="text" placeholder="http://127.0.0.1" />
+          </label>
+          <label>
+            <span>Port</span>
+            <input id="backend-port" type="text" placeholder="5000" inputmode="numeric" />
+          </label>
+          <label>
+            <span>Secret / API key</span>
+            <input id="backend-secret" type="password" autocomplete="off" />
+          </label>
+          <label>
+            <span>Basic auth username</span>
+            <input id="backend-auth-username" type="text" autocomplete="off" />
+          </label>
+          <label>
+            <span>Basic auth password</span>
+            <input id="backend-auth-password" type="password" autocomplete="off" />
+          </label>
+          <label class="checkbox-row">
+            <input id="backend-required" type="checkbox" />
+            <span>Hard fail when backend is unavailable</span>
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="save-backend-button" type="button">Save backend settings</button>
+        </div>
       </section>
 
       <section class="status-line" id="status-line" data-testid="status-line">

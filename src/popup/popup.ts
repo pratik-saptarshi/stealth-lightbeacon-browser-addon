@@ -1,4 +1,18 @@
-import { buildIssueExportJson, buildIssueExportMarkdown, buildPopupIssuePanelModel, collectSelectors, type PopupScanStatus } from './popup-state';
+import {
+  buildIssueExportJson,
+  buildIssueExportMarkdown,
+  buildPopupIssuePanelModel,
+  collectSelectors,
+  type PopupScanStatus
+} from './popup-state';
+import {
+  BACKEND_SETTINGS_STORAGE_KEY,
+  buildBackendRequestFromSettings,
+  DEFAULT_BACKEND_SETTINGS,
+  normalizeBackendSettings,
+  type BackendSettingsForm
+} from '../shared/backend-settings';
+import { buildIssuesPdfBlob } from '../ui/pdf';
 import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
 import type { ScanStartReply } from '../shared/message-contracts';
 
@@ -8,6 +22,12 @@ type PopupRuntime = {
       sendMessage?: (message: unknown) => Promise<unknown>;
       getURL?: (path: string) => string;
     };
+    storage?: {
+      local?: {
+        get?: (keys: string[]) => Promise<Record<string, unknown>>;
+        set?: (items: Record<string, unknown>) => Promise<void>;
+      };
+    };
     tabs?: {
       query?: (query: Record<string, unknown>) => Promise<Array<{ id?: number; url?: string }>>;
     };
@@ -16,6 +36,12 @@ type PopupRuntime = {
     runtime?: {
       sendMessage?: (message: unknown) => Promise<unknown>;
       getURL?: (path: string) => string;
+    };
+    storage?: {
+      local?: {
+        get?: (keys: string[]) => Promise<Record<string, unknown>>;
+        set?: (items: Record<string, unknown>) => Promise<void>;
+      };
     };
     tabs?: {
       query?: (query: Record<string, unknown>) => Promise<Array<{ id?: number; url?: string }>>;
@@ -33,6 +59,7 @@ type PopupState = {
   selectedIssueIds: Set<string>;
   error?: string;
   note?: string;
+  backendSettings: BackendSettingsForm;
 };
 
 const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as PopupRuntime)) as PopupRuntime;
@@ -40,7 +67,8 @@ const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unk
 const state: PopupState = {
   status: 'idle',
   scanId: '',
-  selectedIssueIds: new Set()
+  selectedIssueIds: new Set(),
+  backendSettings: { ...DEFAULT_BACKEND_SETTINGS }
 };
 
 const dom = {
@@ -55,7 +83,17 @@ const dom = {
   rescanButton: null as HTMLButtonElement | null,
   exportJsonButton: null as HTMLButtonElement | null,
   exportMarkdownButton: null as HTMLButtonElement | null,
-  copySelectorsButton: null as HTMLButtonElement | null
+  exportPdfButton: null as HTMLButtonElement | null,
+  copySelectorsButton: null as HTMLButtonElement | null,
+  backendEnabled: null as HTMLInputElement | null,
+  backendMode: null as HTMLSelectElement | null,
+  backendEndpoint: null as HTMLInputElement | null,
+  backendPort: null as HTMLInputElement | null,
+  backendSecret: null as HTMLInputElement | null,
+  backendAuthUsername: null as HTMLInputElement | null,
+  backendAuthPassword: null as HTMLInputElement | null,
+  backendRequired: null as HTMLInputElement | null,
+  saveBackendButton: null as HTMLButtonElement | null
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -76,7 +114,17 @@ function bindDom(): void {
   dom.rescanButton = document.getElementById('rescan-button') as HTMLButtonElement | null;
   dom.exportJsonButton = document.getElementById('export-json-button') as HTMLButtonElement | null;
   dom.exportMarkdownButton = document.getElementById('export-markdown-button') as HTMLButtonElement | null;
+  dom.exportPdfButton = document.getElementById('export-pdf-button') as HTMLButtonElement | null;
   dom.copySelectorsButton = document.getElementById('copy-selectors-button') as HTMLButtonElement | null;
+  dom.backendEnabled = document.getElementById('backend-enabled') as HTMLInputElement | null;
+  dom.backendMode = document.getElementById('backend-mode') as HTMLSelectElement | null;
+  dom.backendEndpoint = document.getElementById('backend-endpoint') as HTMLInputElement | null;
+  dom.backendPort = document.getElementById('backend-port') as HTMLInputElement | null;
+  dom.backendSecret = document.getElementById('backend-secret') as HTMLInputElement | null;
+  dom.backendAuthUsername = document.getElementById('backend-auth-username') as HTMLInputElement | null;
+  dom.backendAuthPassword = document.getElementById('backend-auth-password') as HTMLInputElement | null;
+  dom.backendRequired = document.getElementById('backend-required') as HTMLInputElement | null;
+  dom.saveBackendButton = document.getElementById('save-backend-button') as HTMLButtonElement | null;
 }
 
 function bindActions(): void {
@@ -92,9 +140,19 @@ function bindActions(): void {
     void exportCurrentSelection('markdown');
   });
 
+  dom.exportPdfButton?.addEventListener('click', () => {
+    void exportCurrentSelection('pdf');
+  });
+
   dom.copySelectorsButton?.addEventListener('click', () => {
     void copySelectedSelectors();
   });
+
+  dom.saveBackendButton?.addEventListener('click', () => {
+    void persistBackendSettings();
+  });
+
+  bindSettingsInputs();
 }
 
 async function initialize(): Promise<void> {
@@ -105,6 +163,7 @@ async function initialize(): Promise<void> {
     return;
   }
 
+  await loadBackendSettings();
   await startScan(false);
 }
 
@@ -146,13 +205,15 @@ async function startScan(manual: boolean): Promise<void> {
     state.tabId = activeTab.id;
     state.tabUrl = activeTab.url;
     state.scanId = createScanId();
+    const backend = buildBackendRequestFromSettings(state.backendSettings);
     const reply = (await runtime.runtime.sendMessage({
       type: 'scan:start',
       request: {
         requestId: state.scanId,
         tabId: activeTab.id,
         url: activeTab.url,
-        engine: 'dom-lite'
+        engine: 'dom-lite',
+        backend
       },
       persistHistory: true
     })) as ScanStartReply;
@@ -217,6 +278,8 @@ function render(options?: { offline?: boolean; statusLine?: string }): void {
   if (dom.copySelectorsButton) {
     dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
   }
+
+  renderSettings();
 
   renderSummary();
   renderDelta();
@@ -424,6 +487,88 @@ function hideError(): void {
   dom.errorPanel.textContent = state.error;
 }
 
+function bindSettingsInputs(): void {
+  const update = () => {
+    state.backendSettings = readBackendSettingsFromDom();
+  };
+
+  dom.backendEnabled?.addEventListener('change', update);
+  dom.backendMode?.addEventListener('change', update);
+  dom.backendEndpoint?.addEventListener('input', update);
+  dom.backendPort?.addEventListener('input', update);
+  dom.backendSecret?.addEventListener('input', update);
+  dom.backendAuthUsername?.addEventListener('input', update);
+  dom.backendAuthPassword?.addEventListener('input', update);
+  dom.backendRequired?.addEventListener('change', update);
+}
+
+async function loadBackendSettings(): Promise<void> {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    state.backendSettings = { ...DEFAULT_BACKEND_SETTINGS };
+    renderSettings();
+    return;
+  }
+
+  const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
+  state.backendSettings = normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
+  renderSettings();
+}
+
+async function persistBackendSettings(): Promise<void> {
+  state.backendSettings = readBackendSettingsFromDom();
+  const storage = getRuntime()?.storage?.local;
+
+  if (storage?.set) {
+    await storage.set({ [BACKEND_SETTINGS_STORAGE_KEY]: state.backendSettings });
+  }
+
+  state.note = state.backendSettings.enabled ? 'Backend settings saved' : 'Backend settings cleared';
+  render();
+}
+
+function renderSettings(): void {
+  if (!dom.backendEnabled) {
+    return;
+  }
+
+  dom.backendEnabled.checked = state.backendSettings.enabled;
+  if (dom.backendMode) {
+    dom.backendMode.value = state.backendSettings.mode;
+  }
+  if (dom.backendEndpoint) {
+    dom.backendEndpoint.value = state.backendSettings.endpoint;
+  }
+  if (dom.backendPort) {
+    dom.backendPort.value = state.backendSettings.port;
+  }
+  if (dom.backendSecret) {
+    dom.backendSecret.value = state.backendSettings.requestSigningSecret;
+  }
+  if (dom.backendAuthUsername) {
+    dom.backendAuthUsername.value = state.backendSettings.authUsername;
+  }
+  if (dom.backendAuthPassword) {
+    dom.backendAuthPassword.value = state.backendSettings.authPassword;
+  }
+  if (dom.backendRequired) {
+    dom.backendRequired.checked = state.backendSettings.required;
+  }
+}
+
+function readBackendSettingsFromDom(): BackendSettingsForm {
+  return normalizeBackendSettings({
+    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
+    mode: dom.backendMode?.value === 'stdin' ? 'stdin' : 'http',
+    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
+    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
+    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
+    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
+    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
+    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+  });
+}
+
 function getSelectedIssues(): Issue[] {
   if (!state.snapshot) {
     return [];
@@ -432,26 +577,30 @@ function getSelectedIssues(): Issue[] {
   return state.snapshot.issues.filter((issue) => state.selectedIssueIds.has(issue.id));
 }
 
-async function exportCurrentSelection(format: 'json' | 'markdown'): Promise<void> {
+async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Promise<void> {
   const issues = getSelectedIssues();
-  if (!issues.length || !state.snapshot) {
+  const selectedIssues = issues.length ? issues : state.snapshot?.issues ?? [];
+  if (!selectedIssues.length || !state.snapshot) {
+    return;
+  }
+
+  const metadata = {
+    scanId: state.snapshot.id,
+    origin: state.snapshot.origin,
+    url: state.snapshot.url,
+    generatedAt: new Date(state.snapshot.timestamp).toISOString()
+  };
+
+  if (format === 'pdf') {
+    const blob = buildIssuesPdfBlob(state.snapshot, selectedIssues);
+    downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
     return;
   }
 
   const payload =
     format === 'json'
-      ? buildIssueExportJson(issues, {
-          scanId: state.snapshot.id,
-          origin: state.snapshot.origin,
-          url: state.snapshot.url,
-          generatedAt: new Date(state.snapshot.timestamp).toISOString()
-        })
-      : buildIssueExportMarkdown(issues, {
-          scanId: state.snapshot.id,
-          origin: state.snapshot.origin,
-          url: state.snapshot.url,
-          generatedAt: new Date(state.snapshot.timestamp).toISOString()
-        });
+      ? buildIssueExportJson(selectedIssues, metadata)
+      : buildIssueExportMarkdown(selectedIssues, metadata);
 
   const extension = format === 'json' ? 'json' : 'md';
   downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
@@ -498,6 +647,10 @@ async function copyToClipboard(text: string): Promise<void> {
 
 function downloadText(content: string, filename: string): void {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  downloadBlob(blob, filename);
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

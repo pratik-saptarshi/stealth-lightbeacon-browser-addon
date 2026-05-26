@@ -1,0 +1,102 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-05-26T00:00:00Z",
+  "categories": [
+    {
+      "category": "seo",
+      "enabled": true,
+      "entries": [
+        {
+          "id": "seo-core-summary",
+          "title": "SEO core checks",
+          "summary": "Baseline SEO guidance for title, meta description, headings, and canonical behavior.",
+          "notes": [
+            "Keep one descriptive title per page.",
+            "Preserve canonical consistency across the crawl boundary."
+          ],
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "category": "geo",
+      "enabled": true,
+      "entries": [
+        {
+          "id": "geo-core-summary",
+          "title": "GEO core checks",
+          "summary": "Generative engine optimization guidance for semantic structure and answerability.",
+          "notes": [
+            "Prefer cohesive long-form answers over shallow sub-query pages.",
+            "Keep answer sections machine-readable and model-friendly."
+          ],
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "category": "aeo",
+      "enabled": true,
+      "entries": [
+        {
+          "id": "aeo-core-summary",
+          "title": "AEO core checks",
+          "summary": "Answer engine optimization guidance for direct-answer content.",
+          "notes": [
+            "Lead with concise answers and support with structured follow-up.",
+            "Avoid content fragmentation that obscures the primary answer."
+          ],
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "category": "security-headers",
+      "enabled": true,
+      "entries": [
+        {
+          "id": "security-headers-core-summary",
+          "title": "Security header checks",
+          "summary": "Header hygiene guidance for browser-delivered content.",
+          "notes": [
+            "Validate HSTS and CSP presence where applicable.",
+            "Prefer explicit allowlists and restrictive defaults."
+          ],
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "category": "WCAG2.1AA",
+      "enabled": true,
+      "entries": [
+        {
+          "id": "wcag21-core-summary",
+          "title": "WCAG 2.1 AA guidance",
+          "summary": "Accessibility guidance focused on operable, perceivable, and understandable UI patterns.",
+          "notes": [
+            "Ensure keyboard reachability and visible focus states.",
+            "Provide labels or equivalent accessible names for form and action controls."
+          ],
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "category": "WCAG2.2AA",
+      "enabled": true,
+      "entries": [
+        {
+          "id": "wcag22-core-summary",
+          "title": "WCAG 2.2 AA guidance",
+          "summary": "Accessibility guidance for newer input assistance and error prevention requirements.",
+          "notes": [
+            "Reduce interaction ambiguity and avoid hidden state changes.",
+            "Expose correction and recovery guidance for destructive actions."
+          ],
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

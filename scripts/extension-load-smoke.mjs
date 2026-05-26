@@ -61,6 +61,7 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
     throw new Error(`${label} manifest points to missing popup shell: ${popupPath}`);
   }
 
+  assertPopupSurface(resolve(baseDir, popupPath));
   ensureClassicScript(resolve(baseDir, 'content-script.js'));
   accessSync(resolve(baseDir, 'side-panel.js'));
   accessSync(resolve(baseDir, 'side-panel.css'));
@@ -86,6 +87,35 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
 
   const workerUrl = pathToFileURL(workerPath).href;
   return import(workerUrl).then(() => manifest);
+}
+
+function assertPopupSurface(popupPath) {
+  const popupHtml = readFileSync(popupPath, 'utf8');
+  const requiredIds = [
+    'popup-shell',
+    'status-pill',
+    'rescan-button',
+    'export-json-button',
+    'export-markdown-button',
+    'export-pdf-button',
+    'copy-selectors-button',
+    'backend-enabled',
+    'backend-mode',
+    'backend-endpoint',
+    'backend-port',
+    'backend-secret',
+    'backend-auth-username',
+    'backend-auth-password',
+    'backend-required',
+    'save-backend-button',
+    'issues-panel'
+  ];
+
+  for (const id of requiredIds) {
+    if (!popupHtml.includes(`id="${id}"`)) {
+      throw new Error(`Popup surface missing required control id: ${id}`);
+    }
+  }
 }
 
 async function validatePlaywrightSmoke(extensionDir) {
