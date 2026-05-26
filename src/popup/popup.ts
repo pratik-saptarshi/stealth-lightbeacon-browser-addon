@@ -23,7 +23,7 @@ import {
 import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-trace';
 import { buildIssuesPdfBlob } from '../ui/pdf';
 import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
-import type { ScanStartReply } from '../shared/message-contracts';
+import type { HistoryCompareReply, ScanStartReply } from '../shared/message-contracts';
 
 type PopupRuntime = {
   chrome?: {
@@ -194,7 +194,7 @@ function bindActions(): void {
   bindSettingsInputs();
 }
 
-async function initialize(): Promise<void> {
+export async function initialize(): Promise<void> {
   await withEventLoopTrace('popup.initialize', async () => {
     if (!hasExtensionRuntime()) {
       state.status = 'idle';
@@ -203,8 +203,22 @@ async function initialize(): Promise<void> {
       return;
     }
 
-    await Promise.all([loadBackendSettings(), loadPanelSettings()]);
-    await startScan(false);
+    render({ statusLine: 'Loading saved settings and cached scan...' });
+
+    const [backendSettings, panelSettings] = await Promise.all([loadBackendSettings(), loadPanelSettings()]);
+    state.backendSettings = backendSettings;
+    state.panelSettings = panelSettings;
+
+    const loadedCachedScan = await loadCachedScanFromHistory();
+    if (!loadedCachedScan) {
+      state.snapshot = undefined;
+      state.diff = undefined;
+      state.selectedIssueIds.clear();
+      state.status = 'idle';
+      state.note = 'No cached scan found. Click Rescan to scan the active tab.';
+    }
+
+    render();
   });
 }
 
@@ -579,30 +593,61 @@ function bindSettingsInputs(): void {
   }
 }
 
-async function loadBackendSettings(): Promise<void> {
+async function loadBackendSettings(): Promise<BackendSettingsForm> {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
-    state.backendSettings = { ...DEFAULT_BACKEND_SETTINGS };
-    renderPanelSettings();
-    return;
+    return { ...DEFAULT_BACKEND_SETTINGS };
   }
 
   const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
-  state.backendSettings = normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
-  renderPanelSettings();
+  return normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
 }
 
-async function loadPanelSettings(): Promise<void> {
+async function loadPanelSettings(): Promise<PanelSettingsForm> {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
-    state.panelSettings = { ...DEFAULT_PANEL_SETTINGS };
-    renderPanelSettings();
-    return;
+    return { ...DEFAULT_PANEL_SETTINGS };
   }
 
   const payload = await storage.get([PANEL_SETTINGS_STORAGE_KEY]);
-  state.panelSettings = normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
-  renderPanelSettings();
+  return normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
+}
+
+async function loadCachedScanFromHistory(): Promise<boolean> {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+    return false;
+  }
+
+  try {
+    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+    const activeTab = activeTabs[0];
+    if (!activeTab?.url || !activeTab.id) {
+      return false;
+    }
+
+    const activeUrl = new URL(activeTab.url);
+    const reply = (await runtime.runtime.sendMessage({
+      type: 'history:compare',
+      origin: activeUrl.origin
+    })) as HistoryCompareReply;
+
+    state.tabId = activeTab.id;
+    state.tabUrl = activeTab.url;
+
+    if (!reply.ok || !reply.payload.latest) {
+      return false;
+    }
+
+    state.snapshot = reply.payload.latest;
+    state.diff = reply.payload.diff;
+    state.selectedIssueIds.clear();
+    state.status = 'complete';
+    state.note = 'Cached scan loaded';
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function persistBackendSettings(): Promise<void> {
