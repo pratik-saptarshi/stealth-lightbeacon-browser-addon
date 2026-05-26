@@ -519,7 +519,12 @@ function createIssue(rule, summary, evidence, selector, source = "dom-only") {
 function runRules(rules, context) {
   const issues = rules.flatMap((rule) => rule.evaluate(context));
   const normalized = normalizeIssues(issues);
-  const origin = new URL(context.requestUrl).origin;
+  let origin;
+  try {
+    origin = new URL(context.requestUrl).origin;
+  } catch {
+    throw new Error("rule context.requestUrl must be a valid URL");
+  }
   return {
     issues: normalized,
     snapshot: {

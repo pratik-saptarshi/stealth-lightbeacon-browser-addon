@@ -80,7 +80,11 @@ var StealthLightbeaconContentScript = (() => {
   }
   function normalizeUrl(href, baseUrl) {
     try {
-      return new URL(href, baseUrl).toString();
+      const url = new URL(href, baseUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return "";
+      }
+      return url.toString();
     } catch {
       return "";
     }

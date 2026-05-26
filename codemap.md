@@ -26,6 +26,7 @@ Build a browser-addon-lite auditing runtime with optional backend coupling, loca
 - OpenAPI-aligned backend bridge supports local stdio or remote HTTP with optional basic auth.
 - Optional ruleset update path (`ruleset:get`, `ruleset:update`) allows in-extension configuration changes.
 - Tests validate unit, integration, and CI-patterned fallback contracts.
+- Generated validation codemap in `docs/validation-codemap.md` tracks GEO, SEO, AEO, accessibility, and security gaps against representative tools.
 
 ## Repository dir Map
 | path | responsibility |
@@ -35,4 +36,5 @@ Build a browser-addon-lite auditing runtime with optional backend coupling, loca
 | `docs/` | execution plan, data flow, roadmap |
 | `tests/` | unit/integration coverage by phase |
 | `.github/` | CI matrix configuration |
+| `docs/validation-codemap.md` | generated validation coverage and gap map |
 | `.slim/codemap.json` | incremental code-map state |
