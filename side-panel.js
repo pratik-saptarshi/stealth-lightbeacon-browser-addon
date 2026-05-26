@@ -197,6 +197,108 @@ function coerceBoolean(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+// src/shared/panel-settings.ts
+var PANEL_SETTINGS_STORAGE_KEY = "addon_panel_settings";
+var BUG_REPORT_EMAIL = "pratik.saptarshi@outlook.com";
+var DEFAULT_PANEL_THEME = {
+  backgroundStart: "#f6f1e8",
+  backgroundEnd: "#edf3f8",
+  panel: "#ffffff",
+  panelStrong: "#ffffff",
+  border: "#2c3e50",
+  text: "#1f2d3d",
+  muted: "#5f6f7f",
+  mutedStrong: "#374151",
+  accent: "#0d47a1",
+  accentWeak: "#dbeafe",
+  alert: "#d49a17",
+  alertWeak: "#fff3cd",
+  danger: "#990000",
+  dangerWeak: "#ffe1e1"
+};
+var DEFAULT_PANEL_VISIBILITY = {
+  showControls: true,
+  showBackendSettings: true,
+  showSummary: true,
+  showDelta: true,
+  showStatusLine: true,
+  showOfflineBanner: true,
+  showFooter: true
+};
+var DEFAULT_PANEL_SETTINGS = {
+  theme: { ...DEFAULT_PANEL_THEME },
+  visibility: { ...DEFAULT_PANEL_VISIBILITY }
+};
+var THEME_KEYS = Object.keys(DEFAULT_PANEL_THEME);
+var VISIBILITY_KEYS = Object.keys(DEFAULT_PANEL_VISIBILITY);
+var HEX_COLOR_RE = /^#?[0-9a-fA-F]{6}$/;
+function normalizePanelSettings(input) {
+  if (!isRecord2(input)) {
+    return cloneDefaultPanelSettings();
+  }
+  return {
+    theme: normalizeTheme(input.theme),
+    visibility: normalizeVisibility(input.visibility)
+  };
+}
+function buildBugReportMailto(input = {}) {
+  const params = new URLSearchParams();
+  params.set("subject", "Stealth Lightbeacon bug report");
+  const bodyLines = [
+    `Extension version: ${input.version ?? "unknown"}`,
+    `Page URL: ${input.pageUrl ?? "n/a"}`,
+    `Panel status: ${input.status ?? "n/a"}`,
+    `Note: ${input.note ?? "n/a"}`,
+    `Settings: ${input.settingsSummary ?? "n/a"}`
+  ];
+  params.set("body", bodyLines.join("\n"));
+  return `mailto:${BUG_REPORT_EMAIL}?${params.toString()}`;
+}
+function normalizeTheme(input) {
+  const source = isRecord2(input) ? input : {};
+  const theme = cloneDefaultTheme();
+  for (const key of THEME_KEYS) {
+    theme[key] = normalizeHexColor(source[key], DEFAULT_PANEL_THEME[key]);
+  }
+  return theme;
+}
+function normalizeVisibility(input) {
+  const source = isRecord2(input) ? input : {};
+  const visibility = cloneDefaultVisibility();
+  for (const key of VISIBILITY_KEYS) {
+    visibility[key] = normalizeBoolean(source[key], DEFAULT_PANEL_VISIBILITY[key]);
+  }
+  return visibility;
+}
+function normalizeHexColor(value, fallback) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  if (!HEX_COLOR_RE.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed.startsWith("#") ? trimmed.toLowerCase() : `#${trimmed.toLowerCase()}`;
+}
+function normalizeBoolean(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function cloneDefaultPanelSettings() {
+  return {
+    theme: cloneDefaultTheme(),
+    visibility: cloneDefaultVisibility()
+  };
+}
+function cloneDefaultTheme() {
+  return { ...DEFAULT_PANEL_THEME };
+}
+function cloneDefaultVisibility() {
+  return { ...DEFAULT_PANEL_VISIBILITY };
+}
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // src/shared/performance-trace.ts
 var DEFAULT_WARN_THRESHOLD_MS = 16;
 function startEventLoopTrace(label, sink = console, clock = globalThis.performance ?? { now: () => Date.now() }) {
@@ -376,7 +478,9 @@ var state = {
   status: "idle",
   scanId: "",
   selectedIssueIds: /* @__PURE__ */ new Set(),
-  backendSettings: { ...DEFAULT_BACKEND_SETTINGS }
+  backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
+  panelSettings: { ...DEFAULT_PANEL_SETTINGS },
+  settingsOpen: false
 };
 var dom = {
   shell: null,
@@ -386,12 +490,19 @@ var dom = {
   deltaPanel: null,
   errorPanel: null,
   offlinePanel: null,
+  controlsSection: null,
+  footer: null,
   issuesPanel: null,
   rescanButton: null,
   exportJsonButton: null,
   exportMarkdownButton: null,
   exportPdfButton: null,
   copySelectorsButton: null,
+  settingsToggleButton: null,
+  settingsCloseButton: null,
+  settingsPanel: null,
+  backendSettingsSection: null,
+  bugReportLink: null,
   backendEnabled: null,
   backendMode: null,
   backendEndpoint: null,
@@ -400,8 +511,9 @@ var dom = {
   backendAuthUsername: null,
   backendAuthPassword: null,
   backendRequired: null,
-  saveBackendButton: null,
-  openApiSpecLink: null
+  openApiSpecLink: null,
+  themeInputs: [],
+  visibilityInputs: []
 };
 document.addEventListener("DOMContentLoaded", () => {
   bindDom();
@@ -412,10 +524,17 @@ function bindDom() {
   dom.shell = document.getElementById("popup-shell");
   dom.statusPill = document.getElementById("status-pill");
   dom.statusLine = document.getElementById("status-line");
+  dom.settingsToggleButton = document.getElementById("settings-toggle-button");
+  dom.settingsCloseButton = document.getElementById("settings-close-button");
+  dom.settingsPanel = document.getElementById("settings-panel");
+  dom.backendSettingsSection = document.getElementById("backend-settings-section");
+  dom.bugReportLink = document.getElementById("bug-report-link");
+  dom.controlsSection = document.querySelector(".controls");
   dom.summaryGrid = document.getElementById("summary-grid");
   dom.deltaPanel = document.getElementById("delta-panel");
   dom.errorPanel = document.getElementById("error-panel");
   dom.offlinePanel = document.getElementById("offline-panel");
+  dom.footer = document.getElementById("footer");
   dom.issuesPanel = document.getElementById("issues-panel");
   dom.rescanButton = document.getElementById("rescan-button");
   dom.exportJsonButton = document.getElementById("export-json-button");
@@ -430,10 +549,19 @@ function bindDom() {
   dom.backendAuthUsername = document.getElementById("backend-auth-username");
   dom.backendAuthPassword = document.getElementById("backend-auth-password");
   dom.backendRequired = document.getElementById("backend-required");
-  dom.saveBackendButton = document.getElementById("save-backend-button");
   dom.openApiSpecLink = document.getElementById("openapi-spec-link");
+  dom.themeInputs = Array.from(document.querySelectorAll("input[data-theme-setting]"));
+  dom.visibilityInputs = Array.from(document.querySelectorAll("input[data-visibility-setting]"));
 }
 function bindActions() {
+  dom.settingsToggleButton?.addEventListener("click", () => {
+    state.settingsOpen = !state.settingsOpen;
+    render();
+  });
+  dom.settingsCloseButton?.addEventListener("click", () => {
+    state.settingsOpen = false;
+    render();
+  });
   dom.rescanButton?.addEventListener("click", () => {
     void startScan(true);
   });
@@ -449,9 +577,6 @@ function bindActions() {
   dom.copySelectorsButton?.addEventListener("click", () => {
     void copySelectedSelectors();
   });
-  dom.saveBackendButton?.addEventListener("click", () => {
-    void persistBackendSettings();
-  });
   bindSettingsInputs();
 }
 async function initialize() {
@@ -462,7 +587,7 @@ async function initialize() {
       render({ offline: true, statusLine: "Popup shell loaded outside the extension runtime." });
       return;
     }
-    await loadBackendSettings();
+    await Promise.all([loadBackendSettings(), loadPanelSettings()]);
     await startScan(false);
   });
 }
@@ -561,7 +686,7 @@ function render(options) {
     if (dom.copySelectorsButton) {
       dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
     }
-    renderSettings();
+    renderPanelSettings();
     renderSummary();
     renderDelta();
     renderIssues();
@@ -574,6 +699,12 @@ function renderSummary() {
   if (!dom.summaryGrid) {
     return;
   }
+  if (!state.panelSettings.visibility.showSummary) {
+    dom.summaryGrid.classList.add("hidden");
+    dom.summaryGrid.innerHTML = "";
+    return;
+  }
+  dom.summaryGrid.classList.remove("hidden");
   const counts = state.snapshot?.summary.bySeverity ?? { critical: 0, high: 0, medium: 0, low: 0 };
   const total = state.snapshot?.summary.total ?? 0;
   const generatedAt = state.snapshot ? new Date(state.snapshot.timestamp).toLocaleString() : "No scan yet";
@@ -591,6 +722,11 @@ function metricCard(label, value) {
 }
 function renderDelta() {
   if (!dom.deltaPanel) {
+    return;
+  }
+  if (!state.panelSettings.visibility.showDelta) {
+    dom.deltaPanel.classList.add("hidden");
+    dom.deltaPanel.innerHTML = "";
     return;
   }
   const delta = state.snapshot && state.diff ? buildPopupIssuePanelModel(state.snapshot, state.diff, state.status).delta : void 0;
@@ -741,28 +877,51 @@ function hideError() {
   dom.errorPanel.textContent = state.error;
 }
 function bindSettingsInputs() {
-  const update = () => {
+  const updateBackend = () => {
     state.backendSettings = readBackendSettingsFromDom();
+    void persistBackendSettings();
   };
-  dom.backendEnabled?.addEventListener("change", update);
-  dom.backendMode?.addEventListener("change", update);
-  dom.backendEndpoint?.addEventListener("input", update);
-  dom.backendPort?.addEventListener("input", update);
-  dom.backendSecret?.addEventListener("input", update);
-  dom.backendAuthUsername?.addEventListener("input", update);
-  dom.backendAuthPassword?.addEventListener("input", update);
-  dom.backendRequired?.addEventListener("change", update);
+  const updatePanel = () => {
+    state.panelSettings = readPanelSettingsFromDom();
+    void persistPanelSettings();
+    render();
+  };
+  dom.backendEnabled?.addEventListener("change", updateBackend);
+  dom.backendMode?.addEventListener("change", updateBackend);
+  dom.backendEndpoint?.addEventListener("change", updateBackend);
+  dom.backendPort?.addEventListener("change", updateBackend);
+  dom.backendSecret?.addEventListener("change", updateBackend);
+  dom.backendAuthUsername?.addEventListener("change", updateBackend);
+  dom.backendAuthPassword?.addEventListener("change", updateBackend);
+  dom.backendRequired?.addEventListener("change", updateBackend);
+  for (const input of dom.themeInputs) {
+    input.addEventListener("change", updatePanel);
+  }
+  for (const input of dom.visibilityInputs) {
+    input.addEventListener("change", updatePanel);
+  }
 }
 async function loadBackendSettings() {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
     state.backendSettings = { ...DEFAULT_BACKEND_SETTINGS };
-    renderSettings();
+    renderPanelSettings();
     return;
   }
   const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
   state.backendSettings = normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
-  renderSettings();
+  renderPanelSettings();
+}
+async function loadPanelSettings() {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    state.panelSettings = { ...DEFAULT_PANEL_SETTINGS };
+    renderPanelSettings();
+    return;
+  }
+  const payload = await storage.get([PANEL_SETTINGS_STORAGE_KEY]);
+  state.panelSettings = normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
+  renderPanelSettings();
 }
 async function persistBackendSettings() {
   state.backendSettings = readBackendSettingsFromDom();
@@ -770,14 +929,83 @@ async function persistBackendSettings() {
   if (storage?.set) {
     await storage.set({ [BACKEND_SETTINGS_STORAGE_KEY]: state.backendSettings });
   }
-  state.note = state.backendSettings.enabled ? "Backend settings saved" : "Backend settings cleared";
-  render();
 }
-function renderSettings() {
-  if (!dom.backendEnabled) {
-    return;
+async function persistPanelSettings() {
+  const storage = getRuntime()?.storage?.local;
+  if (storage?.set) {
+    await storage.set({ [PANEL_SETTINGS_STORAGE_KEY]: state.panelSettings });
   }
-  dom.backendEnabled.checked = state.backendSettings.enabled;
+}
+function readBackendSettingsFromDom() {
+  return normalizeBackendSettings({
+    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
+    mode: dom.backendMode?.value === "stdin" ? "stdin" : "http",
+    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
+    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
+    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
+    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
+    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
+    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+  });
+}
+function readPanelSettingsFromDom() {
+  return normalizePanelSettings({
+    theme: readThemeSettingsFromDom(),
+    visibility: readVisibilitySettingsFromDom()
+  });
+}
+function readThemeSettingsFromDom() {
+  const theme = {};
+  for (const input of dom.themeInputs) {
+    const key = input.dataset.themeSetting;
+    if (!key) {
+      continue;
+    }
+    theme[key] = input.value;
+  }
+  return theme;
+}
+function readVisibilitySettingsFromDom() {
+  const visibility = {};
+  for (const input of dom.visibilityInputs) {
+    const key = input.dataset.visibilitySetting;
+    if (!key) {
+      continue;
+    }
+    visibility[key] = input.checked;
+  }
+  return visibility;
+}
+function renderPanelSettings() {
+  applyPanelTheme();
+  applyVisibilitySettings();
+  renderSettingsForm();
+  renderBugReportLink();
+}
+function renderSettingsForm() {
+  if (dom.settingsToggleButton) {
+    dom.settingsToggleButton.setAttribute("aria-expanded", String(state.settingsOpen));
+  }
+  if (dom.settingsPanel) {
+    dom.settingsPanel.classList.toggle("hidden", !state.settingsOpen);
+  }
+  for (const input of dom.themeInputs) {
+    const key = input.dataset.themeSetting;
+    if (!key) {
+      continue;
+    }
+    input.value = state.panelSettings.theme[key];
+  }
+  for (const input of dom.visibilityInputs) {
+    const key = input.dataset.visibilitySetting;
+    if (!key) {
+      continue;
+    }
+    input.checked = state.panelSettings.visibility[key];
+  }
+  if (dom.backendEnabled) {
+    dom.backendEnabled.checked = state.backendSettings.enabled;
+  }
   if (dom.backendMode) {
     dom.backendMode.value = state.backendSettings.mode;
   }
@@ -805,17 +1033,60 @@ function renderSettings() {
     dom.openApiSpecLink.title = specUrl;
   }
 }
-function readBackendSettingsFromDom() {
-  return normalizeBackendSettings({
-    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
-    mode: dom.backendMode?.value === "stdin" ? "stdin" : "http",
-    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
-    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
-    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
-    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
-    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
-    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+function renderBugReportLink() {
+  if (!dom.bugReportLink) {
+    return;
+  }
+  const runtime = getRuntime();
+  const version = runtime?.runtime?.getManifest?.().version ?? "unknown";
+  const href = buildBugReportMailto({
+    version,
+    pageUrl: state.snapshot?.url ?? state.tabUrl,
+    status: state.status,
+    note: state.note,
+    settingsSummary: summarizePanelSettings()
   });
+  dom.bugReportLink.href = href;
+  dom.bugReportLink.title = `Report a bug to ${BUG_REPORT_EMAIL}`;
+}
+function summarizePanelSettings() {
+  const enabledSections = Object.entries(state.panelSettings.visibility).filter(([, value]) => value).map(([key]) => key).join(", ");
+  return enabledSections || "none";
+}
+function applyPanelTheme() {
+  if (!dom.shell) {
+    return;
+  }
+  const style = dom.shell.style;
+  style.setProperty("--bg-0", state.panelSettings.theme.backgroundStart);
+  style.setProperty("--bg-1", state.panelSettings.theme.backgroundEnd);
+  style.setProperty("--panel", state.panelSettings.theme.panel);
+  style.setProperty("--panel-strong", state.panelSettings.theme.panelStrong);
+  style.setProperty("--border", state.panelSettings.theme.border);
+  style.setProperty("--text", state.panelSettings.theme.text);
+  style.setProperty("--muted", state.panelSettings.theme.muted);
+  style.setProperty("--muted-strong", state.panelSettings.theme.mutedStrong);
+  style.setProperty("--accent", state.panelSettings.theme.accent);
+  style.setProperty("--accent-weak", state.panelSettings.theme.accentWeak);
+  style.setProperty("--alert", state.panelSettings.theme.alert);
+  style.setProperty("--alert-weak", state.panelSettings.theme.alertWeak);
+  style.setProperty("--danger", state.panelSettings.theme.danger);
+  style.setProperty("--danger-weak", state.panelSettings.theme.dangerWeak);
+}
+function applyVisibilitySettings() {
+  setSectionVisibility(dom.controlsSection, state.panelSettings.visibility.showControls);
+  setSectionVisibility(dom.backendSettingsSection, state.panelSettings.visibility.showBackendSettings);
+  setSectionVisibility(dom.summaryGrid, state.panelSettings.visibility.showSummary);
+  setSectionVisibility(dom.deltaPanel, state.panelSettings.visibility.showDelta);
+  setSectionVisibility(dom.statusLine, state.panelSettings.visibility.showStatusLine);
+  setSectionVisibility(dom.offlinePanel, state.panelSettings.visibility.showOfflineBanner);
+  setSectionVisibility(dom.footer, state.panelSettings.visibility.showFooter);
+}
+function setSectionVisibility(element, visible) {
+  if (!element || !(element instanceof HTMLElement)) {
+    return;
+  }
+  element.classList.toggle("hidden", !visible);
 }
 function getSelectedIssues() {
   if (!state.snapshot) {

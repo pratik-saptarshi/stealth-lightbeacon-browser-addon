@@ -94,12 +94,25 @@ function assertPopupSurface(popupPath) {
   const popupHtml = readFileSync(popupPath, 'utf8');
   const requiredIds = [
     'popup-shell',
+    'settings-toggle-button',
+    'settings-panel',
+    'settings-close-button',
     'status-pill',
     'rescan-button',
     'export-json-button',
     'export-markdown-button',
     'export-pdf-button',
     'copy-selectors-button',
+    'theme-background-start',
+    'theme-panel',
+    'show-controls',
+    'show-summary',
+    'show-delta',
+    'show-status-line',
+    'show-offline-banner',
+    'show-footer',
+    'bug-report-link',
+    'backend-settings-section',
     'backend-enabled',
     'backend-mode',
     'backend-endpoint',
@@ -109,7 +122,6 @@ function assertPopupSurface(popupPath) {
     'backend-auth-password',
     'backend-required',
     'openapi-spec-link',
-    'save-backend-button',
     'issues-panel'
   ];
 
@@ -117,6 +129,10 @@ function assertPopupSurface(popupPath) {
     if (!popupHtml.includes(`id="${id}"`)) {
       throw new Error(`Popup surface missing required control id: ${id}`);
     }
+  }
+
+  if (!popupHtml.includes('mailto:pratik.saptarshi@outlook.com')) {
+    throw new Error('Popup surface missing bug-report mailto link');
   }
 }
 
@@ -166,6 +182,9 @@ async function validatePlaywrightSmoke(extensionDir) {
     await popupPage.goto(popupUrl);
     await popupPage.waitForSelector('[data-testid="popup-shell"]');
     await popupPage.waitForSelector('[data-testid="offline-banner"]');
+    await popupPage.click('#settings-toggle-button');
+    await popupPage.waitForSelector('#settings-panel:not(.hidden)');
+    await popupPage.waitForSelector('#theme-background-start');
 
     return { skipped: false, serviceWorkerCount: workers.length };
   } finally {

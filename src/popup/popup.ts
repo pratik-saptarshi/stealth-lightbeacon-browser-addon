@@ -12,6 +12,14 @@ import {
   normalizeBackendSettings,
   type BackendSettingsForm
 } from '../shared/backend-settings';
+import {
+  BUG_REPORT_EMAIL,
+  buildBugReportMailto,
+  DEFAULT_PANEL_SETTINGS,
+  PANEL_SETTINGS_STORAGE_KEY,
+  normalizePanelSettings,
+  type PanelSettingsForm
+} from '../shared/panel-settings';
 import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-trace';
 import { buildIssuesPdfBlob } from '../ui/pdf';
 import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
@@ -22,6 +30,7 @@ type PopupRuntime = {
     runtime?: {
       sendMessage?: (message: unknown) => Promise<unknown>;
       getURL?: (path: string) => string;
+      getManifest?: () => { version?: string };
     };
     storage?: {
       local?: {
@@ -37,6 +46,7 @@ type PopupRuntime = {
     runtime?: {
       sendMessage?: (message: unknown) => Promise<unknown>;
       getURL?: (path: string) => string;
+      getManifest?: () => { version?: string };
     };
     storage?: {
       local?: {
@@ -61,6 +71,8 @@ type PopupState = {
   error?: string;
   note?: string;
   backendSettings: BackendSettingsForm;
+  panelSettings: PanelSettingsForm;
+  settingsOpen: boolean;
 };
 
 const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as PopupRuntime)) as PopupRuntime;
@@ -69,7 +81,9 @@ const state: PopupState = {
   status: 'idle',
   scanId: '',
   selectedIssueIds: new Set(),
-  backendSettings: { ...DEFAULT_BACKEND_SETTINGS }
+  backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
+  panelSettings: { ...DEFAULT_PANEL_SETTINGS },
+  settingsOpen: false
 };
 
 const dom = {
@@ -80,12 +94,19 @@ const dom = {
   deltaPanel: null as HTMLElement | null,
   errorPanel: null as HTMLElement | null,
   offlinePanel: null as HTMLElement | null,
+  controlsSection: null as HTMLElement | null,
+  footer: null as HTMLElement | null,
   issuesPanel: null as HTMLElement | null,
   rescanButton: null as HTMLButtonElement | null,
   exportJsonButton: null as HTMLButtonElement | null,
   exportMarkdownButton: null as HTMLButtonElement | null,
   exportPdfButton: null as HTMLButtonElement | null,
   copySelectorsButton: null as HTMLButtonElement | null,
+  settingsToggleButton: null as HTMLButtonElement | null,
+  settingsCloseButton: null as HTMLButtonElement | null,
+  settingsPanel: null as HTMLElement | null,
+  backendSettingsSection: null as HTMLElement | null,
+  bugReportLink: null as HTMLAnchorElement | null,
   backendEnabled: null as HTMLInputElement | null,
   backendMode: null as HTMLSelectElement | null,
   backendEndpoint: null as HTMLInputElement | null,
@@ -94,8 +115,9 @@ const dom = {
   backendAuthUsername: null as HTMLInputElement | null,
   backendAuthPassword: null as HTMLInputElement | null,
   backendRequired: null as HTMLInputElement | null,
-  saveBackendButton: null as HTMLButtonElement | null,
-  openApiSpecLink: null as HTMLAnchorElement | null
+  openApiSpecLink: null as HTMLAnchorElement | null,
+  themeInputs: [] as HTMLInputElement[],
+  visibilityInputs: [] as HTMLInputElement[]
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -108,10 +130,17 @@ function bindDom(): void {
   dom.shell = document.getElementById('popup-shell');
   dom.statusPill = document.getElementById('status-pill');
   dom.statusLine = document.getElementById('status-line');
+  dom.settingsToggleButton = document.getElementById('settings-toggle-button') as HTMLButtonElement | null;
+  dom.settingsCloseButton = document.getElementById('settings-close-button') as HTMLButtonElement | null;
+  dom.settingsPanel = document.getElementById('settings-panel');
+  dom.backendSettingsSection = document.getElementById('backend-settings-section');
+  dom.bugReportLink = document.getElementById('bug-report-link') as HTMLAnchorElement | null;
+  dom.controlsSection = document.querySelector('.controls');
   dom.summaryGrid = document.getElementById('summary-grid');
   dom.deltaPanel = document.getElementById('delta-panel');
   dom.errorPanel = document.getElementById('error-panel');
   dom.offlinePanel = document.getElementById('offline-panel');
+  dom.footer = document.getElementById('footer');
   dom.issuesPanel = document.getElementById('issues-panel');
   dom.rescanButton = document.getElementById('rescan-button') as HTMLButtonElement | null;
   dom.exportJsonButton = document.getElementById('export-json-button') as HTMLButtonElement | null;
@@ -126,11 +155,22 @@ function bindDom(): void {
   dom.backendAuthUsername = document.getElementById('backend-auth-username') as HTMLInputElement | null;
   dom.backendAuthPassword = document.getElementById('backend-auth-password') as HTMLInputElement | null;
   dom.backendRequired = document.getElementById('backend-required') as HTMLInputElement | null;
-  dom.saveBackendButton = document.getElementById('save-backend-button') as HTMLButtonElement | null;
   dom.openApiSpecLink = document.getElementById('openapi-spec-link') as HTMLAnchorElement | null;
+  dom.themeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-theme-setting]'));
+  dom.visibilityInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-visibility-setting]'));
 }
 
 function bindActions(): void {
+  dom.settingsToggleButton?.addEventListener('click', () => {
+    state.settingsOpen = !state.settingsOpen;
+    render();
+  });
+
+  dom.settingsCloseButton?.addEventListener('click', () => {
+    state.settingsOpen = false;
+    render();
+  });
+
   dom.rescanButton?.addEventListener('click', () => {
     void startScan(true);
   });
@@ -151,10 +191,6 @@ function bindActions(): void {
     void copySelectedSelectors();
   });
 
-  dom.saveBackendButton?.addEventListener('click', () => {
-    void persistBackendSettings();
-  });
-
   bindSettingsInputs();
 }
 
@@ -167,7 +203,7 @@ async function initialize(): Promise<void> {
       return;
     }
 
-    await loadBackendSettings();
+    await Promise.all([loadBackendSettings(), loadPanelSettings()]);
     await startScan(false);
   });
 }
@@ -288,7 +324,7 @@ function render(options?: { offline?: boolean; statusLine?: string }): void {
       dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
     }
 
-    renderSettings();
+    renderPanelSettings();
 
     renderSummary();
     renderDelta();
@@ -303,6 +339,14 @@ function renderSummary(): void {
   if (!dom.summaryGrid) {
     return;
   }
+
+  if (!state.panelSettings.visibility.showSummary) {
+    dom.summaryGrid.classList.add('hidden');
+    dom.summaryGrid.innerHTML = '';
+    return;
+  }
+
+  dom.summaryGrid.classList.remove('hidden');
 
   const counts = state.snapshot?.summary.bySeverity ?? { critical: 0, high: 0, medium: 0, low: 0 };
   const total = state.snapshot?.summary.total ?? 0;
@@ -324,6 +368,12 @@ function metricCard(label: string, value: string): string {
 
 function renderDelta(): void {
   if (!dom.deltaPanel) {
+    return;
+  }
+
+  if (!state.panelSettings.visibility.showDelta) {
+    dom.deltaPanel.classList.add('hidden');
+    dom.deltaPanel.innerHTML = '';
     return;
   }
 
@@ -500,31 +550,59 @@ function hideError(): void {
 }
 
 function bindSettingsInputs(): void {
-  const update = () => {
+  const updateBackend = () => {
     state.backendSettings = readBackendSettingsFromDom();
+    void persistBackendSettings();
   };
 
-  dom.backendEnabled?.addEventListener('change', update);
-  dom.backendMode?.addEventListener('change', update);
-  dom.backendEndpoint?.addEventListener('input', update);
-  dom.backendPort?.addEventListener('input', update);
-  dom.backendSecret?.addEventListener('input', update);
-  dom.backendAuthUsername?.addEventListener('input', update);
-  dom.backendAuthPassword?.addEventListener('input', update);
-  dom.backendRequired?.addEventListener('change', update);
+  const updatePanel = () => {
+    state.panelSettings = readPanelSettingsFromDom();
+    void persistPanelSettings();
+    render();
+  };
+
+  dom.backendEnabled?.addEventListener('change', updateBackend);
+  dom.backendMode?.addEventListener('change', updateBackend);
+  dom.backendEndpoint?.addEventListener('change', updateBackend);
+  dom.backendPort?.addEventListener('change', updateBackend);
+  dom.backendSecret?.addEventListener('change', updateBackend);
+  dom.backendAuthUsername?.addEventListener('change', updateBackend);
+  dom.backendAuthPassword?.addEventListener('change', updateBackend);
+  dom.backendRequired?.addEventListener('change', updateBackend);
+
+  for (const input of dom.themeInputs) {
+    input.addEventListener('change', updatePanel);
+  }
+
+  for (const input of dom.visibilityInputs) {
+    input.addEventListener('change', updatePanel);
+  }
 }
 
 async function loadBackendSettings(): Promise<void> {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
     state.backendSettings = { ...DEFAULT_BACKEND_SETTINGS };
-    renderSettings();
+    renderPanelSettings();
     return;
   }
 
   const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
   state.backendSettings = normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
-  renderSettings();
+  renderPanelSettings();
+}
+
+async function loadPanelSettings(): Promise<void> {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    state.panelSettings = { ...DEFAULT_PANEL_SETTINGS };
+    renderPanelSettings();
+    return;
+  }
+
+  const payload = await storage.get([PANEL_SETTINGS_STORAGE_KEY]);
+  state.panelSettings = normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
+  renderPanelSettings();
 }
 
 async function persistBackendSettings(): Promise<void> {
@@ -534,17 +612,100 @@ async function persistBackendSettings(): Promise<void> {
   if (storage?.set) {
     await storage.set({ [BACKEND_SETTINGS_STORAGE_KEY]: state.backendSettings });
   }
-
-  state.note = state.backendSettings.enabled ? 'Backend settings saved' : 'Backend settings cleared';
-  render();
 }
 
-function renderSettings(): void {
-  if (!dom.backendEnabled) {
-    return;
+async function persistPanelSettings(): Promise<void> {
+  const storage = getRuntime()?.storage?.local;
+  if (storage?.set) {
+    await storage.set({ [PANEL_SETTINGS_STORAGE_KEY]: state.panelSettings });
+  }
+}
+
+function readBackendSettingsFromDom(): BackendSettingsForm {
+  return normalizeBackendSettings({
+    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
+    mode: dom.backendMode?.value === 'stdin' ? 'stdin' : 'http',
+    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
+    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
+    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
+    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
+    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
+    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+  });
+}
+
+function readPanelSettingsFromDom(): PanelSettingsForm {
+  return normalizePanelSettings({
+    theme: readThemeSettingsFromDom(),
+    visibility: readVisibilitySettingsFromDom()
+  });
+}
+
+function readThemeSettingsFromDom(): Record<string, string> {
+  const theme: Record<string, string> = {};
+  for (const input of dom.themeInputs) {
+    const key = input.dataset.themeSetting;
+    if (!key) {
+      continue;
+    }
+
+    theme[key] = input.value;
   }
 
-  dom.backendEnabled.checked = state.backendSettings.enabled;
+  return theme;
+}
+
+function readVisibilitySettingsFromDom(): Record<string, boolean> {
+  const visibility: Record<string, boolean> = {};
+  for (const input of dom.visibilityInputs) {
+    const key = input.dataset.visibilitySetting;
+    if (!key) {
+      continue;
+    }
+
+    visibility[key] = input.checked;
+  }
+
+  return visibility;
+}
+
+function renderPanelSettings(): void {
+  applyPanelTheme();
+  applyVisibilitySettings();
+  renderSettingsForm();
+  renderBugReportLink();
+}
+
+function renderSettingsForm(): void {
+  if (dom.settingsToggleButton) {
+    dom.settingsToggleButton.setAttribute('aria-expanded', String(state.settingsOpen));
+  }
+
+  if (dom.settingsPanel) {
+    dom.settingsPanel.classList.toggle('hidden', !state.settingsOpen);
+  }
+
+  for (const input of dom.themeInputs) {
+    const key = input.dataset.themeSetting as keyof PanelSettingsForm['theme'] | undefined;
+    if (!key) {
+      continue;
+    }
+
+    input.value = state.panelSettings.theme[key];
+  }
+
+  for (const input of dom.visibilityInputs) {
+    const key = input.dataset.visibilitySetting as keyof PanelSettingsForm['visibility'] | undefined;
+    if (!key) {
+      continue;
+    }
+
+    input.checked = state.panelSettings.visibility[key];
+  }
+
+  if (dom.backendEnabled) {
+    dom.backendEnabled.checked = state.backendSettings.enabled;
+  }
   if (dom.backendMode) {
     dom.backendMode.value = state.backendSettings.mode;
   }
@@ -566,6 +727,7 @@ function renderSettings(): void {
   if (dom.backendRequired) {
     dom.backendRequired.checked = state.backendSettings.required;
   }
+
   if (dom.openApiSpecLink) {
     const specUrl = getRuntime()?.runtime?.getURL?.('api/openapi.yaml') ?? 'api/openapi.yaml';
     dom.openApiSpecLink.href = specUrl;
@@ -573,17 +735,72 @@ function renderSettings(): void {
   }
 }
 
-function readBackendSettingsFromDom(): BackendSettingsForm {
-  return normalizeBackendSettings({
-    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
-    mode: dom.backendMode?.value === 'stdin' ? 'stdin' : 'http',
-    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
-    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
-    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
-    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
-    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
-    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+function renderBugReportLink(): void {
+  if (!dom.bugReportLink) {
+    return;
+  }
+
+  const runtime = getRuntime();
+  const version = runtime?.runtime?.getManifest?.().version ?? 'unknown';
+  const href = buildBugReportMailto({
+    version,
+    pageUrl: state.snapshot?.url ?? state.tabUrl,
+    status: state.status,
+    note: state.note,
+    settingsSummary: summarizePanelSettings()
   });
+
+  dom.bugReportLink.href = href;
+  dom.bugReportLink.title = `Report a bug to ${BUG_REPORT_EMAIL}`;
+}
+
+function summarizePanelSettings(): string {
+  const enabledSections = Object.entries(state.panelSettings.visibility)
+    .filter(([, value]) => value)
+    .map(([key]) => key)
+    .join(', ');
+
+  return enabledSections || 'none';
+}
+
+function applyPanelTheme(): void {
+  if (!dom.shell) {
+    return;
+  }
+
+  const style = dom.shell.style;
+  style.setProperty('--bg-0', state.panelSettings.theme.backgroundStart);
+  style.setProperty('--bg-1', state.panelSettings.theme.backgroundEnd);
+  style.setProperty('--panel', state.panelSettings.theme.panel);
+  style.setProperty('--panel-strong', state.panelSettings.theme.panelStrong);
+  style.setProperty('--border', state.panelSettings.theme.border);
+  style.setProperty('--text', state.panelSettings.theme.text);
+  style.setProperty('--muted', state.panelSettings.theme.muted);
+  style.setProperty('--muted-strong', state.panelSettings.theme.mutedStrong);
+  style.setProperty('--accent', state.panelSettings.theme.accent);
+  style.setProperty('--accent-weak', state.panelSettings.theme.accentWeak);
+  style.setProperty('--alert', state.panelSettings.theme.alert);
+  style.setProperty('--alert-weak', state.panelSettings.theme.alertWeak);
+  style.setProperty('--danger', state.panelSettings.theme.danger);
+  style.setProperty('--danger-weak', state.panelSettings.theme.dangerWeak);
+}
+
+function applyVisibilitySettings(): void {
+  setSectionVisibility(dom.controlsSection, state.panelSettings.visibility.showControls);
+  setSectionVisibility(dom.backendSettingsSection, state.panelSettings.visibility.showBackendSettings);
+  setSectionVisibility(dom.summaryGrid, state.panelSettings.visibility.showSummary);
+  setSectionVisibility(dom.deltaPanel, state.panelSettings.visibility.showDelta);
+  setSectionVisibility(dom.statusLine, state.panelSettings.visibility.showStatusLine);
+  setSectionVisibility(dom.offlinePanel, state.panelSettings.visibility.showOfflineBanner);
+  setSectionVisibility(dom.footer, state.panelSettings.visibility.showFooter);
+}
+
+function setSectionVisibility(element: Element | null | undefined, visible: boolean): void {
+  if (!element || !(element instanceof HTMLElement)) {
+    return;
+  }
+
+  element.classList.toggle('hidden', !visible);
 }
 
 function getSelectedIssues(): Issue[] {

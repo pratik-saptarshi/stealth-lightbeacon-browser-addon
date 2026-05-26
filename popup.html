@@ -14,8 +14,179 @@
           <h1 class="title">Stealth Lightbeacon</h1>
           <p class="subtitle">Grouped issues, delta summary, and one-click rescan for the active tab.</p>
         </div>
-        <span class="status-pill" id="status-pill" data-testid="status-pill" data-status="idle">Idle</span>
+        <div class="hero-actions">
+          <button
+            class="settings-toggle"
+            id="settings-toggle-button"
+            type="button"
+            aria-controls="settings-panel"
+            aria-expanded="false"
+          >
+            Settings
+          </button>
+          <span class="status-pill" id="status-pill" data-testid="status-pill" data-status="idle">Idle</span>
+        </div>
       </header>
+
+      <section class="settings-panel hidden" id="settings-panel" aria-label="Panel settings">
+        <div class="settings-panel-head">
+          <div>
+            <p class="eyebrow">Panel settings</p>
+            <p class="settings-note">Tune colors, hide optional sections, and report bugs without leaving the popup.</p>
+          </div>
+          <button id="settings-close-button" type="button">Close</button>
+        </div>
+
+        <section class="settings-group" aria-label="Appearance settings">
+          <h2>Appearance</h2>
+          <p class="settings-note">Hex colors only. Changes save locally in the extension.</p>
+          <div class="settings-grid settings-grid--theme">
+            <label>
+              <span>Background start</span>
+              <input id="theme-background-start" data-theme-setting="backgroundStart" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Background end</span>
+              <input id="theme-background-end" data-theme-setting="backgroundEnd" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Panel surface</span>
+              <input id="theme-panel" data-theme-setting="panel" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Strong surface</span>
+              <input id="theme-panel-strong" data-theme-setting="panelStrong" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Border</span>
+              <input id="theme-border" data-theme-setting="border" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Text</span>
+              <input id="theme-text" data-theme-setting="text" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Muted</span>
+              <input id="theme-muted" data-theme-setting="muted" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Muted strong</span>
+              <input id="theme-muted-strong" data-theme-setting="mutedStrong" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Accent</span>
+              <input id="theme-accent" data-theme-setting="accent" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Accent weak</span>
+              <input id="theme-accent-weak" data-theme-setting="accentWeak" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Alert</span>
+              <input id="theme-alert" data-theme-setting="alert" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Alert weak</span>
+              <input id="theme-alert-weak" data-theme-setting="alertWeak" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Danger</span>
+              <input id="theme-danger" data-theme-setting="danger" type="text" maxlength="7" spellcheck="false" />
+            </label>
+            <label>
+              <span>Danger weak</span>
+              <input id="theme-danger-weak" data-theme-setting="dangerWeak" type="text" maxlength="7" spellcheck="false" />
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-group" aria-label="Visible sections">
+          <h2>Visible sections</h2>
+          <div class="settings-checklist">
+            <label class="checkbox-row">
+              <input id="show-controls" data-visibility-setting="showControls" type="checkbox" />
+              <span>Scan actions</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="show-backend-settings" data-visibility-setting="showBackendSettings" type="checkbox" />
+              <span>Backend settings</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="show-summary" data-visibility-setting="showSummary" type="checkbox" />
+              <span>Summary cards</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="show-delta" data-visibility-setting="showDelta" type="checkbox" />
+              <span>Delta summary</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="show-status-line" data-visibility-setting="showStatusLine" type="checkbox" />
+              <span>Status line</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="show-offline-banner" data-visibility-setting="showOfflineBanner" type="checkbox" />
+              <span>Offline banner</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="show-footer" data-visibility-setting="showFooter" type="checkbox" />
+              <span>Footer</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-group" aria-label="Bug report">
+          <h2>Report a bug</h2>
+          <p class="settings-note">Send a short repro and the active page URL to <span class="monospace">pratik.saptarshi@outlook.com</span>.</p>
+          <a id="bug-report-link" class="bug-report-link" href="mailto:pratik.saptarshi@outlook.com">Report a bug by email</a>
+        </section>
+
+        <section class="settings-group backend-settings" id="backend-settings-section" aria-label="Backend settings">
+          <div class="settings-head">
+            <p class="eyebrow">Local backend settings</p>
+            <p class="settings-note">Configure a local or remote backend before rescanning. Stdin mode is useful for direct Python adapters.</p>
+          </div>
+          <div class="settings-grid">
+            <label>
+              <span>Backend enabled</span>
+              <input id="backend-enabled" type="checkbox" />
+            </label>
+            <label>
+              <span>Mode</span>
+              <select id="backend-mode">
+                <option value="http">HTTP</option>
+                <option value="stdin">Stdin</option>
+              </select>
+            </label>
+            <label>
+              <span>Endpoint</span>
+              <input id="backend-endpoint" type="text" placeholder="http://127.0.0.1" />
+            </label>
+            <label>
+              <span>Port</span>
+              <input id="backend-port" type="text" placeholder="5000" inputmode="numeric" />
+            </label>
+            <label>
+              <span>Secret / API key</span>
+              <input id="backend-secret" type="password" autocomplete="off" />
+            </label>
+            <label>
+              <span>Basic auth username</span>
+              <input id="backend-auth-username" type="text" autocomplete="off" />
+            </label>
+            <label>
+              <span>Basic auth password</span>
+              <input id="backend-auth-password" type="password" autocomplete="off" />
+            </label>
+            <label class="checkbox-row">
+              <input id="backend-required" type="checkbox" />
+              <span>Hard fail when backend is unavailable</span>
+            </label>
+          </div>
+          <div class="settings-actions">
+            <a id="openapi-spec-link" class="settings-link" target="_blank" rel="noreferrer">Open OpenAPI spec</a>
+          </div>
+        </section>
+      </section>
 
       <section class="controls" aria-label="Scan actions">
         <button class="primary" id="rescan-button" type="button">Re-scan this page</button>
@@ -23,54 +194,6 @@
         <button id="export-markdown-button" type="button">Export Markdown</button>
         <button id="export-pdf-button" type="button">Download PDF</button>
         <button id="copy-selectors-button" type="button">Copy selected selectors</button>
-      </section>
-
-      <section class="settings" aria-label="Backend settings">
-        <div class="settings-head">
-          <p class="eyebrow">Local backend settings</p>
-          <p class="settings-note">Configure a local or remote backend before rescanning. Stdin mode is useful for direct Python adapters.</p>
-        </div>
-        <div class="settings-grid">
-          <label>
-            <span>Backend enabled</span>
-            <input id="backend-enabled" type="checkbox" />
-          </label>
-          <label>
-            <span>Mode</span>
-            <select id="backend-mode">
-              <option value="http">HTTP</option>
-              <option value="stdin">Stdin</option>
-            </select>
-          </label>
-          <label>
-            <span>Endpoint</span>
-            <input id="backend-endpoint" type="text" placeholder="http://127.0.0.1" />
-          </label>
-          <label>
-            <span>Port</span>
-            <input id="backend-port" type="text" placeholder="5000" inputmode="numeric" />
-          </label>
-          <label>
-            <span>Secret / API key</span>
-            <input id="backend-secret" type="password" autocomplete="off" />
-          </label>
-          <label>
-            <span>Basic auth username</span>
-            <input id="backend-auth-username" type="text" autocomplete="off" />
-          </label>
-          <label>
-            <span>Basic auth password</span>
-            <input id="backend-auth-password" type="password" autocomplete="off" />
-          </label>
-          <label class="checkbox-row">
-            <input id="backend-required" type="checkbox" />
-            <span>Hard fail when backend is unavailable</span>
-          </label>
-        </div>
-        <div class="settings-actions">
-          <button id="save-backend-button" type="button">Save backend settings</button>
-          <a id="openapi-spec-link" class="settings-link" target="_blank" rel="noreferrer">Open OpenAPI spec</a>
-        </div>
       </section>
 
       <section class="status-line" id="status-line" data-testid="status-line">

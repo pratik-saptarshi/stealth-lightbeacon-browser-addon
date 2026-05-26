@@ -62,6 +62,13 @@
         box-shadow: var(--shadow);
       }
 
+      .hero-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+      }
+
       .eyebrow {
         margin: 0 0 4px;
         color: var(--accent);
@@ -99,6 +106,21 @@
         font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 0.08em;
+      }
+
+      .settings-toggle {
+        min-height: 32px;
+        padding: 0 12px;
+        border: 1px solid rgba(13, 71, 161, 0.18);
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+      }
+
+      .settings-toggle:hover {
+        box-shadow: 0 10px 18px rgba(16, 24, 40, 0.08);
       }
 
       .status-pill[data-status="loading"] {
@@ -153,17 +175,51 @@
         border-color: transparent;
       }
 
-      .settings {
+      .settings-panel {
         margin: 0 0 12px;
         padding: 14px;
         border: 1px solid var(--border);
         border-radius: 18px;
         background: rgba(255, 255, 255, 0.82);
         box-shadow: 0 10px 24px rgba(16, 24, 40, 0.06);
+        max-height: 68vh;
+        overflow: auto;
       }
 
-      .settings-head {
-        margin-bottom: 10px;
+      .settings-panel-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .settings-panel-head button {
+        min-height: 32px;
+        padding: 0 12px;
+        border: 1px solid rgba(44, 62, 80, 0.12);
+        color: var(--muted-strong);
+        background: rgba(255, 255, 255, 0.92);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .settings-group {
+        padding-top: 10px;
+        border-top: 1px solid rgba(44, 62, 80, 0.08);
+      }
+
+      .settings-group:first-of-type {
+        padding-top: 0;
+        border-top: 0;
+      }
+
+      .settings-group h2 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
 
       .settings-note {
@@ -177,6 +233,10 @@
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
+      }
+
+      .settings-grid--theme {
+        margin-top: 8px;
       }
 
       .settings-grid label {
@@ -204,6 +264,11 @@
         font-size: 12px;
       }
 
+      .settings-grid input[type="text"] {
+        font-family: "SFMono-Regular", "Menlo", "Monaco", "Cascadia Mono", monospace;
+        letter-spacing: 0.02em;
+      }
+
       .settings-grid input[type="checkbox"] {
         width: 16px;
         height: 16px;
@@ -218,6 +283,13 @@
         padding-top: 4px;
       }
 
+      .settings-checklist {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 10px;
+        margin-top: 8px;
+      }
+
       .settings-actions {
         display: flex;
         align-items: center;
@@ -226,7 +298,8 @@
         margin-top: 10px;
       }
 
-      .settings-actions button {
+      .settings-actions button,
+      .settings-actions a {
         min-height: 34px;
         padding: 0 12px;
         border: 1px solid rgba(13, 71, 161, 0.12);
@@ -236,18 +309,28 @@
         font-weight: 800;
       }
 
-      .settings-link {
+      .settings-actions a,
+      .bug-report-link {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         min-height: 34px;
         padding: 0 12px;
         border-radius: 999px;
         border: 1px solid rgba(44, 62, 80, 0.12);
         background: rgba(255, 255, 255, 0.92);
+        text-decoration: none;
+      }
+
+      .bug-report-link {
+        margin-top: 8px;
         color: var(--accent);
         font-size: 11px;
         font-weight: 800;
-        text-decoration: none;
+      }
+
+      .monospace {
+        font-family: "SFMono-Regular", "Menlo", "Monaco", "Cascadia Mono", monospace;
       }
 
       .status-line,

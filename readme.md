@@ -13,6 +13,7 @@ Current release: `0.1.5`
 - Supports optional backend-assisted recommendations over HTTP or stdio.
 - Uses machine-readable rulesets for SEO, accessibility, AEO/GEO, UX, Drupal, and security-header checks.
 - Surfaces the backend OpenAPI contract directly from the extension UI.
+- Includes a settings drawer for panel color tuning, section visibility, and bug reporting.
 
 ## Supported browsers
 - Google Chrome
@@ -75,6 +76,7 @@ When the environment supports it, validate the extension in a real browser sessi
 - Backend use is opt-in and constrained by host-policy validation.
 - No analytics or telemetry SDKs are bundled.
 - Sensitive backend usage should stay behind explicit user configuration.
+- Bug reports can be sent directly from the settings drawer to `pratik.saptarshi@outlook.com`.
 
 ## Related docs
 - [Contributing](./contributing.md)
