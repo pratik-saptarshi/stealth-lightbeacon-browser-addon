@@ -5734,31 +5734,38 @@ async function applyToolbarState(context, tabId, snapshot) {
       })
     );
   } catch {
+    try {
+      await Promise.resolve(
+        api.setIcon?.({
+          tabId,
+          path: ACTION_ICON_PATHS_STATIC[toolbarState]
+        })
+      );
+    } catch {
+    }
+  }
+  try {
     await Promise.resolve(
-      api.setIcon?.({
+      api.setBadgeText?.({
         tabId,
-        path: ACTION_ICON_PATHS_STATIC[toolbarState]
+        text: badgeText
       })
     );
+    await Promise.resolve(
+      api.setBadgeBackgroundColor?.({
+        tabId,
+        color: BADGE_COLORS[toolbarState]
+      })
+    );
+    await Promise.resolve(
+      api.setBadgeTextColor?.({
+        tabId,
+        color: "#fff"
+      })
+    );
+  } catch {
+    return;
   }
-  await Promise.resolve(
-    api.setBadgeText?.({
-      tabId,
-      text: badgeText
-    })
-  );
-  await Promise.resolve(
-    api.setBadgeBackgroundColor?.({
-      tabId,
-      color: BADGE_COLORS[toolbarState]
-    })
-  );
-  await Promise.resolve(
-    api.setBadgeTextColor?.({
-      tabId,
-      color: "#fff"
-    })
-  );
 }
 
 // src/background/service-worker.ts

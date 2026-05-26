@@ -125,31 +125,38 @@ export async function applyToolbarState(
       })
     );
   } catch {
-    await Promise.resolve(
-      api.setIcon?.({
-        tabId,
-        path: ACTION_ICON_PATHS_STATIC[toolbarState]
-      })
-    );
+    try {
+      await Promise.resolve(
+        api.setIcon?.({
+          tabId,
+          path: ACTION_ICON_PATHS_STATIC[toolbarState]
+        })
+      );
+    } catch {
+      // ignore toolbar rendering failures and continue with badge update only
+    }
   }
 
-  await Promise.resolve(
-    api.setBadgeText?.({
-      tabId,
-      text: badgeText
-    })
-  );
-  await Promise.resolve(
-    api.setBadgeBackgroundColor?.({
-      tabId,
-      color: BADGE_COLORS[toolbarState]
-    })
-  );
-  await Promise.resolve(
-    api.setBadgeTextColor?.({
-      tabId,
-      color: '#fff'
-    })
-  );
+  try {
+    await Promise.resolve(
+      api.setBadgeText?.({
+        tabId,
+        text: badgeText
+      })
+    );
+    await Promise.resolve(
+      api.setBadgeBackgroundColor?.({
+        tabId,
+        color: BADGE_COLORS[toolbarState]
+      })
+    );
+    await Promise.resolve(
+      api.setBadgeTextColor?.({
+        tabId,
+        color: '#fff'
+      })
+    );
+  } catch {
+    return;
+  }
 }
-
