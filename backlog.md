@@ -60,6 +60,63 @@ Partially suitable; focus on in-tab/client-side subset. Full parity is not feasi
   3. Add dynamic toolbar state swap (e.g., normal/alert/fail) using the inline color values.
   4. Add fallback icon behavior for environments that do not render animated SVG.
 
+### Epic 4-B: Issue Panel + Re-scan Action (UI)
+
+- Feature: Active-scan visibility and repeat execution control in extension popup/page action.
+- User story: As a tester, I review grouped issues for the current page and rerun scan with one click.
+- UX Scope:
+  - In-page context only; no background cross-tab orchestration.
+  - Popup (or page action) is primary control surface.
+  - Issue-level details are inspectable without opening developer tools.
+- Tasks:
+  1. Add `scan_status` and `scan_id` to UI state contract.
+     - Add `scan_status` states: `idle | loading | complete | failed | fallback`.
+     - Track last scan timestamps and issue count summary (`critical`, `high`, `medium`, `low`).
+  2. Build issue panel data model and rendering flow.
+     - Normalize issues into `domain -> severity -> ruleId -> count`.
+     - Render deterministic ordering: domain alpha, severity (critical → low), then title.
+     - Show inline rule metadata (`category`, `ruleId`, `impact`, `fixHint`).
+  3. Implement grouped issue panel layout.
+     - Domain collapsible sections with severity chips.
+     - Expand/collapse per domain and per rule.
+     - Empty state with clear copy and recommended next action.
+     - Error state with actionable message for backend-local fallback and timeout cases.
+  4. Implement re-scan action flow.
+     - Add primary “Re-scan this page” action with immediate feedback.
+     - Disable control while `scan_status = loading`.
+     - De-duplicate concurrent scans by reusing active `scan_id`.
+     - Update panel upon result stream (`scan:start`, `scan:progress`, `scan:done`, `scan:error` events).
+  5. Re-scan result handling and diff summary.
+     - Show before/after issue delta chips (`new / fixed / unchanged`).
+     - If a prior snapshot exists in local storage, compute and display issue trend.
+  6. Add inline actions for issue triage.
+     - Select one or more issues.
+     - Export selected issues as JSON/Markdown from panel.
+     - "Copy selected selectors" action for one-click handoff.
+  7. Accessibility and ergonomics pass.
+     - Keyboard focus order and `aria-live` status messages.
+     - Color-safe semantics for severity contrast.
+     - Persist UI filters (domain and severity) in local storage.
+  8. Add guardrails and observability.
+     - Add retry affordance on transient transport failures.
+     - Add structured client logs for scan lifecycle and render timing.
+  9. Testing tasks:
+     - Add unit tests for `issue panel` grouping and sorting functions.
+     - Add unit tests for deduped re-scan behavior.
+     - Add UI integration tests for re-scan busy/disabled + failure states.
+- Acceptance Criteria:
+  - Issue panel loads with `loading` then renders grouped domains within 2 seconds for normal pages.
+  - Re-scan is idempotent while a scan is already in-flight.
+  - Empty, error, and permission-denied states are explicit and recoverable.
+  - Selected issue export returns valid JSON/Markdown payload and contains `ruleId`.
+- Dependencies:
+  - Requires `IssueContext` payload to include stable `domain`, `severity`, and `scanId`.
+  - Requires local snapshot metadata for delta-only view.
+- Done Definition:
+  - Popup displays grouped and actionable issues.
+  - Re-scan action cannot be triggered during active run and still accepts queueing after completion.
+  - Regression path for `loading/error/fallback` validated in CI.
+
 ### Reference SVG (`src/assets/icon.svg`)
 
 ```svg

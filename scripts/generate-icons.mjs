@@ -5,6 +5,7 @@ const PROJECT_ROOT = resolve(process.cwd());
 const sourcePath = resolve(PROJECT_ROOT, 'src/assets/icon.svg');
 const distDir = resolve(PROJECT_ROOT, 'dist');
 const outputDir = resolve(distDir, 'icons');
+const sourceOutputDir = resolve(PROJECT_ROOT, 'icons');
 const source = readFileSync(sourcePath, 'utf8');
 const sizes = [16, 32, 48, 64, 128];
 const states = {
@@ -21,8 +22,10 @@ const states = {
     metric: '#E74C3C'
   }
 };
-
-mkdirSync(outputDir, { recursive: true });
+const outputDirs = [outputDir, sourceOutputDir];
+for (const dir of outputDirs) {
+  mkdirSync(dir, { recursive: true });
+}
 
 function makeStatic(svg) {
   return svg
@@ -38,7 +41,11 @@ function recolorSvg(svg, state) {
 }
 
 function iconPath(state, size, suffix) {
-  return resolve(outputDir, `icon-${state}-${size}${suffix}.svg`);
+  const filename = `icon-${state}-${size}${suffix}.svg`;
+  return {
+    dist: resolve(outputDir, filename),
+    src: resolve(sourceOutputDir, filename)
+  };
 }
 
 for (const [stateName, stateColors] of Object.entries(states)) {
@@ -48,15 +55,20 @@ for (const [stateName, stateColors] of Object.entries(states)) {
   for (const size of sizes) {
     const outputFile = iconPath(stateName, size, '');
     const staticOutput = iconPath(stateName, size, '-static');
-    writeFileSync(outputFile, recolored, 'utf8');
-    writeFileSync(staticOutput, staticSvg, 'utf8');
+    writeFileSync(outputFile.dist, recolored, 'utf8');
+    writeFileSync(outputFile.src, recolored, 'utf8');
+    writeFileSync(staticOutput.dist, staticSvg, 'utf8');
+    writeFileSync(staticOutput.src, staticSvg, 'utf8');
   }
 }
 
 for (const size of sizes) {
   writeFileSync(resolve(outputDir, `icon-${size}.svg`), source, 'utf8');
+  writeFileSync(resolve(sourceOutputDir, `icon-${size}.svg`), source, 'utf8');
 }
 
 // Provide a non-state canonical icon for extension branding and any fallback pathes.
-cpSync(sourcePath, resolve(outputDir, 'icon.svg'));
-cpSync(sourcePath, resolve(outputDir, 'icon-static.svg'));
+for (const dir of outputDirs) {
+  cpSync(sourcePath, resolve(dir, 'icon.svg'));
+  cpSync(sourcePath, resolve(dir, 'icon-static.svg'));
+}
