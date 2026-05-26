@@ -16,18 +16,17 @@ describe('addon manifest', () => {
     expect(manifest.permissions).toContain('scripting');
     expect(manifest.icons).toBeDefined();
     expect(manifest.icons).toMatchObject({
-      16: 'icons/icon-16.svg',
-      32: 'icons/icon-32.svg',
-      48: 'icons/icon-48.svg',
-      64: 'icons/icon-64.svg',
-      128: 'icons/icon-128.svg'
+      16: 'extension_icon16.png',
+      32: 'extension_icon32.png',
+      48: 'extension_icon48.png',
+      128: 'extension_icon128.png'
     });
     expect(manifest.action?.default_icon).toMatchObject({
-      16: 'icons/icon-normal-16.svg',
-      32: 'icons/icon-normal-32.svg',
-      48: 'icons/icon-normal-48.svg',
-      64: 'icons/icon-normal-64.svg',
-      128: 'icons/icon-normal-128.svg'
+      16: 'icons/icon-normal-16.png',
+      32: 'icons/icon-normal-32.png',
+      48: 'icons/icon-normal-48.png',
+      64: 'icons/icon-normal-64.png',
+      128: 'icons/icon-normal-128.png'
     });
     expect(manifest.action?.default_popup).toBe('popup.html');
     expect(() => readFileSync(resolve(process.cwd(), manifest.action?.default_popup), 'utf8')).not.toThrow();

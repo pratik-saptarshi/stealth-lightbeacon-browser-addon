@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type {
   DiffResult,
   Issue,
@@ -11,8 +10,64 @@ import type {
   CrawlNode
 } from './types';
 
-const severitySchema = z.enum(['critical', 'high', 'medium', 'low']);
-const domainSchema = z.enum([
+type Schema<T> = {
+  parse(input: unknown): T;
+};
+
+function createSchema<T>(parser: (input: unknown) => T): Schema<T> {
+  return {
+    parse: parser
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim().length > 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0;
+}
+
+function isInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return isInteger(value) && value >= 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => isNonEmptyString(entry));
+}
+
+function assert(condition: boolean, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function isEnumValue<T extends string>(value: unknown, allowed: readonly T[]): value is T {
+  return isString(value) && allowed.includes(value as T);
+}
+
+const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+const DOMAINS = [
   'seo',
   'performance',
   'accessibility',
@@ -23,114 +78,309 @@ const domainSchema = z.enum([
   'security-headers',
   'WCAG2.1AA',
   'WCAG2.2AA'
-]);
+] as const;
+const ISSUE_SOURCES = ['dom-only', 'backend'] as const;
+const BACKEND_ENGINES = ['http', 'fast-obscura', 'stealth-playwright', 'mcp'] as const;
+const SCAN_ENGINES = ['dom-lite', 'crawl-lite'] as const;
+const BACKEND_MODES = ['http', 'stdin'] as const;
+const CRAWL_ERROR_TYPES = ['cors', 'timeout', 'blocked', 'non_html', 'other'] as const;
 
-const issueCountBySeveritySchema = z.object({
-  critical: z.number().nonnegative(),
-  high: z.number().nonnegative(),
-  medium: z.number().nonnegative(),
-  low: z.number().nonnegative()
-});
+function assertIssueCountsBySeverity(input: unknown, path: string): Record<Severity, number> {
+  assert(isRecord(input), `${path} must be an object`);
+  for (const key of SEVERITIES) {
+    assert(isNonNegativeNumber(input[key]), `${path}.${key} must be a non-negative number`);
+  }
+  const counts = input as Record<Severity, number>;
+  return {
+    critical: counts.critical,
+    high: counts.high,
+    medium: counts.medium,
+    low: counts.low
+  };
+}
 
-const issueCountByDomainSchema = z
-  .object({
-    seo: z.number().nonnegative(),
-    performance: z.number().nonnegative(),
-    accessibility: z.number().nonnegative(),
-    aeo: z.number().nonnegative(),
-    ux: z.number().nonnegative(),
-    drupal: z.number().nonnegative(),
-    geo: z.number().nonnegative(),
-    'security-headers': z.number().nonnegative(),
-    'WCAG2.1AA': z.number().nonnegative(),
-    'WCAG2.2AA': z.number().nonnegative()
-  })
-  .catchall(z.number().nonnegative());
+function assertIssueCountsByDomain(input: unknown, path: string): Record<string, number> {
+  assert(isRecord(input), `${path} must be an object`);
+  for (const [key, value] of Object.entries(input)) {
+    assert(isNonNegativeNumber(value), `${path}.${key} must be a non-negative number`);
+  }
+  for (const key of DOMAINS) {
+    if (!(key in input)) {
+      continue;
+    }
+    assert(isNonNegativeNumber(input[key]), `${path}.${key} must be a non-negative number`);
+  }
+  return Object.fromEntries(
+    Object.entries(input).map(([key, value]) => [key, value as number])
+  );
+}
 
-export const issueSchema = z.object({
-  id: z.string().min(1),
-  ruleId: z.string().min(1),
-  title: z.string().min(1),
-  severity: severitySchema,
-  domain: domainSchema,
-  summary: z.string().min(1),
-  evidence: z.string().min(1),
-  selector: z.string().optional(),
-  source: z.enum(['dom-only', 'backend'])
-});
+function assertIssue(input: unknown): Issue {
+  assert(isRecord(input), 'issue must be an object');
+  assert(isNonEmptyString(input.id), 'issue.id must be a non-empty string');
+  assert(isNonEmptyString(input.ruleId), 'issue.ruleId must be a non-empty string');
+  assert(isNonEmptyString(input.title), 'issue.title must be a non-empty string');
+  assert(isEnumValue(input.severity, SEVERITIES), 'issue.severity must be one of critical, high, medium, low');
+  assert(isEnumValue(input.domain, DOMAINS), 'issue.domain must be a supported domain');
+  assert(isNonEmptyString(input.summary), 'issue.summary must be a non-empty string');
+  assert(isNonEmptyString(input.evidence), 'issue.evidence must be a non-empty string');
+  if ('selector' in input && input.selector !== undefined) {
+    assert(isString(input.selector), 'issue.selector must be a string when present');
+  }
+  assert(isEnumValue(input.source, ISSUE_SOURCES), 'issue.source must be dom-only or backend');
 
-const engineRecommendationSchema = z.object({
-  engine: z.enum(['http', 'fast-obscura', 'stealth-playwright', 'mcp']),
-  reason: z.string().min(1),
-  confidence: z.number().min(0).max(1)
-});
+  return {
+    id: input.id,
+    ruleId: input.ruleId,
+    title: input.title,
+    severity: input.severity,
+    domain: input.domain,
+    summary: input.summary,
+    evidence: input.evidence,
+    selector: input.selector as string | undefined,
+    source: input.source as 'dom-only' | 'backend'
+  };
+}
 
-export const scanRequestSchema = z.object({
-  requestId: z.string().min(1),
-  url: z.string().url(),
-  tabId: z.number().int().nonnegative().optional(),
-  engine: z.enum(['dom-lite', 'crawl-lite']),
-  crawlDepth: z.number().int().nonnegative().max(4).optional(),
-  crawlMaxUrls: z.number().int().nonnegative().max(500).optional(),
-  ruleCategories: z.array(domainSchema).min(1).optional(),
-  backend: z
-    .object({
-      enabled: z.boolean().optional(),
-      mode: z.enum(['http', 'stdin']).optional(),
-      engine: z.enum(['http', 'fast-obscura', 'stealth-playwright', 'mcp']).optional(),
-      endpoint: z.string().url().optional(),
-      allowedHosts: z.array(z.string().min(1)).optional(),
-      requestSigningSecret: z.string().min(1).max(256).optional(),
-      auth: z
-        .object({
-          username: z.string().min(1),
-          password: z.string().min(1)
-        })
-        .optional(),
-      timeoutMs: z.number().int().positive().optional(),
-      required: z.boolean().optional()
-    })
-    .optional()
-});
+function assertEngineRecommendation(input: unknown): EngineRecommendation {
+  assert(isRecord(input), 'recommendation must be an object');
+  assert(isEnumValue(input.engine, BACKEND_ENGINES), 'recommendation.engine must be a supported backend engine');
+  assert(isNonEmptyString(input.reason), 'recommendation.reason must be a non-empty string');
+  assert(isFiniteNumber(input.confidence) && input.confidence >= 0 && input.confidence <= 1, 'recommendation.confidence must be between 0 and 1');
 
-export const scanSnapshotSchema = z.object({
-  id: z.string().min(1),
-  origin: z.string().min(1),
-  url: z.string().url(),
-  timestamp: z.number().nonnegative(),
-  engine: z.enum(['dom-lite', 'crawl-lite']),
-  issues: z.array(issueSchema),
-  summary: z.object({
-    total: z.number().nonnegative(),
-    bySeverity: issueCountBySeveritySchema,
-    byDomain: issueCountByDomainSchema
-  })
-});
+  return {
+    engine: input.engine as EngineRecommendation['engine'],
+    reason: input.reason,
+    confidence: input.confidence
+  };
+}
 
-export const crawlNodeSchema = z.object({
-  url: z.string().url(),
-  depth: z.number().int().nonnegative(),
-  status: z.enum(['queued', 'running', 'done', 'error']),
-  errorType: z.enum(['cors', 'timeout', 'blocked', 'non_html', 'other']).optional(),
-  discoveredFrom: z.string().url().optional(),
-  finalUrl: z.string().url().optional(),
-  statusCode: z.number().nonnegative().optional(),
-  note: z.string().optional()
-});
+function assertCrawlNode(input: unknown): CrawlNode {
+  assert(isRecord(input), 'crawl node must be an object');
+  assert(isNonEmptyString(input.url), 'crawl node.url must be a non-empty string');
+  assert(isNonNegativeInteger(input.depth), 'crawl node.depth must be a non-negative integer');
+  assert(isEnumValue(input.status, ['queued', 'running', 'done', 'error'] as const), 'crawl node.status must be queued, running, done, or error');
+  if ('errorType' in input && input.errorType !== undefined) {
+    assert(isEnumValue(input.errorType, CRAWL_ERROR_TYPES), 'crawl node.errorType is invalid');
+  }
+  if ('discoveredFrom' in input && input.discoveredFrom !== undefined) {
+    assert(isNonEmptyString(input.discoveredFrom), 'crawl node.discoveredFrom must be a non-empty string when present');
+  }
+  if ('finalUrl' in input && input.finalUrl !== undefined) {
+    assert(isNonEmptyString(input.finalUrl), 'crawl node.finalUrl must be a non-empty string when present');
+  }
+  if ('statusCode' in input && input.statusCode !== undefined) {
+    assert(isNonNegativeNumber(input.statusCode), 'crawl node.statusCode must be a non-negative number when present');
+  }
+  if ('note' in input && input.note !== undefined) {
+    assert(isString(input.note), 'crawl node.note must be a string when present');
+  }
 
-export const scanResultSchema = z.object({
-  requestId: z.string().min(1),
-  snapshot: scanSnapshotSchema,
-  crawlNodes: z.array(crawlNodeSchema).optional(),
-  recommendation: engineRecommendationSchema.optional()
-});
+  return {
+    url: input.url,
+    depth: input.depth,
+    status: input.status,
+    errorType: input.errorType as CrawlNode['errorType'],
+    discoveredFrom: input.discoveredFrom as string | undefined,
+    finalUrl: input.finalUrl as string | undefined,
+    statusCode: input.statusCode as number | undefined,
+    note: input.note as string | undefined
+  };
+}
 
-export const diffResultSchema = z.object({
-  newIssues: z.array(issueSchema),
-  resolvedIssues: z.array(issueSchema),
-  regressions: z.array(issueSchema),
-  improvements: z.array(issueSchema)
-});
+function assertScanRequestInput(input: unknown): ScanRequest {
+  assert(isRecord(input), 'scan request must be an object');
+  assert(isNonEmptyString(input.requestId), 'scan request.requestId must be a non-empty string');
+  assert(isNonEmptyString(input.url), 'scan request.url must be a non-empty string');
+  assert(isEnumValue(input.engine, SCAN_ENGINES), 'scan request.engine must be dom-lite or crawl-lite');
+
+  try {
+    new URL(input.url);
+  } catch {
+    throw new Error('scan request.url must be a valid URL');
+  }
+
+  if ('tabId' in input && input.tabId !== undefined) {
+    assert(isNonNegativeInteger(input.tabId), 'scan request.tabId must be a non-negative integer when present');
+  }
+  if ('crawlDepth' in input && input.crawlDepth !== undefined) {
+    assert(isNonNegativeInteger(input.crawlDepth) && input.crawlDepth <= 4, 'scan request.crawlDepth must be a non-negative integer no greater than 4');
+  }
+  if ('crawlMaxUrls' in input && input.crawlMaxUrls !== undefined) {
+    assert(isNonNegativeInteger(input.crawlMaxUrls) && input.crawlMaxUrls <= 500, 'scan request.crawlMaxUrls must be a non-negative integer no greater than 500');
+  }
+  if ('ruleCategories' in input && input.ruleCategories !== undefined) {
+    assert(Array.isArray(input.ruleCategories) && input.ruleCategories.length > 0, 'scan request.ruleCategories must be a non-empty array when present');
+    assert(input.ruleCategories.every((entry: unknown) => isEnumValue(entry, DOMAINS)), 'scan request.ruleCategories contains unsupported domain values');
+  }
+  if ('backend' in input && input.backend !== undefined) {
+    assert(isRecord(input.backend), 'scan request.backend must be an object when present');
+    const backend = input.backend;
+    if ('enabled' in backend && backend.enabled !== undefined) {
+      assert(typeof backend.enabled === 'boolean', 'scan request.backend.enabled must be a boolean when present');
+    }
+    if ('mode' in backend && backend.mode !== undefined) {
+      assert(isEnumValue(backend.mode, BACKEND_MODES), 'scan request.backend.mode must be http or stdin');
+    }
+    if ('engine' in backend && backend.engine !== undefined) {
+      assert(isEnumValue(backend.engine, BACKEND_ENGINES), 'scan request.backend.engine must be a supported backend engine');
+    }
+    if ('endpoint' in backend && backend.endpoint !== undefined) {
+      assert(isNonEmptyString(backend.endpoint), 'scan request.backend.endpoint must be a non-empty string');
+      try {
+        new URL(backend.endpoint);
+      } catch {
+        throw new Error('scan request.backend.endpoint must be a valid URL');
+      }
+    }
+    if ('allowedHosts' in backend && backend.allowedHosts !== undefined) {
+      assert(isStringArray(backend.allowedHosts), 'scan request.backend.allowedHosts must be an array of non-empty strings');
+    }
+    if ('requestSigningSecret' in backend && backend.requestSigningSecret !== undefined) {
+      assert(isNonEmptyString(backend.requestSigningSecret) && backend.requestSigningSecret.length <= 256, 'scan request.backend.requestSigningSecret must be 1-256 characters');
+    }
+    if ('auth' in backend && backend.auth !== undefined) {
+      assert(isRecord(backend.auth), 'scan request.backend.auth must be an object');
+      assert(isNonEmptyString(backend.auth.username), 'scan request.backend.auth.username must be a non-empty string');
+      assert(isNonEmptyString(backend.auth.password), 'scan request.backend.auth.password must be a non-empty string');
+    }
+    if ('timeoutMs' in backend && backend.timeoutMs !== undefined) {
+      assert(isPositiveNumber(backend.timeoutMs), 'scan request.backend.timeoutMs must be a positive number');
+    }
+    if ('required' in backend && backend.required !== undefined) {
+      assert(typeof backend.required === 'boolean', 'scan request.backend.required must be a boolean when present');
+    }
+  }
+
+  return input as unknown as ScanRequest;
+}
+
+function assertScanSnapshotInput(input: unknown): ScanSnapshot {
+  assert(isRecord(input), 'scan snapshot must be an object');
+  assert(isNonEmptyString(input.id), 'scan snapshot.id must be a non-empty string');
+  assert(isNonEmptyString(input.origin), 'scan snapshot.origin must be a non-empty string');
+  assert(isNonEmptyString(input.url), 'scan snapshot.url must be a non-empty string');
+  assert(isEnumValue(input.engine, SCAN_ENGINES), 'scan snapshot.engine must be dom-lite or crawl-lite');
+  assert(isNonNegativeNumber(input.timestamp), 'scan snapshot.timestamp must be a non-negative number');
+
+  try {
+    new URL(input.url);
+  } catch {
+    throw new Error('scan snapshot.url must be a valid URL');
+  }
+
+  assert(Array.isArray(input.issues), 'scan snapshot.issues must be an array');
+  const issues = input.issues.map(assertIssue);
+  assert(isRecord(input.summary), 'scan snapshot.summary must be an object');
+  assert(isNonNegativeNumber(input.summary.total), 'scan snapshot.summary.total must be a non-negative number');
+  const bySeverity = assertIssueCountsBySeverity(input.summary.bySeverity, 'scan snapshot.summary.bySeverity');
+  const byDomain = assertIssueCountsByDomain(input.summary.byDomain, 'scan snapshot.summary.byDomain');
+
+  return {
+    id: input.id,
+    origin: input.origin,
+    url: input.url,
+    timestamp: input.timestamp,
+    engine: input.engine,
+    issues,
+    summary: {
+      total: input.summary.total,
+      bySeverity,
+      byDomain
+    }
+  };
+}
+
+function assertDiffResultInput(input: unknown): DiffResult {
+  assert(isRecord(input), 'diff result must be an object');
+  assert(Array.isArray(input.newIssues), 'diff result.newIssues must be an array');
+  assert(Array.isArray(input.resolvedIssues), 'diff result.resolvedIssues must be an array');
+  assert(Array.isArray(input.regressions), 'diff result.regressions must be an array');
+  assert(Array.isArray(input.improvements), 'diff result.improvements must be an array');
+
+  return {
+    newIssues: input.newIssues.map(assertIssue),
+    resolvedIssues: input.resolvedIssues.map(assertIssue),
+    regressions: input.regressions.map(assertIssue),
+    improvements: input.improvements.map(assertIssue)
+  };
+}
+
+function assertScanResultInput(input: unknown): ScanResult {
+  assert(isRecord(input), 'scan result must be an object');
+  assert(isNonEmptyString(input.requestId), 'scan result.requestId must be a non-empty string');
+  const snapshot = assertScanSnapshotInput(input.snapshot);
+  const crawlNodes = 'crawlNodes' in input && input.crawlNodes !== undefined
+    ? (assert(Array.isArray(input.crawlNodes), 'scan result.crawlNodes must be an array when present'), input.crawlNodes.map(assertCrawlNode))
+    : undefined;
+  const recommendation = 'recommendation' in input && input.recommendation !== undefined
+    ? assertEngineRecommendation(input.recommendation)
+    : undefined;
+
+  return {
+    requestId: input.requestId,
+    snapshot,
+    crawlNodes,
+    recommendation
+  };
+}
+
+function assertBackendRulesetCategoryEntry(input: unknown): BackendRulesetCategory {
+  assert(isRecord(input), 'ruleset category must be an object');
+  assert(isEnumValue(input.category, [...DOMAINS, 'performance', 'accessibility', 'ux', 'drupal'] as const), 'ruleset category must be supported');
+  assert(Array.isArray(input.rules), 'ruleset category.rules must be an array');
+  const rules = input.rules.map((rule: unknown) => {
+    assert(isRecord(rule), 'ruleset rule must be an object');
+    assert(isNonEmptyString(rule.id), 'ruleset rule.id must be a non-empty string');
+    assert(isNonEmptyString(rule.title), 'ruleset rule.title must be a non-empty string');
+    if ('enabled' in rule && rule.enabled !== undefined) {
+      assert(typeof rule.enabled === 'boolean', 'ruleset rule.enabled must be a boolean when present');
+    }
+    assert(isEnumValue(rule.severity, SEVERITIES), 'ruleset rule.severity must be valid');
+    return {
+      id: rule.id,
+      title: rule.title,
+      enabled: rule.enabled as boolean | undefined,
+      severity: rule.severity
+    };
+  });
+  if ('enabled' in input && input.enabled !== undefined) {
+    assert(typeof input.enabled === 'boolean', 'ruleset category.enabled must be a boolean when present');
+  }
+
+  return {
+    category: input.category as BackendRulesetCategory['category'],
+    rules,
+    enabled: input.enabled as boolean | undefined
+  };
+}
+
+function assertBackendRulesetCategoryArray(input: unknown): BackendRulesetCategory[] {
+  assert(Array.isArray(input) && input.length > 0, 'ruleset category payload must be a non-empty array');
+  return input.map(assertBackendRulesetCategoryEntry);
+}
+
+function assertAddonRulesetPayload(input: unknown): BackendRulesetPayload {
+  assert(isRecord(input), 'addon ruleset must be an object');
+  assert(isNonEmptyString(input.version), 'addon ruleset.version must be a non-empty string');
+  assert(isNonEmptyString(input.generatedAt), 'addon ruleset.generatedAt must be a non-empty string');
+  const categories = assertBackendRulesetCategoryArray(input.categories);
+
+  return {
+    version: input.version,
+    generatedAt: input.generatedAt,
+    categories
+  };
+}
+
+export const issueSchema = createSchema(assertIssue);
+export const scanRequestSchema = createSchema(assertScanRequestInput);
+export const scanSnapshotSchema = createSchema(assertScanSnapshotInput);
+export const crawlNodeSchema = createSchema(assertCrawlNode);
+export const scanResultSchema = createSchema(assertScanResultInput);
+export const diffResultSchema = createSchema(assertDiffResultInput);
+export const backendRulesetCategorySchema = createSchema(assertBackendRulesetCategoryArray);
+export const addonRulesetSchema = createSchema(assertAddonRulesetPayload);
 
 export function summarizeIssues(issues: Issue[]) {
   const bySeverity = {
@@ -165,55 +415,41 @@ export function summarizeIssues(issues: Issue[]) {
   };
 }
 
-export function assertScanRequest(input: unknown): ScanRequest {
+export function assertScanRequest(input: unknown) {
   return scanRequestSchema.parse(input);
 }
 
-export function assertScanSnapshot(input: unknown): ScanSnapshot {
+export function assertScanSnapshot(input: unknown) {
   return scanSnapshotSchema.parse(input);
 }
 
-export function assertScanResult(input: unknown): ScanResult {
+export function assertScanResult(input: unknown) {
   return scanResultSchema.parse(input);
 }
 
-export function assertDiffResult(input: unknown): DiffResult {
+export function assertDiffResult(input: unknown) {
   return diffResultSchema.parse(input);
 }
 
-export const backendRulesetCategorySchema = z.array(
-  z.object({
-    category: z.enum([
-      'seo',
-      'geo',
-      'aeo',
-      'security-headers',
-      'WCAG2.1AA',
-      'WCAG2.2AA',
-      'performance',
-      'accessibility',
-      'ux',
-      'drupal'
-    ]),
-    rules: z.array(
-      z.object({
-        id: z.string().min(1),
-        title: z.string().min(1),
-        enabled: z.boolean().optional(),
-        severity: z.enum(['critical', 'high', 'medium', 'low'])
-      })
-    ),
-    enabled: z.boolean().optional()
-  })
-).min(1);
+export function assertAddonRuleset(input: unknown) {
+  return addonRulesetSchema.parse(input);
+}
 
-export const addonRulesetSchema = z.object({
-  version: z.string().min(1),
-  generatedAt: z.string().min(1),
-  categories: backendRulesetCategorySchema
-});
+export type BackendRulesetCategory = {
+  category: RuleDomain | 'performance' | 'accessibility' | 'ux' | 'drupal';
+  rules: Array<{
+    id: string;
+    title: string;
+    enabled?: boolean;
+    severity: Severity;
+  }>;
+  enabled?: boolean;
+};
 
-export type BackendRulesetCategory = z.infer<typeof addonRulesetSchema>['categories'][number];
-export type BackendRulesetPayload = z.infer<typeof addonRulesetSchema>;
+export type BackendRulesetPayload = {
+  version: string;
+  generatedAt: string;
+  categories: BackendRulesetCategory[];
+};
 
 export type { EngineRecommendation, CrawlNode, DiffResult, Issue, ScanRequest, ScanResult, ScanSnapshot };

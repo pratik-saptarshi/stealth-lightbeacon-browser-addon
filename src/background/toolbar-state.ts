@@ -11,49 +11,49 @@ export type ToolbarState = 'normal' | 'alert' | 'fail';
 
 export const ACTION_ICON_PATHS = {
   normal: {
-    16: 'icons/icon-normal-16.svg',
-    32: 'icons/icon-normal-32.svg',
-    48: 'icons/icon-normal-48.svg',
-    64: 'icons/icon-normal-64.svg',
-    128: 'icons/icon-normal-128.svg'
+    16: 'icons/icon-normal-16.png',
+    32: 'icons/icon-normal-32.png',
+    48: 'icons/icon-normal-48.png',
+    64: 'icons/icon-normal-64.png',
+    128: 'icons/icon-normal-128.png'
   },
   alert: {
-    16: 'icons/icon-alert-16.svg',
-    32: 'icons/icon-alert-32.svg',
-    48: 'icons/icon-alert-48.svg',
-    64: 'icons/icon-alert-64.svg',
-    128: 'icons/icon-alert-128.svg'
+    16: 'icons/icon-alert-16.png',
+    32: 'icons/icon-alert-32.png',
+    48: 'icons/icon-alert-48.png',
+    64: 'icons/icon-alert-64.png',
+    128: 'icons/icon-alert-128.png'
   },
   fail: {
-    16: 'icons/icon-fail-16.svg',
-    32: 'icons/icon-fail-32.svg',
-    48: 'icons/icon-fail-48.svg',
-    64: 'icons/icon-fail-64.svg',
-    128: 'icons/icon-fail-128.svg'
+    16: 'icons/icon-fail-16.png',
+    32: 'icons/icon-fail-32.png',
+    48: 'icons/icon-fail-48.png',
+    64: 'icons/icon-fail-64.png',
+    128: 'icons/icon-fail-128.png'
   }
 } as const;
 
 export const ACTION_ICON_PATHS_STATIC = {
   normal: {
-    16: 'icons/icon-normal-16-static.svg',
-    32: 'icons/icon-normal-32-static.svg',
-    48: 'icons/icon-normal-48-static.svg',
-    64: 'icons/icon-normal-64-static.svg',
-    128: 'icons/icon-normal-128-static.svg'
+    16: 'icons/icon-normal-16-static.png',
+    32: 'icons/icon-normal-32-static.png',
+    48: 'icons/icon-normal-48-static.png',
+    64: 'icons/icon-normal-64-static.png',
+    128: 'icons/icon-normal-128-static.png'
   },
   alert: {
-    16: 'icons/icon-alert-16-static.svg',
-    32: 'icons/icon-alert-32-static.svg',
-    48: 'icons/icon-alert-48-static.svg',
-    64: 'icons/icon-alert-64-static.svg',
-    128: 'icons/icon-alert-128-static.svg'
+    16: 'icons/icon-alert-16-static.png',
+    32: 'icons/icon-alert-32-static.png',
+    48: 'icons/icon-alert-48-static.png',
+    64: 'icons/icon-alert-64-static.png',
+    128: 'icons/icon-alert-128-static.png'
   },
   fail: {
-    16: 'icons/icon-fail-16-static.svg',
-    32: 'icons/icon-fail-32-static.svg',
-    48: 'icons/icon-fail-48-static.svg',
-    64: 'icons/icon-fail-64-static.svg',
-    128: 'icons/icon-fail-128-static.svg'
+    16: 'icons/icon-fail-16-static.png',
+    32: 'icons/icon-fail-32-static.png',
+    48: 'icons/icon-fail-48-static.png',
+    64: 'icons/icon-fail-64-static.png',
+    128: 'icons/icon-fail-128-static.png'
   }
 } as const;
 

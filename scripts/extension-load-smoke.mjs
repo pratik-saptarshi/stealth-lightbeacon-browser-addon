@@ -51,7 +51,8 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
     throw new Error(`${label} manifest points to missing popup shell: ${popupPath}`);
   }
 
-  accessSync(resolve(baseDir, 'popup.js'));
+  accessSync(resolve(baseDir, 'side-panel.js'));
+  accessSync(resolve(baseDir, 'side-panel.css'));
 
   const manifestIcons = manifest.icons ?? {};
   for (const [_size, relativePath] of Object.entries(manifestIcons)) {
@@ -67,10 +68,10 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
     }
   }
 
-  accessSync(resolve(baseDir, 'icons/icon-fail-16.svg'));
-  accessSync(resolve(baseDir, 'icons/icon-alert-16.svg'));
-  accessSync(resolve(baseDir, 'icons/icon-fail-16-static.svg'));
-  accessSync(resolve(baseDir, 'icons/icon-alert-16-static.svg'));
+  accessSync(resolve(baseDir, 'icons/icon-fail-16.png'));
+  accessSync(resolve(baseDir, 'icons/icon-alert-16.png'));
+  accessSync(resolve(baseDir, 'icons/icon-fail-16-static.png'));
+  accessSync(resolve(baseDir, 'icons/icon-alert-16-static.png'));
 
   const workerUrl = pathToFileURL(workerPath).href;
   return import(workerUrl).then(() => manifest);
