@@ -1,0 +1,44 @@
+name: test-matrix
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: test (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: unit
+            command: npm run test:unit
+          - label: integration
+            command: npm run test:integration
+          - label: backend-fallback
+            command: npm run test:ci:backend-fallback
+          - label: issues:policy
+            command: npm run test:ci:issues:policy
+          - label: required-backend-hard-fail
+            command: npm run test:ci:required-backend-hard-fail
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run test leg (${{ matrix.label }})
+        run: ${{ matrix.command }}

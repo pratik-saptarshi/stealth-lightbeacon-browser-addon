@@ -1,0 +1,251 @@
+version: "1.0"
+source:
+  title: "SignalDesk GEO/AI Advertising Guidelines"
+  url: "https://github.com/NivraSD/SignalDesk/blob/main/GEO.md?plain=1"
+  extracted_at: "2026-05-26"
+  scope: "prompt-response validation and orchestration guardrails"
+
+goals:
+  - id: G1
+    text: "Optimize schema/content for AI visibility and citation/recommendation likelihood"
+    must_include:
+      - competitive_differentiation
+      - factual_language
+      - audience_statement
+  - id: G2
+    text: "Improve AI agent perception in a measurable, versioned workflow"
+
+response_contracts:
+  suggestions:
+    id: suggestions
+    type: json_array
+    cardinality:
+      min_items: 3
+      max_items: 5
+    required_item_fields:
+      - field
+      - currentValue
+      - suggestedValue
+      - reason
+      - priority
+      - confidence
+    field_rules:
+      field:
+        type: string
+        min_length: 1
+        allow_dot_path: true
+      currentValue: [string, number, boolean, object, array, null]
+      suggestedValue: [string, number, boolean, object, array, null]
+      reason:
+        type: string
+        min_length: 20
+      priority:
+        type: string
+        enum: [high, medium, low]
+      confidence:
+        type: number
+        min: 0.0
+        max: 1.0
+    output_rules:
+      - output_must_be_json_only: true
+      - no_extra_text: true
+      - reasoning:
+          must_cover:
+            - ai_citation_focus
+            - competitive_differentiation
+            - concrete_numbers_if_available
+
+  description:
+    id: description
+    type: text
+    constraints:
+      min_chars: 150
+      max_chars: 200
+      must_include_company_activity: true
+      must_include_audience: true
+      avoid_marketing_fluff: true
+    output_rules:
+      - output_must_be_text_only: true
+      - no_extra_text: true
+
+  faq:
+    id: faq_schema
+    type: json_object
+    root_type: FAQPage
+    required_fields:
+      - "@context"
+      - "@type"
+      - "mainEntity"
+    field_rules:
+      "@context":
+        type: string
+        equals: "https://schema.org"
+      "@type":
+        type: string
+        equals: FAQPage
+      mainEntity:
+        type: array
+        min_items: 5
+        max_items: 7
+        each:
+          type: object
+          required_fields:
+            - "@type"
+            - name
+            - acceptedAnswer
+          acceptedAnswer:
+            type: object
+            required_fields:
+              - "@type"
+              - text
+            field_rules:
+              "@type":
+                type: string
+                equals: Answer
+
+schema_quality:
+  normalization:
+    ensure_context:
+      required: true
+      default: "https://schema.org"
+    graph_handling:
+      rule: "if @graph exists, select first entry for optimization/validation"
+  required_fields:
+    - "@context"
+    - "@type"
+  type_specific_checks:
+    Organization:
+      required:
+        - name
+      warnings:
+        - url
+        - logo
+    Product:
+      required:
+        - name
+      warnings:
+        - description
+        - offers
+    SoftwareApplication:
+      required:
+        - name
+      warnings:
+        - description
+        - offers
+
+lifecycle_governance:
+  deployment_state_enum: [draft, active, archived]
+  deployment_method_enum: [cdn, api, manual]
+  persistence:
+    require_version_history: true
+    require_change_audit:
+      - change_type
+      - reason
+      - trigger_data
+      - actor
+    require_suggestion_tracking:
+      status_enum: [pending, applied, rejected]
+      include_confidence: true
+  metrics:
+    daily_required_fields:
+      - schema_id
+      - date
+      - citation_count
+      - mention_count
+      - avg_position
+      - positive_mentions
+      - neutral_mentions
+      - negative_mentions
+
+validation_workflow:
+  guardrails:
+    - no_hardcoded_api_keys: true
+    - use_environment_variables: true
+    - preserve_existing_stack_patterns: true
+    - include_error_warning_handling: true
+  acceptance_checks:
+    - name: extraction_coverage
+      criteria:
+        - extract_from_sites_min: 5
+        - parse_schema_types:
+            includes: [Organization, Product, FAQPage]
+    - name: optimization_workflow
+      criteria:
+        - suggestion_generation: true
+        - suggestion_application: true
+        - versioning: true
+    - name: history_tracking
+      criteria:
+        - history_recorded: true
+        - version_diffs_recorded: true
+
+avoidance_rules:
+  - id: A1
+    title: "Obsolete Rich Snippets"
+    severity: high
+    scope: "schema_generation"
+    prohibited:
+      - "Do not emit FAQPage or HowTo schema for generic web-article layouts"
+      - "Do not emit those schema types solely for generic page templates"
+    allowed_when:
+      - "Use FAQPage/HowTo only when semantically and structurally justified"
+    validator:
+      kind: schema_type_guard
+      forbid_types:
+        - FAQPage
+        - HowTo
+      when:
+        page_type: web_article
+  - id: A2
+    title: "Sitemap Ping Automation"
+    severity: medium
+    scope: "backend_automation"
+    prohibited:
+      - "Do not create cron jobs or scripts that call Google sitemap ping endpoints"
+      - "Do not add backend calls for /ping?sitemap=*"
+    validator:
+      kind: network_call_pattern_block
+      block_patterns:
+        - "/ping?sitemap="
+      requires_reason: "This endpoint is inactive"
+  - id: A3
+    title: "Pagination rel prev/next"
+    severity: medium
+    scope: "html_generation"
+    prohibited:
+      - "Do not inject <link rel=\"prev\" ...> into page <head>"
+      - "Do not inject <link rel=\"next\" ...> into page <head>"
+    validator:
+      kind: html_head_link_disallow
+      forbidden_tags:
+        - rel="prev"
+        - rel="next"
+  - id: A4
+    title: "Shallow LLM Spam Pages"
+    severity: high
+    scope: "content_strategy"
+    prohibited:
+      - "Do not mass-produce short, low-value landing pages for every fan-out sub-query"
+      - "Do not create thin pages solely to answer each generated sub-question"
+    required:
+      - "Consolidate sub-questions in semantic H2/H3 sections within authoritative long-form pages"
+    validator:
+      kind: content_fanout_guard
+      pattern: "h2_h3_sectioning_preferred_over_isolated_landing_pages"
+  - id: A5
+    title: "Base64 Structural Images"
+    severity: high
+    scope: "frontend_assets"
+    prohibited:
+      - "Do not embed raw Base64 image payloads for structural resources"
+    required:
+      - "Use performant formats such as .webp or .avif for structural images"
+      - "Use descriptive filenames"
+      - "Ensure accurate accessibility attributes"
+    validator:
+      kind: asset_format_guard
+      forbidden_formats:
+        - data_uri_base64
+      allowed_formats:
+        - webp
+        - avif

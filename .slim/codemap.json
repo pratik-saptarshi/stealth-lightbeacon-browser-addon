@@ -1,0 +1,48 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "last_run": "2026-05-26T07:33:18.706Z",
+    "root": "/Volumes/dev/Git-SCM/stealth-lightbeacon-browser-addon",
+    "include_patterns": [
+      "src/**/*.ts"
+    ],
+    "exclude_patterns": [
+      "**/*.test.ts",
+      "dist/**",
+      "node_modules/**"
+    ],
+    "exceptions": []
+  },
+  "file_hashes": {
+    "src/background/backend-bridge.ts": "5cbda0082e3ada01c69335a54f643753",
+    "src/background/orchestrator.ts": "5ef7b3c39b94b12b8656deea0debede6",
+    "src/background/ruleset-catalog.ts": "d8fc4aac8df17ab04455f2af4a5b2ebd",
+    "src/background/scan-history.ts": "796a2a9299f7e13f088e10e0ada5866a",
+    "src/background/service-worker.ts": "bf80deb1cb4337960559dd2f7a945794",
+    "src/background/storage.ts": "6e3dd297813f276d3a3d31fa4368beec",
+    "src/content/content-script.ts": "ef16510befcb8d23dc5f2699503a2da1",
+    "src/content/extractor.ts": "eed1d329a67a32580c6ca4d7d982368d",
+    "src/shared/anti-bot.ts": "5026e1274e35594a423c87db36111499",
+    "src/shared/contracts.ts": "d56c9e2d28db3126676b32398cba15be",
+    "src/shared/message-contracts.ts": "5459069bf01dfe2f44b1af44d1eab11d",
+    "src/shared/rule-engine.ts": "ac9d9bdd78c011ec12493b9e51a0fa8e",
+    "src/shared/rules/dom.ts": "1bb7f7188bfc44774aa66c2ddb51d801",
+    "src/shared/rules/index.ts": "c57e155a7dae4e0b3ecf1a6f297e38a6",
+    "src/shared/rules/registry.ts": "97b6176d2255e2a9ca8fbcac77560968",
+    "src/shared/rules/test-support.ts": "2be140c89278321898f3777884e75966",
+    "src/shared/rulesets/catalog.ts": "8e23df6cc0859c08e9e159e63a70c595",
+    "src/shared/types.ts": "c347d3b39ced692512b8bad3d1b4e432",
+    "src/ui/export.ts": "c657e8cec714b9fa939bf158836e3de1",
+    "src/ui/grouping.ts": "11958c333046a94b93e1f4f80bde6317"
+  },
+  "folder_hashes": {
+    ".": "",
+    "src": "aa9689206cf39ee8ebed87565f4121d0",
+    "src/background": "2c85e61899b485c7c93dd2f2c9698a86",
+    "src/content": "539e4150c52c517d24826a143abb8068",
+    "src/shared": "b397aba9d2ee7a18ae31f5022c5cb3f5",
+    "src/shared/rules": "8409d9dd15747bfa9ddc4f5024626c28",
+    "src/shared/rulesets": "3ccba41947d292f2c93bbe5027647f91",
+    "src/ui": "7963a929b1f42150b9d468ee46215dcb"
+  }
+}

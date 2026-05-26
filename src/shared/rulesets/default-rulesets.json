@@ -1,0 +1,108 @@
+{
+  "version": "1.1.0",
+  "generatedAt": "2026-05-26T00:00:00Z",
+  "categories": [
+    {
+      "category": "seo",
+      "enabled": true,
+      "rules": [
+        {
+          "id": "seo-title-missing",
+          "title": "Title tag missing",
+          "severity": "high",
+          "enabled": true
+        },
+        {
+          "id": "seo-title-short",
+          "title": "Title too short",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "seo-missing-meta-description",
+          "title": "Meta description missing",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "seo-h1-required",
+          "title": "Heading structure mismatch",
+          "severity": "high",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "category": "geo",
+      "enabled": false,
+      "rules": [
+        {
+          "id": "geo-title-intent-mismatch",
+          "title": "Intent mismatch in title",
+          "severity": "low",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "category": "aeo",
+      "enabled": true,
+      "rules": [
+        {
+          "id": "aeo-canonical-link",
+          "title": "Canonical link missing",
+          "severity": "low",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "category": "security-headers",
+      "enabled": false,
+      "rules": [
+        {
+          "id": "sec-hsts-missing",
+          "title": "Strict-Transport-Security header not enforced",
+          "severity": "high",
+          "enabled": false
+        },
+        {
+          "id": "sec-csp-missing",
+          "title": "Content-Security-Policy header missing",
+          "severity": "medium",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "category": "WCAG2.1AA",
+      "enabled": false,
+      "rules": [
+        {
+          "id": "wcag21-contrast-ratio",
+          "title": "Contrast ratio should meet WCAG 2.1 AA",
+          "severity": "medium",
+          "enabled": false
+        },
+        {
+          "id": "wcag21-focus-visible",
+          "title": "Focusable elements should be visibly focusable",
+          "severity": "low",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "category": "WCAG2.2AA",
+      "enabled": false,
+      "rules": [
+        {
+          "id": "wcag22-input-assistance",
+          "title": "Error prevention and input assistance checks",
+          "severity": "low",
+          "enabled": false
+        }
+      ]
+    }
+  ]
+}
