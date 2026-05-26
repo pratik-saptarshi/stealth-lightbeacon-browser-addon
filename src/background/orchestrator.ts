@@ -5,7 +5,8 @@ import type {
   DiffResult,
   ScanRequest,
   ScanResult,
-  ScanSnapshot
+  ScanSnapshot,
+  BackendEngine
 } from '../shared/types';
 import type { RuleContext } from '../shared/rule-engine';
 import { diffSnapshots, runRules } from '../shared/rule-engine';
@@ -45,14 +46,15 @@ export class ScanOrchestrator {
   ): Promise<ScanResult & { diff: DiffResult }> {
     const validated = assertScanRequest(request);
     const recommendation = recommendEngine(validated, pageContext);
-    const rules = this.selectRules(validated, rulesetCatalog);
+    const effectiveRequest: ScanRequest = this.enrichBackendRequest(validated, recommendation);
+    const rules = this.selectRules(effectiveRequest, rulesetCatalog);
     const localResult = runRules(rules, pageContext);
 
     let snapshot = localResult.snapshot;
     let crawlNodes: CrawlNode[] | undefined;
 
-    if (this.shouldUseBackend(validated)) {
-      const backendResult = await this.runBackendScan(validated, pageContext, rulesetCatalog);
+    if (this.shouldUseBackend(effectiveRequest)) {
+      const backendResult = await this.runBackendScan(effectiveRequest, pageContext, rulesetCatalog);
       if (backendResult) {
         snapshot = backendResult.snapshot;
         crawlNodes = backendResult.crawlNodes;
@@ -84,6 +86,24 @@ export class ScanOrchestrator {
       recommendation,
       diff
     };
+  }
+
+  private enrichBackendRequest(request: ScanRequest, recommendation: { engine: BackendEngine }): ScanRequest {
+    if (!request.backend || request.backend.enabled === false) {
+      return request;
+    }
+
+    if (request.backend.mode === 'stdin' || request.backend.mode === undefined) {
+      return {
+        ...request,
+        backend: {
+          ...request.backend,
+          engine: request.backend.engine ?? recommendation.engine
+        }
+      };
+    }
+
+    return request;
   }
 
   private shouldUseBackend(request: ScanRequest): boolean {

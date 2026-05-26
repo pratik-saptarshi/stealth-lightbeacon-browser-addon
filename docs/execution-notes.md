@@ -1,11 +1,14 @@
 # Execution Notes
 
 ## Latest Capability Coverage (Backlog Review)
-- Completed: DOM-only rule engine, same-origin crawl-lite, history compare, issue grouping, exports, message routing.
-- Completed: optional backend hook and machine-readable categorized rulesets are implemented in local addon runtime.
-- Completed: anti-bot recommendation engine and SSRF/DNS hardening for crawl candidate + redirect validation.
-- Completed: issue-level filtering/report format APIs (`issues:list`, `report:build`) and additional export renderers (`html`, `llm-markdown`, `geo-xml`).
-- Partial: PageSpeed, broken-link discovery, full workspace watcher, and deeper remote engine adapter behavior.
+- Completed: DOM-only rule engine, same-origin crawl-lite, history compare, issue grouping, exports, and message routing.
+- Completed: optional backend modes (`http` + `stdin`) with Basic auth and backend-only hard-fail/fallback policy.
+- Completed: anti-bot recommendation engine and SSRF/DNS/redirect hardening for crawl candidates.
+- Completed: issue-level filtering/report APIs (`issues:list`, `report:build`) and additional formats (`html`, `llm-markdown`, `geo-xml`).
+- Completed: deterministic issue IDs and stable diff identity matching.
+- Completed: budget gate script (`audit:budget`) with exit-code-2 policy.
+- Completed: dedicated CI matrix slices for `backend-fallback`, `issues:policy`, `required-backend-hard-fail`.
+- Deferred: PageSpeed engine family, broken-link discovery, DuckDB/LanceDB persistence, semantic search, and workspace watcher.
 
 ## Phase Status (Beads)
 - BEAD-0001 ✅ Done.
@@ -23,21 +26,20 @@
 - BEAD-0013 ✅ Done.
 - BEAD-0014 ✅ Done.
 - BEAD-0015 ✅ Done.
+- BEAD-0016 ✅ Done.
+- BEAD-0017 ✅ Done.
+- BEAD-0018 ✅ Done.
 
 ## Validation Log
 - `npm run build`: success.
-- `npm test -- --run`: success (31 tests, all green).
+- `npm run test:unit`: success.
+- `npm run test:integration`: success.
+- `npm run test:ci:backend-fallback`: success.
+- `npm run test:ci:issues:policy`: success.
+- `npm run test:ci:required-backend-hard-fail`: success.
+- `npm test -- --run`: success (46 tests, all green).
 - Browser-extension E2E smoke: not executed in this environment.
 
-## Phase 6 Closure Validation
-- `npm run build`: success.
-- `npm test -- --run`: success (31 tests, all green).
-- New tests cover:
-  - SSRF/cross-origin blocking and redirect escape handling (`tests/background/orchestrator.test.ts`).
-  - Issue filtering/report rendering API (`tests/phase4/smoke.test.ts`).
-  - Multi-format report rendering (`tests/ui/grouping-and-export.test.ts`).
-  - Backend recommendation behavior (`tests/shared/anti-bot.test.ts`).
-
 ## Current Phase Conclusion
-- 0014/0015 are now closed under current repo constraints.
-- Workspace watcher remains a post-MCP item and is deferred by design.
+- All currently scoped phases are closed under this branch.
+- Workspace watcher mode remains a post-MCP item and is deferred by design.

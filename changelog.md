@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 — 2026-05-26
+- Hardened backend transport pathing per engine and added adapter factory for `http` vs `stdin`.
+- Added deterministic issue identity generation for stable historical diffing.
+- Added concrete backend-fallback and required-backend-hard-fail coverage in unit, integration, and CI slices.
+- Added machine-readable budget gate command (`scripts/audit-budget.mjs`) with exit-code-2 policy.
+- Updated execution docs and CI matrix with strict phase-labeled test gates.
+
 ## 0.1.0 — 2026-05-26
 - Added core browser-addon-lite runtime with manifest-driven background/content architecture.
 - Implemented DOM extraction and typed rule context (`content-script`, `extractor`).

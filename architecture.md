@@ -1,35 +1,37 @@
 # Browser Add-on Architecture
 
 ## Purpose
-Provide a local-first audit path in-browser with optional backend coupling to the stealth-lightbeacon Python runtime.
+Provide a local-first audit path in-browser with optional backend coupling.
 
 ## High-Level Shape
-- `src/content/`: Tab-scoped extractor that produces a structured `RuleContext`.
-- `src/shared/`: Domain model, contracts, anti-bot heuristics, and rule execution.
-- `src/background/`: Scan orchestration, crawl-lite runtime, message contract handling, and storage.
-- `src/ui/`: Issue grouping and export/report rendering utilities.
-- `api/openapi.yaml`: External contract for backend and ruleset/report endpoints.
+- `src/content/`: tab-scoped extractor that produces a structured `RuleContext`.
+- `src/shared/`: domain model, contracts, anti-bot heuristics, and rule execution.
+- `src/background/`: orchestration, crawl-lite runtime, backend adapters, and storage.
+- `src/ui/`: issue grouping and report rendering utilities.
+- `api/openapi.yaml`: external contract for remote/backend endpoints.
 
 ## Data & Control Flow
-1. Content extraction sends/collects `RuleContext`.
-2. Service worker receives `scan:start`, resolves catalog + history, and constructs `ScanOrchestrator`.
-3. Orchestrator executes local rules and optional backend scan (`http` or `stdio`).
-4. If backend fails and is optional, fallback returns local result and keeps `dom-only` policy for issues.
-5. Crawl-lite optionally expands internal links with origin + redirect checks.
-6. Results are persisted (memory/storage adapter) and surfaced through query APIs.
+1. Content script emits `RuleContext`.
+2. Service worker receives `scan:start`, resolves catalog and prior history.
+3. Orchestrator runs local evaluators, optional `http`/`stdin` backend, and crawl-lite.
+4. Engine recommendation is generated from anti-bot signal and passed into backend payload where applicable.
+5. On optional backend failure, execution returns local result (`dom-only` issue source).
+6. On required backend failure, scan fails with explicit reason.
+7. Results are persisted, then diffed against latest prior snapshot.
 
 ## Module Contracts
-- **Message contracts**: `src/shared/message-contracts.ts`.
-- **Validation**: `src/shared/contracts.ts` (Zod schema enforcement).
-- **Execution result**: `ScanSnapshot`, `CrawlNode`, `DiffResult` in `src/shared/types.ts`.
+- **Message contracts**: `src/shared/message-contracts.ts` and explicit response typing.
+- **Validation**: `src/shared/contracts.ts` for request/result schemas.
+- **Execution model**: `ScanSnapshot`, `CrawlNode`, `DiffResult` in `src/shared/types.ts`.
 - **Ruleset management**: `src/shared/rulesets/catalog.ts` + `src/background/ruleset-catalog.ts`.
+- **Backend transport**: `src/background/backend-bridge.ts`.
 
 ## Security and Failure Modes
-- Host permissions are scoped to HTTP/S by manifest.
-- Crawl queue hard-blocks private/canonical-origin escape links and validates redirect destinations.
-- Backend integration supports optional fallback; backend-only failures do not hard-fail unless `required: true`.
+- Crawl validation blocks non-HTTP/HTTPS, private/reserved hostnames, cross-origin seeds, and redirect escapes.
+- Backend path supports Basic auth and timeout control.
+- Failure taxonomy is explicit: `cors`, `timeout`, `blocked`, `non_html`, `other`.
 
 ## Extension Points
-- Add rule families by extending `src/shared/rules` and category metadata.
-- Add engine families by expanding adapter layer around `BackendAdapter`.
-- Add persistence adapters by implementing history and ruleset storage interfaces.
+- Add rule families by extending `src/shared/rules` + `src/shared/rulesets`.
+- Add engine families by extending adapter behavior around `BackendAdapter`.
+- Add persistence engines by implementing history and catalog storage interfaces.

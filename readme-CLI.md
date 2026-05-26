@@ -15,10 +15,16 @@
   - CI slice for issue policy (`dom-only` and filtering assertions).
 - `npm run test:ci:required-backend-hard-fail`
   - CI slice for mandatory backend failures.
+- `npm run audit:budget -- --path <jsonFile> --fail-on-critical --max-critical 0`
+  - Enforces critical budget (and optional high budget) on a snapshot payload.
+  - Exits with code `2` when budget is exceeded.
 
-## Planned commands
-- `npm run audit:budget -- --fail-on-critical`
-  - Planned failure-gate script (exit code 2 for policy breaches).
+## CI Test Phase Matrix
+- `unit`
+- `integration`
+- `backend-fallback` (`test:ci:backend-fallback`)
+- `issues:policy` (`test:ci:issues:policy`)
+- `required-backend-hard-fail` (`test:ci:required-backend-hard-fail`)
 
 ## Environment Notes
 - No required environment variables in local addon-only mode.

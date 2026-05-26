@@ -1,7 +1,7 @@
 import type { ClientMessage, MessageResponseByType } from '../shared/message-contracts';
 import { createFailure, isScanStartMessage } from '../shared/message-contracts';
 import { ScanOrchestrator } from './orchestrator';
-import { createBackendClient, createStdioBackendClient } from './backend-bridge';
+import { createBackendAdapter } from './backend-bridge';
 import { MemoryHistoryStorage, ScanHistoryManager } from './scan-history';
 import { createChromeHistoryStorage, type ChromeLike, type ChromeLikeStorageArea } from './storage';
 import { createRulesetCatalogStorage, MemoryRulesetCatalogStorage, RulesetCatalogManager } from './ruleset-catalog';
@@ -46,13 +46,11 @@ const rulesetManager = new RulesetCatalogManager(rulesetStorage ?? new MemoryRul
 export async function handleMessage(message: ClientMessage): Promise<MessageResponseByType[keyof MessageResponseByType]> {
   try {
     if (isScanStartMessage(message)) {
-      const backendClient =
-        message.request.backend?.mode === 'stdin'
-          ? createStdioBackendClient(
-              message.request.backend,
-              resolveBackendStdioExecutor(globalRuntime)
-            )
-          : createBackendClient(message.request.backend);
+      const backendClient = createBackendAdapter(
+        message.request.backend,
+        message.request.backend?.engine,
+        message.request.backend?.mode === 'stdin' ? resolveBackendStdioExecutor(globalRuntime) : undefined
+      );
 
       const orchestrator = new ScanOrchestrator({
         backendClient

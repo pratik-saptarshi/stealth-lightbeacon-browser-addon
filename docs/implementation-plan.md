@@ -95,6 +95,15 @@ Deliver browser-addon-lite to match `backlog.md` while keeping deterministic loc
 ## Post-MCP Reminder
 - Workspace watcher remains intentionally deferred and is scheduled for a post-MCP phase.
 
+## Current Execution Outcome
+- Phases 1-9 are complete under this repo scope.
+- Remaining implementation debt is explicitly deferred or tracked in `backlog.md`:
+  - deeper remote engine parity beyond transport wiring
+  - performance/PageSpeed and full WCAG/security/Drupal evaluator families
+  - broken-link and Drupal API discovery probes
+  - DuckDB/LanceDB + semantic search
+  - workspace watcher mode
+
 ## Exit Criteria
 - All checks green after each phase.
 - `npm run build`

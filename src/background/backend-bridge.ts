@@ -1,5 +1,6 @@
 import type { CrawlNode, ScanRequest, ScanSnapshot } from '../shared/types';
 import type { RuleContext } from '../shared/rule-engine';
+import type { BackendEngine } from '../shared/types';
 import { scanSnapshotSchema } from '../shared/contracts';
 
 export interface BackendScanResponse {
@@ -32,6 +33,7 @@ export interface BackendAdapter {
 
 interface HttpBackendOptions {
   endpoint: string;
+  engine?: BackendEngine;
   auth?: {
     username: string;
     password: string;
@@ -64,7 +66,7 @@ export class HttpBackendClient implements BackendAdapter {
     );
 
     try {
-      const response = await fetch(`${endpoint}${DEFAULT_BACKEND_PATH}`, {
+      const response = await fetch(`${endpoint}${backendPath(this.options.engine)}`, {
         ...request,
         signal: controller.signal
       });
@@ -99,7 +101,10 @@ export class StdinBackendClient implements BackendAdapter {
   }
 }
 
-export function createBackendClient(request: ScanRequest['backend']): BackendAdapter | undefined {
+export function createBackendClient(
+  request: ScanRequest['backend'],
+  selectedEngine?: BackendEngine
+): BackendAdapter | undefined {
   if (!request || request.enabled === false) {
     return undefined;
   }
@@ -118,6 +123,7 @@ export function createBackendClient(request: ScanRequest['backend']): BackendAda
 
   return new HttpBackendClient({
     endpoint: request.endpoint,
+    engine: selectedEngine || request.engine,
     auth: request.auth,
     timeoutMs: request.timeoutMs
   });
@@ -125,7 +131,8 @@ export function createBackendClient(request: ScanRequest['backend']): BackendAda
 
 export function createStdioBackendClient(
   request: ScanRequest['backend'],
-  executor: ((payload: BackendPayload) => Promise<unknown>) | undefined
+  executor: ((payload: BackendPayload) => Promise<unknown>) | undefined,
+  selectedEngine?: BackendEngine
 ): BackendAdapter | undefined {
   if (!request || request.enabled === false) {
     return undefined;
@@ -139,7 +146,39 @@ export function createStdioBackendClient(
     return undefined;
   }
 
-  return new StdinBackendClient(executor);
+  return new StdinBackendClient((payload) => {
+    const requestedEngine = selectedEngine ?? payload.request.backend?.engine;
+    if (!requestedEngine) {
+      return executor(payload);
+    }
+
+    return executor({
+      ...payload,
+      request: {
+        ...payload.request,
+        backend: {
+          ...payload.request.backend,
+          engine: requestedEngine
+        }
+      }
+    });
+  });
+}
+
+export function createBackendAdapter(
+  request: ScanRequest['backend'],
+  selectedEngine?: BackendEngine,
+  stdioExecutor?: ((payload: BackendPayload) => Promise<unknown>)
+): BackendAdapter | undefined {
+  if (!request || request.enabled === false) {
+    return undefined;
+  }
+
+  if (request.mode === 'stdin') {
+    return createStdioBackendClient(request, stdioExecutor, selectedEngine || request.engine);
+  }
+
+  return createBackendClient(request, selectedEngine);
 }
 
 function buildBasicAuthHeader(auth?: BackendConfig['auth']): Record<string, string> {
@@ -159,4 +198,12 @@ function buildBasicAuthHeader(auth?: BackendConfig['auth']): Record<string, stri
 
 function trimEndpoint(endpoint: string): string {
   return endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
+}
+
+function backendPath(engine?: BackendEngine): string {
+  if (!engine || engine === 'http') {
+    return DEFAULT_BACKEND_PATH;
+  }
+
+  return `${DEFAULT_BACKEND_PATH}/${engine}`;
 }

@@ -51,12 +51,19 @@ export interface RuleExecutionResult {
   snapshot: Omit<ScanSnapshot, 'id'>;
 }
 
-function createIssueId() {
-  if (typeof globalThis?.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
+function deterministicHash(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
   }
 
-  return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+  return Math.abs(hash).toString(16);
+}
+
+function createIssueId(ruleId: string, summary: string, evidence: string, selector: string = '') {
+  const key = [ruleId, summary, evidence, selector].join('|').toLowerCase();
+  return `iss-${deterministicHash(key)}`;
 }
 
 export function createIssue(
@@ -66,7 +73,7 @@ export function createIssue(
   selector?: string
 ): Issue {
   return {
-    id: createIssueId(),
+    id: createIssueId(rule.id, summary, evidence, selector),
     ruleId: rule.id,
     title: rule.title,
     severity: rule.severity,
@@ -118,8 +125,8 @@ function normalizeIssues(issues: Issue[]): Issue[] {
 }
 
 export function diffSnapshots(current: ScanSnapshot, previous?: ScanSnapshot): DiffResult {
-  const prevMap = new Map(previous?.issues.map((issue) => [issue.id, issue]));
-  const currMap = new Map(current.issues.map((issue) => [issue.id, issue]));
+  const prevMap = new Map(previous?.issues.map((issue) => [issueIdentity(issue), issue]));
+  const currMap = new Map(current.issues.map((issue) => [issueIdentity(issue), issue]));
 
   const newIssues: Issue[] = [];
   const resolvedIssues: Issue[] = [];
@@ -154,6 +161,20 @@ export function diffSnapshots(current: ScanSnapshot, previous?: ScanSnapshot): D
   }
 
   return { newIssues, resolvedIssues, regressions, improvements };
+}
+
+function issueIdentity(issue: Issue): string {
+  return [
+    issue.ruleId,
+    issue.title,
+    issue.domain,
+    issue.summary,
+    issue.evidence,
+    issue.selector ?? '',
+    issue.source
+  ]
+    .join('::')
+    .toLowerCase();
 }
 
 export function buildZeroDomainCounts(categories: string[]): Record<string, number> {

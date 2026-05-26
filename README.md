@@ -1,44 +1,38 @@
+ - `mode: 'stdin'` for local executor injection
 # Stealth Lightbeacon Browser Addon
 
-## Quick Start
-- `npm install`
-- `npm run build` - Type-check and compile.
-- `npm test -- --run` to run all tests.
-
 ## What this repo contains
-- Browser content-script extraction for DOM-only audits.
-- Background orchestrator with crawl-lite and optional backend fallback.
-- Pluggable categorized rule catalog stored as machine-readable JSON.
-- Issue filtering, local diffing, and export/report rendering.
+- DOM extraction and local rule execution in the browser context.
+- Optional backend coupling to `stealth-lightbeacon` backend (HTTP or stdio).
+- Pluggable machine-readable rulesets with category catalog updates.
+- Crawl-lite with same-origin and SSRF hardening.
+- Issue filtering, diffing, report generation, and optional export.
+- CI-driven test phases with dedicated slices for backend-fallback behavior and hard-fail policies.
 
-## Project Layout
-- `src/` - core runtime code.
-- `src/content/` - DOM extraction.
-- `src/shared/` - contracts, rules, schema types.
-- `src/background/` - scan orchestration, backend bridge, storage.
-- `src/ui/` - grouping and export helpers.
-- `api/openapi.yaml` - external backend contract.
-- `docs/` - implementation and roadmap notes.
-- `.github/workflows/test-matrix.yml` - CI matrix.
+## High-level architecture
+- `src/content/`: extracts `RuleContext` from the active tab.
+- `src/background/`: scan orchestration, backend adapter, history, and ruleset catalog state.
+- `src/shared/`: schemas, contracts, and rule engine.
+- `src/ui/`: issue grouping and report rendering.
+- `api/openapi.yaml`: OpenAPI contract for backend/stdio coupling.
 
-## Execution Phases
-- Core implemented phases: DOM extraction, rule execution, crawl-lite, history compare, fallback messaging, and report generation.
-- Deferred phase: workspace watcher mode (post-MCP).
+## Runtime modes
+- **local-only (default):** backend disabled; local DOM evaluators plus crawl-lite.
+- **remote backend (http):** optional endpoint mode with optional Basic auth and engine hint.
+- **local runner (stdio):** optional `__STEALTH_LIGHTBEACON_STDIN_EXECUTOR__` payload injector.
+- **fallback policy:** optional backend failures fallback to embedded ruleset and keep `dom-only` issues.
 
-## Planned runtime contract
-- `scan:start` runs DOM rules and optional backend.
-- `issues:list` applies optional filters.
-- `report:build` renders multiple output formats.
-- `history:*` supports list/latest/compare.
-- `ruleset:get` / `ruleset:update` supports catalog updates.
+## Commands
+- `npm install`
+- `npm run build` — TypeScript build.
+- `npm run test -- --run` — full suite.
+- `npm run test:unit` — unit slice.
+- `npm run test:integration` — integration slice.
+- `npm run test:ci:backend-fallback` — CI slice for fallback behavior.
+- `npm run test:ci:issues:policy` — CI slice for `dom-only` policy and filtering.
+- `npm run test:ci:required-backend-hard-fail` — CI slice for required-backend failures.
+- `npm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0`.
 
-## Backend integration (optional)
-- Set request `backend` in `scan:start` with:
-  - `enabled`
-  - `mode: 'http'` + `endpoint` (+ optional `auth`)
-  - `mode: 'stdin'` for local executor injection
-- If backend is unavailable and not required, addon falls back to local rule engine.
-
-## Notes
-- Node modules are excluded in CI and not committed.
-- For full roadmap and remaining items, see [`backlog.md`](backlog.md).
+## Workflow notes
+- Run `npm run build` and the three CI slices before considering any phase complete.
+- Workspace watcher mode is intentionally deferred to post-MCP.
