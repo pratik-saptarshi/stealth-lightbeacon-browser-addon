@@ -1,5 +1,5 @@
 import { summarizeIssues } from './contracts';
-import type { DiffResult, Issue, ScanSnapshot, Severity, RuleDomain } from './types';
+import type { DiffResult, Issue, IssueSource, ScanSnapshot, Severity, RuleDomain } from './types';
 
 export interface RuleContext {
   requestUrl: string;
@@ -70,7 +70,8 @@ export function createIssue(
   rule: Pick<RuleSpec, 'id' | 'title' | 'severity' | 'domain'>,
   summary: string,
   evidence: string,
-  selector?: string
+  selector?: string,
+  source: IssueSource = 'dom-only'
 ): Issue {
   return {
     id: createIssueId(rule.id, summary, evidence, selector),
@@ -81,7 +82,7 @@ export function createIssue(
     summary,
     evidence,
     selector,
-    source: 'dom-only'
+    source
   };
 }
 

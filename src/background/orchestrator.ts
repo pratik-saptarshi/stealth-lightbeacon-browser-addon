@@ -1,5 +1,6 @@
 import { assertScanRequest, summarizeIssues } from '../shared/contracts';
 import { recommendEngine } from '../shared/anti-bot';
+import { createIssue } from '../shared/rule-engine';
 import type {
   CrawlNode,
   DiffResult,
@@ -67,14 +68,17 @@ export class ScanOrchestrator {
       crawlNodes = await this.runCrawl(validated, pageContext);
     }
 
+    const crawlIssues = buildCrawlIssues(crawlNodes, validated.url);
+    const mergedIssues = [...snapshot.issues, ...crawlIssues];
+
     const resultSnapshot: ScanSnapshot = {
       id: `scan-${this.clock()}`,
       origin: snapshot.origin,
       url: validated.url,
       timestamp: this.clock(),
       engine: validated.engine,
-      issues: snapshot.issues,
-      summary: summarizeIssues(snapshot.issues)
+      issues: mergedIssues,
+      summary: summarizeIssues(mergedIssues)
     };
 
     const diff = diffSnapshots(resultSnapshot, previousSnapshot);
@@ -274,6 +278,129 @@ export class ScanOrchestrator {
     }
 
     return results;
+  }
+}
+
+function buildCrawlIssues(crawlNodes: CrawlNode[] | undefined, scanUrl: string) {
+  if (!crawlNodes?.length) {
+    return [];
+  }
+
+  const sourceUrl = new URL(scanUrl);
+
+  return crawlNodes.flatMap((node) => {
+    const discoveredFrom = node.discoveredFrom ?? scanUrl;
+    const evidence = node.finalUrl && node.finalUrl !== node.url
+      ? `Crawl target ${node.url} redirected to ${node.finalUrl}`
+      : `Crawl target ${node.url} discovered from ${discoveredFrom}`;
+
+    if (node.status === 'error') {
+      if (node.statusCode && node.statusCode >= 400) {
+        return [
+          createIssue(
+            {
+              id: 'crawl-broken-link',
+              title: 'Broken internal link discovered',
+              severity: node.statusCode >= 500 ? 'high' : 'medium',
+              domain: 'seo'
+            },
+            `Crawl target returned HTTP ${node.statusCode}`,
+            evidence,
+            undefined,
+            'backend'
+          )
+        ];
+      }
+
+      if (node.errorType === 'cors' || node.errorType === 'timeout' || node.errorType === 'blocked') {
+        return [
+          createIssue(
+            {
+              id: `crawl-${node.errorType ?? 'other'}-target`,
+              title: 'Crawl target could not be verified',
+              severity: node.errorType === 'timeout' ? 'high' : 'medium',
+              domain: 'seo'
+            },
+            `Crawl target ${node.errorType ?? 'other'} during verification`,
+            evidence,
+            undefined,
+            'backend'
+          )
+        ];
+      }
+
+      if (node.errorType === 'non_html') {
+        return [
+          createIssue(
+            {
+              id: 'crawl-non-html-target',
+              title: 'Crawl target is not HTML',
+              severity: 'low',
+              domain: 'seo'
+            },
+            'Crawl target returned a non-HTML document',
+            evidence,
+            undefined,
+            'backend'
+          )
+        ];
+      }
+    }
+
+    if (looksLikeDrupalEndpoint(node.url)) {
+      return [
+        createIssue(
+          {
+            id: 'drupal-endpoint-exposed',
+            title: 'Drupal API endpoint exposed',
+            severity: 'low',
+            domain: 'drupal'
+          },
+          `Discovered Drupal-oriented endpoint at ${node.url}`,
+          evidence,
+          undefined,
+          'backend'
+        )
+      ];
+    }
+
+    if (node.status === 'done' && node.finalUrl && node.finalUrl !== node.url) {
+      return [
+        createIssue(
+          {
+            id: 'crawl-redirect-observed',
+            title: 'Internal link redirected during crawl',
+            severity: 'low',
+            domain: 'seo'
+          },
+          `Crawl target redirected to ${node.finalUrl}`,
+          evidence,
+          undefined,
+          'backend'
+        )
+      ];
+    }
+
+    if (node.status === 'done' && sourceUrl.origin === new URL(node.url).origin && node.url !== scanUrl) {
+      return [];
+    }
+
+    return [];
+  });
+}
+
+function looksLikeDrupalEndpoint(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const target = `${parsed.pathname}${parsed.search}`.toLowerCase();
+    return (
+      target.includes('/jsonapi') ||
+      target.includes('/rest') ||
+      target.includes('/graphql') ||
+      target.includes('/entity/')
+    );
+  } catch {
+    return false;
   }
 }
 
