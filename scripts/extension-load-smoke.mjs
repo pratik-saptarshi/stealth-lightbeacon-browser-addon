@@ -1,12 +1,14 @@
-import { accessSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { accessSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const projectRoot = resolve(process.cwd());
 const distDir = resolve(projectRoot, 'dist');
-const manifestPath = resolve(distDir, 'manifest.json');
 const distWorker = resolve(distDir, 'service-worker.js');
+const sourceManifestPath = resolve(projectRoot, 'manifest.json');
+const sourceWorker = resolve(projectRoot, 'service-worker.js');
+const distManifestPath = resolve(distDir, 'manifest.json');
 
 function ensureBoolean(value) {
   return Boolean(value);
@@ -16,12 +18,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function validateStaticExtensionAssets() {
+function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const expected = manifest.background?.service_worker;
 
   if (!expected) {
-    throw new Error('manifest.json missing background.service_worker');
+    throw new Error(`${label} manifest.json missing background.service_worker`);
   }
 
   if (!manifest.content_security_policy?.extension_pages?.includes("script-src 'self'")) {
@@ -36,34 +38,34 @@ function validateStaticExtensionAssets() {
     throw new Error('Service worker must be module type');
   }
 
-  if (!readFileSync(resolve(distDir, expected), 'utf8')) {
-    throw new Error(`Missing dist service worker entry: ${expected}`);
+  if (!readFileSync(resolve(baseDir, expected), 'utf8')) {
+    throw new Error(`${label} manifest points to missing service worker: ${expected}`);
   }
 
   const manifestIcons = manifest.icons ?? {};
   for (const [_size, relativePath] of Object.entries(manifestIcons)) {
     if (typeof relativePath === 'string') {
-      accessSync(resolve(distDir, relativePath));
+      accessSync(resolve(baseDir, relativePath));
     }
   }
 
   const actionIcons = manifest.action?.default_icon ?? {};
   for (const relativePath of Object.values(actionIcons)) {
     if (typeof relativePath === 'string') {
-      accessSync(resolve(distDir, relativePath));
+      accessSync(resolve(baseDir, relativePath));
     }
   }
 
-  accessSync(resolve(distDir, 'icons/icon-fail-16.svg'));
-  accessSync(resolve(distDir, 'icons/icon-alert-16.svg'));
-  accessSync(resolve(distDir, 'icons/icon-fail-16-static.svg'));
-  accessSync(resolve(distDir, 'icons/icon-alert-16-static.svg'));
+  accessSync(resolve(baseDir, 'icons/icon-fail-16.svg'));
+  accessSync(resolve(baseDir, 'icons/icon-alert-16.svg'));
+  accessSync(resolve(baseDir, 'icons/icon-fail-16-static.svg'));
+  accessSync(resolve(baseDir, 'icons/icon-alert-16-static.svg'));
 
-  const workerUrl = pathToFileURL(distWorker).href;
+  const workerUrl = pathToFileURL(workerPath).href;
   return import(workerUrl).then(() => manifest);
 }
 
-async function validatePlaywrightSmoke() {
+async function validatePlaywrightSmoke(extensionDir) {
   let playwright;
   try {
     playwright = await import('playwright');
@@ -77,12 +79,12 @@ async function validatePlaywrightSmoke() {
     return { skipped: true };
   }
 
-  const tmpProfile = mkdtempSync(join(tmpdir(), 'slt-extension-load-'));
+    const tmpProfile = mkdtempSync(join(tmpdir(), 'slt-extension-load-'));
   const context = await playwright.chromium.launchPersistentContext(tmpProfile, {
     headless: true,
     args: [
-      `--disable-extensions-except=${distDir}`,
-      `--load-extension=${distDir}`,
+      `--disable-extensions-except=${extensionDir}`,
+      `--load-extension=${extensionDir}`,
       '--disable-sync',
       '--metrics-recording-only',
       '--no-first-run'
@@ -114,10 +116,19 @@ async function validatePlaywrightSmoke() {
 
 async function main() {
   try {
-    const manifest = await validateStaticExtensionAssets();
-    console.log(`[extension-load-smoke] Loaded manifest ${manifest.name}@${manifest.version}`);
+    const sourceManifest = await validateStaticExtensionAssets(
+      sourceManifestPath,
+      sourceWorker,
+      projectRoot,
+      'source'
+    );
+    if (existsSync(distManifestPath)) {
+      await validateStaticExtensionAssets(distManifestPath, distWorker, distDir, 'dist');
+    }
 
-    const runtime = await validatePlaywrightSmoke();
+    console.log(`[extension-load-smoke] Loaded manifest ${sourceManifest.name}@${sourceManifest.version}`);
+
+    const runtime = await validatePlaywrightSmoke(projectRoot);
     if (runtime.skipped) {
       console.log('[extension-load-smoke] PASS (static validation only).');
       return;
