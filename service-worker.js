@@ -672,6 +672,33 @@ var seoHeadingStructure = {
     ];
   }
 };
+var seoCanonicalConsistency = {
+  id: "seo-canonical-consistency",
+  title: "Canonical should match page origin",
+  severity: "medium",
+  domain: "seo",
+  evaluate: (context) => {
+    if (!context.canonical?.trim()) {
+      return [];
+    }
+    try {
+      const canonicalOrigin = new URL(context.canonical).origin;
+      const pageOrigin = new URL(context.requestUrl).origin;
+      if (canonicalOrigin === pageOrigin) {
+        return [];
+      }
+      return [
+        createIssue(
+          seoCanonicalConsistency,
+          "Canonical points to a different origin",
+          `Canonical ${context.canonical} differs from page origin ${pageOrigin}`
+        )
+      ];
+    } catch {
+      return [];
+    }
+  }
+};
 var a11yImagesAlt = {
   id: "a11y-images-alt",
   title: "Image missing alt text",
@@ -735,6 +762,27 @@ var uxFormsRequiredLabel = {
     );
   }
 };
+var aeoAnswerSummary = {
+  id: "aeo-answer-summary",
+  title: "Answer summary missing",
+  severity: "low",
+  domain: "aeo",
+  evaluate: (context) => {
+    const normalizedTitle = context.title.trim();
+    const looksLikeQuestion = /\?$/.test(normalizedTitle) || /^(how|what|why|when|where|who|which|can|should|does|do|is|are)\b/i.test(normalizedTitle);
+    const answerSummary = (context.metaDescription ?? "").trim();
+    if (!looksLikeQuestion || answerSummary.length >= 20) {
+      return [];
+    }
+    return [
+      createIssue(
+        aeoAnswerSummary,
+        "Question-style page lacks a concise answer summary",
+        `Title "${context.title}" has no useful answer summary`
+      )
+    ];
+  }
+};
 var aeoCanonicalLink = {
   id: "aeo-canonical-link",
   title: "Canonical link missing",
@@ -754,10 +802,12 @@ var domRules = [
   seoTitleShort,
   seoMetaDescriptionMissing,
   seoHeadingStructure,
+  seoCanonicalConsistency,
   a11yImagesAlt,
   a11yLangAttribute,
   uxButtonLabel,
   uxFormsRequiredLabel,
+  aeoAnswerSummary,
   aeoCanonicalLink
 ];
 
@@ -796,6 +846,12 @@ var default_rulesets_default = {
           title: "Heading structure mismatch",
           severity: "high",
           enabled: true
+        },
+        {
+          id: "seo-canonical-consistency",
+          title: "Canonical should match page origin",
+          severity: "medium",
+          enabled: true
         }
       ]
     },
@@ -818,6 +874,12 @@ var default_rulesets_default = {
         {
           id: "aeo-canonical-link",
           title: "Canonical link missing",
+          severity: "low",
+          enabled: true
+        },
+        {
+          id: "aeo-answer-summary",
+          title: "Answer summary missing",
           severity: "low",
           enabled: true
         }
@@ -1818,10 +1880,11 @@ var default_knowledge_base_default = {
         {
           id: "seo-core-summary",
           title: "SEO core checks",
-          summary: "Baseline SEO guidance for title, meta description, headings, and canonical behavior.",
+          summary: "Baseline SEO guidance for title, meta description, headings, and canonical consistency.",
           notes: [
             "Keep one descriptive title per page.",
-            "Preserve canonical consistency across the crawl boundary."
+            "Preserve canonical consistency across the crawl boundary.",
+            "Keep canonical URLs aligned with the page origin."
           ],
           enabled: true
         }
@@ -1850,10 +1913,11 @@ var default_knowledge_base_default = {
         {
           id: "aeo-core-summary",
           title: "AEO core checks",
-          summary: "Answer engine optimization guidance for direct-answer content.",
+          summary: "Answer engine optimization guidance for direct answer content and concise answer summaries.",
           notes: [
             "Lead with concise answers and support with structured follow-up.",
-            "Avoid content fragmentation that obscures the primary answer."
+            "Avoid content fragmentation that obscures the primary answer.",
+            "Provide a concise answer summary when the page reads like a question."
           ],
           enabled: true
         }
