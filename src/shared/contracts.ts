@@ -80,6 +80,7 @@ export const scanRequestSchema = z.object({
       engine: z.enum(['http', 'fast-obscura', 'stealth-playwright', 'mcp']).optional(),
       endpoint: z.string().url().optional(),
       allowedHosts: z.array(z.string().min(1)).optional(),
+      requestSigningSecret: z.string().min(1).max(256).optional(),
       auth: z
         .object({
           username: z.string().min(1),

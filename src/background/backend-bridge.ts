@@ -19,6 +19,7 @@ export interface BackendConfig {
   enabled?: boolean;
   mode?: 'http' | 'stdin';
   endpoint?: string;
+  requestSigningSecret?: string;
   auth?: {
     username: string;
     password: string;
@@ -34,6 +35,7 @@ export interface BackendAdapter {
 interface HttpBackendOptions {
   endpoint: string;
   engine?: BackendEngine;
+  requestSigningSecret?: string;
   auth?: {
     username: string;
     password: string;
@@ -43,20 +45,27 @@ interface HttpBackendOptions {
 
 const DEFAULT_BACKEND_PATH = '/v1/audit/scan';
 const DEFAULT_BACKEND_TIMEOUT_MS = 3500;
+const MAX_STDIN_PAYLOAD_BYTES = 64 * 1024;
+const DEFAULT_STDIN_TIMEOUT_MS = 3000;
 
 export class HttpBackendClient implements BackendAdapter {
   constructor(private readonly options: HttpBackendOptions) {}
 
   async runScan(payload: BackendPayload): Promise<BackendScanResponse> {
     const endpoint = trimEndpoint(this.options.endpoint);
+    const requestBody = JSON.stringify(payload);
+    const headers = {
+      ...await buildSignedHeaders(this.options.requestSigningSecret, requestBody),
+      ...buildBasicAuthHeader(this.options.auth)
+    };
     const request: RequestInit = {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json',
-        ...buildBasicAuthHeader(this.options.auth)
+        ...headers
       },
-      body: JSON.stringify(payload)
+      body: requestBody
     };
 
     const controller = new AbortController();
@@ -88,10 +97,18 @@ export class HttpBackendClient implements BackendAdapter {
 }
 
 export class StdinBackendClient implements BackendAdapter {
-  constructor(private readonly executor: (payload: BackendPayload) => Promise<unknown>) {}
+  constructor(
+    private readonly executor: (payload: BackendPayload) => Promise<unknown>,
+    private readonly timeoutMs = DEFAULT_STDIN_TIMEOUT_MS
+  ) {}
 
   async runScan(payload: BackendPayload): Promise<BackendScanResponse> {
-    const parsed = await this.executor(payload);
+    const serialized = JSON.stringify(payload);
+    if (serialized.length > MAX_STDIN_PAYLOAD_BYTES) {
+      throw new Error('Stdio backend payload exceeds 64KB limit');
+    }
+
+    const parsed = await withTimeout(Promise.resolve(this.executor(payload)), this.timeoutMs, 'Stdio backend timed out');
     const container = parsed as { snapshot?: unknown; crawlNodes?: CrawlNode[] };
     const snapshot = scanSnapshotSchema.parse(container.snapshot);
     return {
@@ -124,6 +141,7 @@ export function createBackendClient(
   return new HttpBackendClient({
     endpoint: request.endpoint,
     engine: selectedEngine || request.engine,
+    requestSigningSecret: request.requestSigningSecret,
     auth: request.auth,
     timeoutMs: request.timeoutMs
   });
@@ -162,7 +180,7 @@ export function createStdioBackendClient(
         }
       }
     });
-  });
+  }, request.timeoutMs);
 }
 
 export function createBackendAdapter(
@@ -196,6 +214,67 @@ function buildBasicAuthHeader(auth?: BackendConfig['auth']): Record<string, stri
   };
 }
 
+async function buildSignedHeaders(secret: string | undefined, payload: string): Promise<Record<string, string>> {
+  if (!secret) {
+    return {};
+  }
+
+  const signature = await computeHmacSha256(secret, payload);
+  return {
+    'x-stlt-signature': signature
+  };
+}
+
+async function computeHmacSha256(secret: string, message: string): Promise<string> {
+  if (typeof globalThis.crypto?.subtle === 'undefined' || typeof TextEncoder === 'undefined') {
+    return fallbackSignature(secret, message);
+  }
+
+  const encoder = new TextEncoder();
+  const key = await globalThis.crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    {
+      name: 'HMAC',
+      hash: { name: 'SHA-256' }
+    },
+    false,
+    ['sign']
+  );
+
+  const signature = await globalThis.crypto.subtle.sign('HMAC', key, encoder.encode(message));
+  return base64FromBytes(new Uint8Array(signature));
+}
+
+function fallbackSignature(secret: string, message: string): string {
+  let acc = 0;
+  const key = `${secret}:${message}`;
+  for (let index = 0; index < key.length; index++) {
+    acc = (acc + key.charCodeAt(index) * 31) % 0x7fffffff;
+  }
+
+  return `fallback:${acc.toString(16)}`;
+}
+
+function base64FromBytes(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  if (typeof btoa === 'function') {
+    return btoa(binary);
+  }
+
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(binary, 'binary').toString('base64');
+  }
+
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 function trimEndpoint(endpoint: string): string {
   return endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
 }
@@ -206,4 +285,23 @@ function backendPath(engine?: BackendEngine): string {
   }
 
   return `${DEFAULT_BACKEND_PATH}/${engine}`;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  return Promise.race<T>([
+    promise,
+    new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        const timedOut = new Error(message);
+        (timedOut as Error & { name: string }).name = 'TimeoutError';
+        reject(timedOut);
+      }, timeoutMs);
+    })
+  ]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
 }

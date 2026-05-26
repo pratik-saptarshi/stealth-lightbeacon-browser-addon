@@ -15,5 +15,8 @@ describe('addon manifest', () => {
     expect(manifest.permissions).toContain('scripting');
     expect((manifest.host_permissions ?? [])).toEqual([]);
     expect(manifest.content_scripts).toBeUndefined();
+    expect(manifest.content_security_policy?.extension_pages).toContain("script-src 'self'");
+    expect(manifest.content_security_policy?.extension_pages).toContain("object-src 'self'");
+    expect(manifest.minimum_chrome_version).toBe('116');
   });
 });

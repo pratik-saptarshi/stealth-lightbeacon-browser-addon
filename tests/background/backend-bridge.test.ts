@@ -134,6 +134,48 @@ describe('backend bridge', () => {
     expect(payload.request.backend?.endpoint).toBe('https://localhost:3000');
   });
 
+  it('adds signed request header when requestSigningSecret is set', async () => {
+    const originalFetch = globalThis.fetch;
+    const captured: Record<string, string> = {};
+    const mock = vi.fn(async (url: string, init: RequestInit) => {
+      const headers = init.headers as HeadersInit;
+      if (headers instanceof Headers) {
+        captured['signature'] = headers.get('x-stlt-signature') ?? '';
+      } else if (typeof headers === 'object' && headers !== null) {
+        captured['signature'] = String((headers as Record<string, string>)['x-stlt-signature'] ?? '');
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          snapshot: emptySnapshot
+        })
+      } as Response;
+    });
+
+    globalThis.fetch = mock as unknown as typeof fetch;
+
+    const request: ScanRequest = {
+      ...baseRequest,
+      backend: {
+        ...baseRequest.backend,
+        requestSigningSecret: 'unit-signing-secret'
+      }
+    };
+
+    const client = createBackendClient(request.backend, request.backend?.engine);
+    if (!client) {
+      throw new Error('Expected backend client');
+    }
+
+    await client.runScan({ ...basePayload, request });
+
+    expect(captured['signature']).toBeTruthy();
+    expect(captured['signature'].length).toBeGreaterThan(10);
+    globalThis.fetch = originalFetch;
+  });
+
   it('builds adapter from backend mode', async () => {
     const request: ScanBackendConfig = {
       enabled: true,
@@ -155,5 +197,65 @@ describe('backend bridge', () => {
     expect(calls).toHaveLength(1);
 
     expect(response.snapshot.id).toBe('scan-1');
+  });
+
+  it('enforces stdio payload limit', async () => {
+    const request: ScanRequest = {
+      ...baseRequest,
+      backend: {
+        ...baseRequest.backend,
+        mode: 'stdin'
+      }
+    };
+
+    const tooLarge = 'x'.repeat(70_000);
+    const executor: (payload: BackendPayload) => Promise<{ snapshot: unknown }> = async () => ({
+      snapshot: {
+        ...emptySnapshot,
+        url: tooLarge
+      }
+    });
+
+    const adapter = createStdioBackendClient(request.backend, executor, request.backend?.engine);
+    if (!adapter) {
+      throw new Error('Expected stdio adapter');
+    }
+
+    const oversizedContext = {
+      ...basePayload,
+      request: {
+        ...basePayload.request,
+        requestId: tooLarge
+      },
+      pageContext: {
+        ...basePayload.pageContext,
+        canonical: tooLarge
+      }
+    };
+
+    await expect(adapter.runScan(oversizedContext)).rejects.toThrow('Stdio backend payload exceeds');
+  });
+
+  it('times out stdio execution after timeoutMs', async () => {
+    const request: ScanRequest = {
+      ...baseRequest,
+      backend: {
+        ...baseRequest.backend,
+        mode: 'stdin',
+        timeoutMs: 10
+      }
+    };
+
+    const neverSettles: (payload: BackendPayload) => Promise<{ snapshot: unknown }> = () =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ snapshot: emptySnapshot }), 1200);
+      });
+
+    const adapter = createStdioBackendClient(request.backend, neverSettles, request.backend?.engine);
+    if (!adapter) {
+      throw new Error('Expected stdio adapter');
+    }
+
+    await expect(adapter.runScan(basePayload)).rejects.toThrow('Stdio backend timed out');
   });
 });

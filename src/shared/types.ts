@@ -77,6 +77,7 @@ export interface ScanRequest {
     engine?: BackendEngine;
     endpoint?: string;
     allowedHosts?: string[];
+    requestSigningSecret?: string;
     auth?: {
       username: string;
       password: string;
