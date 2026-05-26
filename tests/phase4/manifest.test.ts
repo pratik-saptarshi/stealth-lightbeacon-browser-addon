@@ -10,6 +10,7 @@ describe('addon manifest', () => {
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.background?.type).toBe('module');
     expect(manifest.background?.service_worker).toContain('service-worker.js');
+    expect(() => readFileSync(resolve(process.cwd(), manifest.background?.service_worker), 'utf8')).not.toThrow();
     expect(manifest.permissions).toContain('storage');
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('scripting');
