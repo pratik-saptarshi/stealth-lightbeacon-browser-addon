@@ -23,8 +23,10 @@
 
       body {
         margin: 0;
-        min-width: 360px;
-        max-width: 420px;
+        width: min(100vw, 420px);
+        min-width: 320px;
+        max-width: 100vw;
+        overflow-x: hidden;
         background:
           radial-gradient(circle at top left, rgba(13, 71, 161, 0.12), transparent 34%),
           radial-gradient(circle at top right, rgba(212, 154, 23, 0.2), transparent 38%),
@@ -37,12 +39,15 @@
       input,
       select {
         font: inherit;
+        line-height: 1.35;
       }
 
       button {
         border: 0;
         border-radius: 999px;
         cursor: pointer;
+        min-height: 44px;
+        touch-action: manipulation;
       }
 
       .shell {
@@ -53,6 +58,7 @@
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 12px;
         padding: 16px;
         border: 1px solid var(--border);
@@ -67,6 +73,7 @@
         flex-direction: column;
         align-items: flex-end;
         gap: 8px;
+        min-width: 0;
       }
 
       .eyebrow {
@@ -83,6 +90,7 @@
         font-size: 19px;
         line-height: 1.15;
         letter-spacing: -0.03em;
+        overflow-wrap: anywhere;
       }
 
       .subtitle {
@@ -90,6 +98,7 @@
         color: var(--muted);
         font-size: 12px;
         line-height: 1.45;
+        overflow-wrap: anywhere;
       }
 
       .status-pill {
@@ -109,7 +118,7 @@
       }
 
       .settings-toggle {
-        min-height: 32px;
+        min-height: 44px;
         padding: 0 12px;
         border: 1px solid rgba(13, 71, 161, 0.18);
         background: rgba(255, 255, 255, 0.9);
@@ -138,13 +147,13 @@
 
       .controls {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 8px;
         margin: 12px 0;
       }
 
       .controls button {
-        min-height: 38px;
+        min-height: 44px;
         padding: 0 12px;
         border: 1px solid rgba(44, 62, 80, 0.12);
         background: rgba(255, 255, 255, 0.82);
@@ -169,7 +178,7 @@
       }
 
       .controls .primary {
-        grid-column: span 2;
+        grid-column: 1 / -1;
         color: #fff;
         background: linear-gradient(135deg, var(--accent), #123d7e);
         border-color: transparent;
@@ -190,12 +199,13 @@
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 12px;
         margin-bottom: 12px;
       }
 
       .settings-panel-head button {
-        min-height: 32px;
+        min-height: 44px;
         padding: 0 12px;
         border: 1px solid rgba(44, 62, 80, 0.12);
         color: var(--muted-strong);
@@ -231,7 +241,7 @@
 
       .settings-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 8px;
       }
 
@@ -245,6 +255,7 @@
         color: var(--muted-strong);
         font-size: 11px;
         font-weight: 700;
+        min-width: 0;
       }
 
       .settings-grid label span {
@@ -285,7 +296,7 @@
 
       .settings-checklist {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 6px 10px;
         margin-top: 8px;
       }
@@ -300,7 +311,7 @@
 
       .settings-actions button,
       .settings-actions a {
-        min-height: 34px;
+        min-height: 44px;
         padding: 0 12px;
         border: 1px solid rgba(13, 71, 161, 0.12);
         color: var(--accent);
@@ -356,7 +367,7 @@
 
       .summary-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
         gap: 8px;
         margin: 0 0 12px;
       }
@@ -437,6 +448,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 10px;
         padding: 14px;
         cursor: pointer;
@@ -559,6 +571,7 @@
         gap: 6px;
         color: var(--muted);
         font-size: 11px;
+        overflow-wrap: anywhere;
       }
 
       .issue-meta code {
@@ -573,6 +586,7 @@
         color: var(--text);
         font-size: 12px;
         line-height: 1.45;
+        overflow-wrap: anywhere;
       }
 
       .issue-evidence {
@@ -609,6 +623,18 @@
       @media (max-width: 399px) {
         body {
           min-width: 0;
+        }
+
+        .hero {
+          padding: 14px;
+        }
+
+        .controls {
+          grid-template-columns: 1fr;
+        }
+
+        .controls .primary {
+          grid-column: auto;
         }
 
         .summary-grid {

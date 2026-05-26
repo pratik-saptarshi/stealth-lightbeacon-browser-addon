@@ -179,7 +179,7 @@ async function validateAxeSmoke(extensionDir) {
       throw new Error('No extension service workers detected within 5s');
     }
 
-    const popupUrl = pathToFileURL(resolve(projectRoot, 'popup.html')).href;
+    const popupUrl = new URL('popup.html', workers[0].url()).href;
     const popupPage = await context.newPage();
     await popupPage.goto(popupUrl);
     await popupPage.waitForSelector('[data-testid="popup-shell"]');

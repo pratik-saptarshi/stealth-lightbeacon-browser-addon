@@ -587,8 +587,19 @@ async function initialize() {
       render({ offline: true, statusLine: "Popup shell loaded outside the extension runtime." });
       return;
     }
-    await Promise.all([loadBackendSettings(), loadPanelSettings()]);
-    await startScan(false);
+    render({ statusLine: "Loading saved settings and cached scan..." });
+    const [backendSettings, panelSettings] = await Promise.all([loadBackendSettings(), loadPanelSettings()]);
+    state.backendSettings = backendSettings;
+    state.panelSettings = panelSettings;
+    const loadedCachedScan = await loadCachedScanFromHistory();
+    if (!loadedCachedScan) {
+      state.snapshot = void 0;
+      state.diff = void 0;
+      state.selectedIssueIds.clear();
+      state.status = "idle";
+      state.note = "No cached scan found. Click Rescan to scan the active tab.";
+    }
+    render();
   });
 }
 function hasExtensionRuntime() {
@@ -904,24 +915,49 @@ function bindSettingsInputs() {
 async function loadBackendSettings() {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
-    state.backendSettings = { ...DEFAULT_BACKEND_SETTINGS };
-    renderPanelSettings();
-    return;
+    return { ...DEFAULT_BACKEND_SETTINGS };
   }
   const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
-  state.backendSettings = normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
-  renderPanelSettings();
+  return normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
 }
 async function loadPanelSettings() {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
-    state.panelSettings = { ...DEFAULT_PANEL_SETTINGS };
-    renderPanelSettings();
-    return;
+    return { ...DEFAULT_PANEL_SETTINGS };
   }
   const payload = await storage.get([PANEL_SETTINGS_STORAGE_KEY]);
-  state.panelSettings = normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
-  renderPanelSettings();
+  return normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
+}
+async function loadCachedScanFromHistory() {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+    return false;
+  }
+  try {
+    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+    const activeTab = activeTabs[0];
+    if (!activeTab?.url || !activeTab.id) {
+      return false;
+    }
+    const activeUrl = new URL(activeTab.url);
+    const reply = await runtime.runtime.sendMessage({
+      type: "history:compare",
+      origin: activeUrl.origin
+    });
+    state.tabId = activeTab.id;
+    state.tabUrl = activeTab.url;
+    if (!reply.ok || !reply.payload.latest) {
+      return false;
+    }
+    state.snapshot = reply.payload.latest;
+    state.diff = reply.payload.diff;
+    state.selectedIssueIds.clear();
+    state.status = "complete";
+    state.note = "Cached scan loaded";
+    return true;
+  } catch {
+    return false;
+  }
 }
 async function persistBackendSettings() {
   state.backendSettings = readBackendSettingsFromDom();
@@ -1173,3 +1209,6 @@ function escapeHtml(value) {
 function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, "&#96;");
 }
+export {
+  initialize
+};
