@@ -1,0 +1,524 @@
+// src/popup/popup-state.ts
+var SEVERITY_ORDER = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3
+};
+function sortIssuesForPanel(issues) {
+  return [...issues].sort((left, right) => {
+    if (left.domain !== right.domain) {
+      return left.domain.localeCompare(right.domain);
+    }
+    const severityDelta = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+    const titleDelta = left.title.localeCompare(right.title);
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+    const ruleDelta = left.ruleId.localeCompare(right.ruleId);
+    if (ruleDelta !== 0) {
+      return ruleDelta;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+function buildPopupIssuePanelModel(snapshot, diff, scanStatus = "complete") {
+  const sortedIssues = sortIssuesForPanel(snapshot.issues);
+  const groupedByDomain = /* @__PURE__ */ new Map();
+  const counts = {
+    critical: snapshot.summary.bySeverity.critical ?? 0,
+    high: snapshot.summary.bySeverity.high ?? 0,
+    medium: snapshot.summary.bySeverity.medium ?? 0,
+    low: snapshot.summary.bySeverity.low ?? 0
+  };
+  for (const issue of sortedIssues) {
+    const current = groupedByDomain.get(issue.domain) ?? {
+      domain: issue.domain,
+      total: 0,
+      counts: {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0
+      },
+      groups: []
+    };
+    current.total += 1;
+    current.counts[issue.severity] += 1;
+    const severityGroup = current.groups.find((entry) => entry.severity === issue.severity);
+    if (severityGroup) {
+      severityGroup.issues.push(issue);
+    } else {
+      current.groups.push({
+        severity: issue.severity,
+        issues: [issue]
+      });
+      current.groups.sort((left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity]);
+    }
+    groupedByDomain.set(issue.domain, current);
+  }
+  const domains = Array.from(groupedByDomain.values()).sort((left, right) => left.domain.localeCompare(right.domain));
+  return {
+    scanId: snapshot.id,
+    scanStatus,
+    origin: snapshot.origin,
+    url: snapshot.url,
+    generatedAt: new Date(snapshot.timestamp).toISOString(),
+    total: snapshot.summary.total,
+    counts,
+    domains,
+    delta: diff ? {
+      newCount: diff.newIssues.length,
+      fixedCount: diff.resolvedIssues.length + diff.improvements.length,
+      unchangedCount: Math.max(snapshot.summary.total - diff.newIssues.length - (diff.resolvedIssues.length + diff.improvements.length), 0)
+    } : void 0
+  };
+}
+function buildIssueExportJson(issues, meta) {
+  return JSON.stringify(
+    {
+      ...meta,
+      issues
+    },
+    null,
+    2
+  );
+}
+function buildIssueExportMarkdown(issues, meta) {
+  const lines = [
+    "# Stealth Lightbeacon Issue Export",
+    `- Scan ID: ${meta.scanId}`,
+    `- Origin: ${meta.origin}`,
+    `- URL: ${meta.url}`,
+    `- Generated: ${meta.generatedAt}`,
+    "",
+    "## Issues"
+  ];
+  for (const issue of issues) {
+    lines.push(`- [${issue.severity}] **${issue.domain}** / ${issue.ruleId}: ${issue.title}`);
+    lines.push(`  - Summary: ${issue.summary}`);
+    lines.push(`  - Evidence: ${issue.evidence}`);
+    if (issue.selector) {
+      lines.push(`  - Selector: ${issue.selector}`);
+    }
+  }
+  return lines.join("\n");
+}
+function collectSelectors(issues) {
+  return Array.from(
+    new Set(
+      issues.map((issue) => issue.selector?.trim()).filter((selector) => Boolean(selector))
+    )
+  );
+}
+
+// src/popup/popup.ts
+var runtimeHost = typeof globalThis === "undefined" ? {} : globalThis;
+var state = {
+  status: "idle",
+  scanId: "",
+  selectedIssueIds: /* @__PURE__ */ new Set()
+};
+var dom = {
+  shell: null,
+  statusPill: null,
+  statusLine: null,
+  summaryGrid: null,
+  deltaPanel: null,
+  errorPanel: null,
+  offlinePanel: null,
+  issuesPanel: null,
+  rescanButton: null,
+  exportJsonButton: null,
+  exportMarkdownButton: null,
+  copySelectorsButton: null
+};
+document.addEventListener("DOMContentLoaded", () => {
+  bindDom();
+  bindActions();
+  void initialize();
+});
+function bindDom() {
+  dom.shell = document.getElementById("popup-shell");
+  dom.statusPill = document.getElementById("status-pill");
+  dom.statusLine = document.getElementById("status-line");
+  dom.summaryGrid = document.getElementById("summary-grid");
+  dom.deltaPanel = document.getElementById("delta-panel");
+  dom.errorPanel = document.getElementById("error-panel");
+  dom.offlinePanel = document.getElementById("offline-panel");
+  dom.issuesPanel = document.getElementById("issues-panel");
+  dom.rescanButton = document.getElementById("rescan-button");
+  dom.exportJsonButton = document.getElementById("export-json-button");
+  dom.exportMarkdownButton = document.getElementById("export-markdown-button");
+  dom.copySelectorsButton = document.getElementById("copy-selectors-button");
+}
+function bindActions() {
+  dom.rescanButton?.addEventListener("click", () => {
+    void startScan(true);
+  });
+  dom.exportJsonButton?.addEventListener("click", () => {
+    void exportCurrentSelection("json");
+  });
+  dom.exportMarkdownButton?.addEventListener("click", () => {
+    void exportCurrentSelection("markdown");
+  });
+  dom.copySelectorsButton?.addEventListener("click", () => {
+    void copySelectedSelectors();
+  });
+}
+async function initialize() {
+  if (!hasExtensionRuntime()) {
+    state.status = "idle";
+    state.note = "Runtime unavailable";
+    render({ offline: true, statusLine: "Popup shell loaded outside the extension runtime." });
+    return;
+  }
+  await startScan(false);
+}
+function hasExtensionRuntime() {
+  return Boolean(runtimeHost.chrome?.runtime?.sendMessage || runtimeHost.browser?.runtime?.sendMessage);
+}
+function getRuntime() {
+  return runtimeHost.chrome ?? runtimeHost.browser;
+}
+async function startScan(manual) {
+  if (state.status === "loading") {
+    return;
+  }
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+    renderError("Extension runtime is unavailable. Reload the addon page and try again.");
+    return;
+  }
+  state.status = "loading";
+  state.error = void 0;
+  state.note = manual ? "Manual rescan running" : "Initial scan running";
+  render();
+  try {
+    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+    const activeTab = activeTabs[0];
+    if (!activeTab?.id) {
+      throw new Error("No active tab available for scan");
+    }
+    if (!activeTab.url) {
+      throw new Error("Unable to resolve active tab URL");
+    }
+    state.tabId = activeTab.id;
+    state.tabUrl = activeTab.url;
+    state.scanId = createScanId();
+    const reply = await runtime.runtime.sendMessage({
+      type: "scan:start",
+      request: {
+        requestId: state.scanId,
+        tabId: activeTab.id,
+        url: activeTab.url,
+        engine: "dom-lite"
+      },
+      persistHistory: true
+    });
+    if (!reply.ok) {
+      throw new Error(reply.error);
+    }
+    state.snapshot = reply.payload.snapshot;
+    state.diff = reply.payload.diff;
+    state.selectedIssueIds.clear();
+    state.status = inferStatus(reply.payload);
+    state.note = reply.payload.recommendation ? `Backend recommendation: ${reply.payload.recommendation.engine}` : "Scan complete";
+    render();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    state.error = message;
+    state.status = message.toLowerCase().includes("fallback") ? "fallback" : "failed";
+    state.note = "Scan failed";
+    renderError(message);
+  }
+}
+function inferStatus(payload) {
+  if (payload.recommendation && payload.recommendation.confidence < 0.5) {
+    return "fallback";
+  }
+  return "complete";
+}
+function render(options) {
+  if (options?.offline) {
+    dom.offlinePanel?.classList.remove("hidden");
+  } else {
+    dom.offlinePanel?.classList.add("hidden");
+  }
+  if (dom.statusPill) {
+    dom.statusPill.dataset.status = state.status;
+    dom.statusPill.textContent = statusLabel(state.status);
+  }
+  if (dom.statusLine) {
+    dom.statusLine.textContent = options?.statusLine ?? buildStatusLine();
+  }
+  if (dom.rescanButton) {
+    dom.rescanButton.disabled = state.status === "loading" || !hasExtensionRuntime();
+  }
+  if (dom.exportJsonButton) {
+    dom.exportJsonButton.disabled = !state.snapshot;
+  }
+  if (dom.exportMarkdownButton) {
+    dom.exportMarkdownButton.disabled = !state.snapshot;
+  }
+  if (dom.copySelectorsButton) {
+    dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
+  }
+  renderSummary();
+  renderDelta();
+  renderIssues();
+  hideError();
+}
+function renderSummary() {
+  if (!dom.summaryGrid) {
+    return;
+  }
+  const counts = state.snapshot?.summary.bySeverity ?? { critical: 0, high: 0, medium: 0, low: 0 };
+  const total = state.snapshot?.summary.total ?? 0;
+  const generatedAt = state.snapshot ? new Date(state.snapshot.timestamp).toLocaleString() : "No scan yet";
+  dom.summaryGrid.innerHTML = [
+    metricCard("Total", total.toString()),
+    metricCard("Critical", String(counts.critical ?? 0)),
+    metricCard("High", String(counts.high ?? 0)),
+    metricCard("Medium", String(counts.medium ?? 0)),
+    metricCard("Low", String(counts.low ?? 0)),
+    metricCard("Scan", generatedAt)
+  ].join("");
+}
+function metricCard(label, value) {
+  return `<article class="metric" data-testid="issue-summary"><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(value)}</span></article>`;
+}
+function renderDelta() {
+  if (!dom.deltaPanel) {
+    return;
+  }
+  const delta = state.snapshot && state.diff ? buildPopupIssuePanelModel(state.snapshot, state.diff, state.status).delta : void 0;
+  if (!delta) {
+    dom.deltaPanel.classList.add("hidden");
+    dom.deltaPanel.innerHTML = "";
+    return;
+  }
+  dom.deltaPanel.classList.remove("hidden");
+  dom.deltaPanel.innerHTML = `
+    <strong>Delta summary</strong>
+    <div class="delta-chips" data-testid="delta-chips">
+      <span class="chip new">New ${delta.newCount}</span>
+      <span class="chip fixed">Fixed ${delta.fixedCount}</span>
+      <span class="chip unchanged">Estimated unchanged ${delta.unchangedCount}</span>
+    </div>
+  `;
+}
+function renderIssues() {
+  if (!dom.issuesPanel) {
+    return;
+  }
+  if (!state.snapshot) {
+    dom.issuesPanel.innerHTML = `<section class="offline" data-testid="issue-empty">No scan has been run yet.</section>`;
+    return;
+  }
+  const model = buildPopupIssuePanelModel(state.snapshot, state.diff, state.status);
+  if (model.total === 0) {
+    dom.issuesPanel.innerHTML = `<section class="offline" data-testid="issue-empty">No issues found for this page.</section>`;
+    return;
+  }
+  dom.issuesPanel.innerHTML = model.domains.map(
+    (domain, index) => `
+        <details class="domain-card" ${index === 0 ? "open" : ""} data-testid="issue-domain">
+          <summary>
+            <div>
+              <span class="domain-name">${escapeHtml(domain.domain)}</span>
+              <span class="domain-count">${domain.total} issue${domain.total === 1 ? "" : "s"}</span>
+            </div>
+            <div class="severity-row" aria-label="Severity counts">
+              ${severityChip("critical", domain.counts.critical)}
+              ${severityChip("high", domain.counts.high)}
+              ${severityChip("medium", domain.counts.medium)}
+              ${severityChip("low", domain.counts.low)}
+            </div>
+          </summary>
+          <div class="domain-body">
+            ${domain.groups.map(
+      (group) => `
+                  <section class="severity-section">
+                    <h3 class="severity-title">${escapeHtml(group.severity)} (${group.issues.length})</h3>
+                    ${group.issues.map((issue) => renderIssueCard(issue)).join("")}
+                  </section>
+                `
+    ).join("")}
+          </div>
+        </details>
+      `
+  ).join("");
+  dom.issuesPanel.querySelectorAll("input[data-issue-id]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        state.selectedIssueIds.add(checkbox.dataset.issueId ?? "");
+      } else {
+        state.selectedIssueIds.delete(checkbox.dataset.issueId ?? "");
+      }
+      render();
+    });
+  });
+  dom.issuesPanel.querySelectorAll("button[data-copy-selector]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const issueId = button.dataset.copySelector ?? "";
+      void copySelectorsForIssues([issueId]);
+    });
+  });
+}
+function severityChip(severity, count) {
+  return `<span class="severity-chip ${escapeHtml(severity)}">${escapeHtml(severity)} ${count}</span>`;
+}
+function renderIssueCard(issue) {
+  const checked = state.selectedIssueIds.has(issue.id) ? "checked" : "";
+  return `
+    <article class="issue-card" data-testid="issue-card">
+      <div class="issue-head">
+        <label>
+          <input class="issue-check" type="checkbox" data-issue-id="${escapeAttr(issue.id)}" ${checked} />
+          <div>
+            <p class="issue-title">${escapeHtml(issue.title)}</p>
+            <div class="issue-meta">
+              <span><code>${escapeHtml(issue.ruleId)}</code></span>
+              <span>${escapeHtml(issue.source)}</span>
+              ${issue.selector ? `<span>${escapeHtml(issue.selector)}</span>` : ""}
+            </div>
+          </div>
+        </label>
+      </div>
+      <p class="issue-summary">${escapeHtml(issue.summary)}</p>
+      <p class="issue-evidence">${escapeHtml(issue.evidence)}</p>
+      <div class="issue-actions">
+        <button type="button" data-copy-selector="${escapeAttr(issue.id)}">Copy selector</button>
+      </div>
+    </article>
+  `;
+}
+function buildStatusLine() {
+  if (state.status === "loading") {
+    return `Scanning active tab${state.tabUrl ? ` \xB7 ${state.tabUrl}` : ""}...`;
+  }
+  if (state.snapshot) {
+    return `${state.snapshot.url} \xB7 ${state.snapshot.summary.total} issues \xB7 ${state.snapshot.engine}`;
+  }
+  return state.note ?? "Scan state will appear here.";
+}
+function statusLabel(status) {
+  switch (status) {
+    case "loading":
+      return "Loading";
+    case "complete":
+      return "Complete";
+    case "failed":
+      return "Failed";
+    case "fallback":
+      return "Fallback";
+    default:
+      return "Idle";
+  }
+}
+function renderError(message) {
+  if (!dom.errorPanel) {
+    return;
+  }
+  dom.errorPanel.classList.remove("hidden");
+  dom.errorPanel.textContent = message;
+  dom.statusLine && (dom.statusLine.textContent = message);
+  dom.statusPill && (dom.statusPill.dataset.status = state.status);
+  dom.statusPill && (dom.statusPill.textContent = statusLabel(state.status));
+}
+function hideError() {
+  if (!dom.errorPanel) {
+    return;
+  }
+  if (!state.error) {
+    dom.errorPanel.classList.add("hidden");
+    dom.errorPanel.textContent = "";
+    return;
+  }
+  dom.errorPanel.classList.remove("hidden");
+  dom.errorPanel.textContent = state.error;
+}
+function getSelectedIssues() {
+  if (!state.snapshot) {
+    return [];
+  }
+  return state.snapshot.issues.filter((issue) => state.selectedIssueIds.has(issue.id));
+}
+async function exportCurrentSelection(format) {
+  const issues = getSelectedIssues();
+  if (!issues.length || !state.snapshot) {
+    return;
+  }
+  const payload = format === "json" ? buildIssueExportJson(issues, {
+    scanId: state.snapshot.id,
+    origin: state.snapshot.origin,
+    url: state.snapshot.url,
+    generatedAt: new Date(state.snapshot.timestamp).toISOString()
+  }) : buildIssueExportMarkdown(issues, {
+    scanId: state.snapshot.id,
+    origin: state.snapshot.origin,
+    url: state.snapshot.url,
+    generatedAt: new Date(state.snapshot.timestamp).toISOString()
+  });
+  const extension = format === "json" ? "json" : "md";
+  downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
+}
+async function copySelectedSelectors() {
+  await copySelectorsForIssues(Array.from(state.selectedIssueIds));
+}
+async function copySelectorsForIssues(issueIds) {
+  if (!state.snapshot) {
+    return;
+  }
+  const selectedIssues = state.snapshot.issues.filter((issue) => issueIds.includes(issue.id));
+  const selectors = collectSelectors(selectedIssues);
+  if (!selectors.length) {
+    return;
+  }
+  await copyToClipboard(selectors.join("\n"));
+}
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    state.note = "Selectors copied to clipboard";
+    render();
+  } catch {
+    const fallback = document.createElement("textarea");
+    fallback.value = text;
+    fallback.style.position = "fixed";
+    fallback.style.opacity = "0";
+    document.body.appendChild(fallback);
+    fallback.focus();
+    fallback.select();
+    document.execCommand("copy");
+    fallback.remove();
+    state.note = "Selectors copied to clipboard";
+    render();
+  }
+}
+function downloadText(content, filename) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+function createScanId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+function escapeHtml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
+}

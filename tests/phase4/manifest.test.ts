@@ -29,6 +29,8 @@ describe('addon manifest', () => {
       64: 'icons/icon-normal-64.svg',
       128: 'icons/icon-normal-128.svg'
     });
+    expect(manifest.action?.default_popup).toBe('popup.html');
+    expect(() => readFileSync(resolve(process.cwd(), manifest.action?.default_popup), 'utf8')).not.toThrow();
     expect((manifest.host_permissions ?? [])).toEqual([]);
     expect(manifest.content_scripts).toBeUndefined();
     expect(manifest.content_security_policy?.extension_pages).toContain("script-src 'self'");

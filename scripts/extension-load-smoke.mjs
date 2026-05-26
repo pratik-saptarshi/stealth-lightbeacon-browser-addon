@@ -21,6 +21,7 @@ function sleep(ms) {
 function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const expected = manifest.background?.service_worker;
+  const popupPath = manifest.action?.default_popup;
 
   if (!expected) {
     throw new Error(`${label} manifest.json missing background.service_worker`);
@@ -41,6 +42,16 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
   if (!readFileSync(resolve(baseDir, expected), 'utf8')) {
     throw new Error(`${label} manifest points to missing service worker: ${expected}`);
   }
+
+  if (!popupPath) {
+    throw new Error(`${label} manifest missing action.default_popup`);
+  }
+
+  if (!readFileSync(resolve(baseDir, popupPath), 'utf8')) {
+    throw new Error(`${label} manifest points to missing popup shell: ${popupPath}`);
+  }
+
+  accessSync(resolve(baseDir, 'popup.js'));
 
   const manifestIcons = manifest.icons ?? {};
   for (const [_size, relativePath] of Object.entries(manifestIcons)) {
@@ -79,7 +90,7 @@ async function validatePlaywrightSmoke(extensionDir) {
     return { skipped: true };
   }
 
-    const tmpProfile = mkdtempSync(join(tmpdir(), 'slt-extension-load-'));
+  const tmpProfile = mkdtempSync(join(tmpdir(), 'slt-extension-load-'));
   const context = await playwright.chromium.launchPersistentContext(tmpProfile, {
     headless: true,
     args: [
@@ -105,6 +116,12 @@ async function validatePlaywrightSmoke(extensionDir) {
     if (!workers.length) {
       throw new Error('No extension service workers detected within 5s');
     }
+
+    const popupUrl = pathToFileURL(resolve(projectRoot, 'popup.html')).href;
+    const popupPage = await context.newPage();
+    await popupPage.goto(popupUrl);
+    await popupPage.waitForSelector('[data-testid="popup-shell"]');
+    await popupPage.waitForSelector('[data-testid="offline-banner"]');
 
     return { skipped: false, serviceWorkerCount: workers.length };
   } finally {
