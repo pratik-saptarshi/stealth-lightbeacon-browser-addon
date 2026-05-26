@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 — 2026-05-26
+- Added backend host policy and strict allowlist validation in service worker bootstrap.
+- Enforced optional backend hard-fail + graceful fallback behavior on policy violations.
+- Added machine-readable backend endpoint policy diagnostics in `backend-failure` integration tests.
+- Added explicit version alignment checks in release prep for `package.json`, `package-lock.json`, and `manifest.json`.
+
 ## 0.1.1 — 2026-05-26
 - Hardened backend transport pathing per engine and added adapter factory for `http` vs `stdin`.
 - Added deterministic issue identity generation for stable historical diffing.
