@@ -28,6 +28,10 @@ export function buildPageContext(documentRef: Document, requestUrl: string) {
   return extractPageContext(documentRef, requestUrl);
 }
 
+export function isContentExtractMessage(message: unknown): message is ContentMessage {
+  return !!message && typeof message === 'object' && (message as Record<string, unknown>).type === 'content:extract';
+}
+
 const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as BrowserLike)) as BrowserLike;
 
 function bindRuntimeListener(): void {
@@ -37,8 +41,8 @@ function bindRuntimeListener(): void {
     return;
   }
 
-  runtime.onMessage.addListener((message: ContentMessage, _sender, sendResponse) => {
-    if (message.type !== 'content:extract') {
+  runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+    if (!isContentExtractMessage(message)) {
       return;
     }
 

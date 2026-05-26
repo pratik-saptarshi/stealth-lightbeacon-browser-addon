@@ -18,6 +18,16 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function ensureClassicScript(filePath) {
+  const source = readFileSync(filePath, 'utf8');
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function(source);
+  } catch (error) {
+    throw new Error(`Script parse failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const expected = manifest.background?.service_worker;
@@ -51,6 +61,7 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
     throw new Error(`${label} manifest points to missing popup shell: ${popupPath}`);
   }
 
+  ensureClassicScript(resolve(baseDir, 'content-script.js'));
   accessSync(resolve(baseDir, 'side-panel.js'));
   accessSync(resolve(baseDir, 'side-panel.css'));
 

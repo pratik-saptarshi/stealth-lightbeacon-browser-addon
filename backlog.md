@@ -117,6 +117,52 @@ Partially suitable; focus on in-tab/client-side subset. Full parity is not feasi
   - Re-scan action cannot be triggered during active run and still accepts queueing after completion.
   - Regression path for `loading/error/fallback` validated in CI.
 
+### Epic 4-C: Toolbar Activation and UI Reliability
+
+- Feature: Toolbar icon activation, side panel/popup responsiveness, and runtime error hardening.
+- User story: As a user, I open the addon from the browser toolbar and every control responds without silent failures.
+- Tasks:
+  1. Validate the toolbar icon click path opens the intended surface and preserves active state.
+  2. Package the injected `content-script.js` as a classic script for `chrome.scripting.executeScript`.
+  3. Guard the `content-script` runtime listener against malformed messages before reading `message.type`.
+  4. Add regression tests for `content:extract`, malformed runtime message handling, and bundle parseability.
+  5. Verify panel buttons bind after DOM ready and remain clickable in extension runtime.
+  6. Add browser-level smoke coverage for open/click flows in Chrome/Edge and fallback checks for Firefox.
+  7. Instrument scan start, render, and idle work to debug event-loop stalls and long synchronous paths.
+  8. Keep the UI accessible and responsive under loading, empty, and error states.
+
+### Epic 4-D: Export and Operator Actions
+
+- Feature: Additional operator exports from the browser addon.
+- User story: As a tester, I can generate and download a PDF report directly from the addon menu.
+- Tasks:
+  1. Add a generate/download PDF button to the extension menu or panel actions.
+  2. Define the client-side PDF export path and browser compatibility limits.
+  3. Add unit tests for PDF export payload construction and download triggers.
+  4. Add integration smoke coverage for the PDF action in the extension UI.
+
+### Epic 5: Ruleset and Knowledge-Base Packaging
+
+- Feature: Separate bundled knowledge base and ruleset storage with updateable overlays.
+- User story: As a maintainer, I know where the SEO/GEO/AEO rules live and can update them without coupling them to the proxy worker.
+- Tasks:
+  1. Separate the bundled knowledge base from the active ruleset payloads.
+  2. Store the bundled base rules outside the proxy worker, then load them through a dedicated catalog layer.
+  3. Allow extension-bundled rules and knowledge base data to be extended by later updates.
+  4. Define serialization, versioning, and merge precedence for bundled vs updated rules.
+  5. Add tests for catalog load, overlay precedence, and fallback behavior when external storage is absent.
+
+### Epic 6: Local Backend Settings and Contract Surface
+
+- Feature: Settings panel for local stealth-lightbeacon usage and a surfaced OpenAPI v3 contract.
+- User story: As a local operator, I configure the addon with endpoint, port, and secret/basic-auth values that match the backend contract.
+- Tasks:
+  1. Add settings fields for internal endpoint, port, and secret/API key/basic auth configuration.
+  2. Surface the `/Volumes/dev/Git-SCM/stealth-lightbeacon` calling structure through a documented OpenAPI v3 contract.
+  3. Keep the addon/backend call structure aligned with the published spec and version it alongside releases.
+  4. Add validation for local-only and remote backend modes so the UI can fall back safely when config is missing.
+  5. Add tests for settings persistence, backend config validation, and OpenAPI contract synchronization.
+
 ### Reference SVG (`src/assets/icon.svg`)
 
 ```svg
@@ -247,6 +293,9 @@ Implementation notes:
 - Epic 1: Task 1 complete, task 4 complete, export present; issue panel state + explicit rescan action remain.
 - Epic 2: Tasks 1-4 complete (crawl-lite queue, explicit failures, limits).
 - Epic 3: Local persistence and compare are implemented; IndexedDB/docs work remains for hardening.
+- Epic 4-C/4-D: UI reliability, export, and browser-toolbar click flow need dedicated implementation and smoke coverage.
+- Epic 5: ruleset/knowledge-base split is still pending architecture work.
+- Epic 6: backend settings panel and OpenAPI contract surfacing remain to be wired through the addon UI.
 
 ---
 
