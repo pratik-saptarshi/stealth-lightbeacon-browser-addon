@@ -14,6 +14,21 @@ describe('addon manifest', () => {
     expect(manifest.permissions).toContain('storage');
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('scripting');
+    expect(manifest.icons).toBeDefined();
+    expect(manifest.icons).toMatchObject({
+      16: 'icons/icon-16.svg',
+      32: 'icons/icon-32.svg',
+      48: 'icons/icon-48.svg',
+      64: 'icons/icon-64.svg',
+      128: 'icons/icon-128.svg'
+    });
+    expect(manifest.action?.default_icon).toMatchObject({
+      16: 'icons/icon-normal-16.svg',
+      32: 'icons/icon-normal-32.svg',
+      48: 'icons/icon-normal-48.svg',
+      64: 'icons/icon-normal-64.svg',
+      128: 'icons/icon-normal-128.svg'
+    });
     expect((manifest.host_permissions ?? [])).toEqual([]);
     expect(manifest.content_scripts).toBeUndefined();
     expect(manifest.content_security_policy?.extension_pages).toContain("script-src 'self'");

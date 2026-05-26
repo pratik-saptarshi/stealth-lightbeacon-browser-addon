@@ -7,6 +7,7 @@ import { MemoryHistoryStorage, ScanHistoryManager } from './scan-history';
 import { createChromeHistoryStorage, type ChromeLike, type ChromeLikeStorageArea } from './storage';
 import { createRulesetCatalogStorage, MemoryRulesetCatalogStorage, RulesetCatalogManager } from './ruleset-catalog';
 import { buildReport } from '../ui/export';
+import { applyToolbarState } from './toolbar-state';
 import type { RuleContext } from '../shared/rule-engine';
 import type { ScanRequest } from '../shared/types';
 
@@ -32,6 +33,24 @@ type RuntimeContext = {
         files: string[];
       }) => Promise<unknown>;
     };
+    action?: {
+      setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
+      setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
+      setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      browserAction?: {
+        setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
+        setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
+        setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+        setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      };
+    };
+    browserAction?: {
+      setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
+      setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
+      setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+    };
   };
   browser?: {
     storage?: {
@@ -53,6 +72,24 @@ type RuntimeContext = {
         };
         files: string[];
       }) => Promise<unknown>;
+    };
+    action?: {
+      setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
+      setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
+      setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      browserAction?: {
+        setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
+        setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
+        setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+        setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      };
+    };
+    browserAction?: {
+      setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
+      setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
+      setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
     };
   };
   runtime?: {
@@ -117,15 +154,18 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
 
       const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : undefined;
       const catalog = await rulesetManager.getCatalog();
-      const result = await orchestrator.runScan(
+    const result = await orchestrator.runScan(
         {
           ...message.request,
           backend: backendRequest
         },
-        pageContext,
-        previous,
-        catalog
-      );
+      pageContext,
+      previous,
+      catalog
+    );
+
+    const tabId = message.request.tabId ?? (await resolveActiveTabId(globalRuntime));
+    await applyToolbarState(globalRuntime, tabId, result.snapshot);
 
       if (message.persistHistory) {
         await historyManager.saveSnapshot(result.snapshot);
@@ -284,6 +324,16 @@ async function resolvePageContextFromActiveTab(tabId?: number): Promise<RuleCont
   }
 
   return undefined;
+}
+
+async function resolveActiveTabId(context: RuntimeContext): Promise<number | undefined> {
+  const runtimeTabs = resolveRuntimeTabs(context);
+  if (!runtimeTabs) {
+    return undefined;
+  }
+
+  const activeTab = await pickActiveTabId(runtimeTabs);
+  return activeTab?.id;
 }
 
 async function pickActiveTabId(tabs: NonNullable<RuntimeTabs>): Promise<ActiveTabLookup | undefined> {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { accessSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -39,6 +39,25 @@ function validateStaticExtensionAssets() {
   if (!readFileSync(resolve(distDir, expected), 'utf8')) {
     throw new Error(`Missing dist service worker entry: ${expected}`);
   }
+
+  const manifestIcons = manifest.icons ?? {};
+  for (const [_size, relativePath] of Object.entries(manifestIcons)) {
+    if (typeof relativePath === 'string') {
+      accessSync(resolve(distDir, relativePath));
+    }
+  }
+
+  const actionIcons = manifest.action?.default_icon ?? {};
+  for (const relativePath of Object.values(actionIcons)) {
+    if (typeof relativePath === 'string') {
+      accessSync(resolve(distDir, relativePath));
+    }
+  }
+
+  accessSync(resolve(distDir, 'icons/icon-fail-16.svg'));
+  accessSync(resolve(distDir, 'icons/icon-alert-16.svg'));
+  accessSync(resolve(distDir, 'icons/icon-fail-16-static.svg'));
+  accessSync(resolve(distDir, 'icons/icon-alert-16-static.svg'));
 
   const workerUrl = pathToFileURL(distWorker).href;
   return import(workerUrl).then(() => manifest);

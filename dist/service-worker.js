@@ -5645,6 +5645,122 @@ function toMarkdownExport(bundle) {
   return lines.join("\n");
 }
 
+// src/background/toolbar-state.ts
+var ACTION_ICON_PATHS = {
+  normal: {
+    16: "icons/icon-normal-16.svg",
+    32: "icons/icon-normal-32.svg",
+    48: "icons/icon-normal-48.svg",
+    64: "icons/icon-normal-64.svg",
+    128: "icons/icon-normal-128.svg"
+  },
+  alert: {
+    16: "icons/icon-alert-16.svg",
+    32: "icons/icon-alert-32.svg",
+    48: "icons/icon-alert-48.svg",
+    64: "icons/icon-alert-64.svg",
+    128: "icons/icon-alert-128.svg"
+  },
+  fail: {
+    16: "icons/icon-fail-16.svg",
+    32: "icons/icon-fail-32.svg",
+    48: "icons/icon-fail-48.svg",
+    64: "icons/icon-fail-64.svg",
+    128: "icons/icon-fail-128.svg"
+  }
+};
+var ACTION_ICON_PATHS_STATIC = {
+  normal: {
+    16: "icons/icon-normal-16-static.svg",
+    32: "icons/icon-normal-32-static.svg",
+    48: "icons/icon-normal-48-static.svg",
+    64: "icons/icon-normal-64-static.svg",
+    128: "icons/icon-normal-128-static.svg"
+  },
+  alert: {
+    16: "icons/icon-alert-16-static.svg",
+    32: "icons/icon-alert-32-static.svg",
+    48: "icons/icon-alert-48-static.svg",
+    64: "icons/icon-alert-64-static.svg",
+    128: "icons/icon-alert-128-static.svg"
+  },
+  fail: {
+    16: "icons/icon-fail-16-static.svg",
+    32: "icons/icon-fail-32-static.svg",
+    48: "icons/icon-fail-48-static.svg",
+    64: "icons/icon-fail-64-static.svg",
+    128: "icons/icon-fail-128-static.svg"
+  }
+};
+var BADGE_COLORS = {
+  normal: "#0D47A1",
+  alert: "#D49A17",
+  fail: "#990000"
+};
+function resolveToolbarState(snapshot) {
+  if (!snapshot || snapshot.summary.total <= 0) {
+    return "normal";
+  }
+  if ((snapshot.summary.bySeverity.critical ?? 0) > 0 || (snapshot.summary.bySeverity.high ?? 0) > 0) {
+    return "fail";
+  }
+  if ((snapshot.summary.bySeverity.medium ?? 0) > 0 || (snapshot.summary.bySeverity.low ?? 0) > 0) {
+    return "alert";
+  }
+  return "normal";
+}
+function formatIssueCounter(totalIssues) {
+  if (!totalIssues) {
+    return "";
+  }
+  return totalIssues > 999 ? "999+" : String(totalIssues);
+}
+function actionApi(context) {
+  return context.chrome?.action ?? context.chrome?.browserAction ?? context.browser?.action ?? context.browser?.browserAction;
+}
+async function applyToolbarState(context, tabId, snapshot) {
+  const api = actionApi(context);
+  if (!api) {
+    return;
+  }
+  const toolbarState = resolveToolbarState(snapshot);
+  const badgeText = formatIssueCounter(snapshot?.summary.total ?? 0);
+  const iconPaths = ACTION_ICON_PATHS[toolbarState];
+  try {
+    await Promise.resolve(
+      api.setIcon?.({
+        tabId,
+        path: iconPaths
+      })
+    );
+  } catch {
+    await Promise.resolve(
+      api.setIcon?.({
+        tabId,
+        path: ACTION_ICON_PATHS_STATIC[toolbarState]
+      })
+    );
+  }
+  await Promise.resolve(
+    api.setBadgeText?.({
+      tabId,
+      text: badgeText
+    })
+  );
+  await Promise.resolve(
+    api.setBadgeBackgroundColor?.({
+      tabId,
+      color: BADGE_COLORS[toolbarState]
+    })
+  );
+  await Promise.resolve(
+    api.setBadgeTextColor?.({
+      tabId,
+      color: "#fff"
+    })
+  );
+}
+
 // src/background/service-worker.ts
 var globalRuntime = typeof globalThis === "undefined" ? {} : globalThis;
 var chromeStorage = createChromeHistoryStorage(resolveHistoryStorage(globalRuntime));
@@ -5692,6 +5808,8 @@ async function handleMessage(message) {
         previous,
         catalog
       );
+      const tabId = message.request.tabId ?? await resolveActiveTabId(globalRuntime);
+      await applyToolbarState(globalRuntime, tabId, result.snapshot);
       if (message.persistHistory) {
         await historyManager.saveSnapshot(result.snapshot);
       }
@@ -5811,6 +5929,14 @@ async function resolvePageContextFromActiveTab(tabId) {
     return response.payload;
   }
   return void 0;
+}
+async function resolveActiveTabId(context) {
+  const runtimeTabs = resolveRuntimeTabs(context);
+  if (!runtimeTabs) {
+    return void 0;
+  }
+  const activeTab = await pickActiveTabId(runtimeTabs);
+  return activeTab?.id;
 }
 async function pickActiveTabId(tabs) {
   if (!tabs.query) {

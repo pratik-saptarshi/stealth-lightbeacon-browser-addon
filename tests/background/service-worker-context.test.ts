@@ -18,6 +18,12 @@ type ChromeLikeRuntime = {
   scripting?: {
     executeScript: ReturnType<typeof vi.fn>;
   };
+  action?: {
+    setIcon: ReturnType<typeof vi.fn>;
+    setBadgeText: ReturnType<typeof vi.fn>;
+    setBadgeBackgroundColor: ReturnType<typeof vi.fn>;
+    setBadgeTextColor: ReturnType<typeof vi.fn>;
+  };
 };
 
 const extractedContext = {
@@ -35,13 +41,14 @@ const extractedContext = {
 
 let originalChrome: ChromeLikeRuntime | undefined;
 let originalBrowser: ChromeLikeRuntime | undefined;
+let currentWindowRuntime: WindowLike;
 
 type WindowLike = ChromeLikeRuntime & { chrome?: ChromeLikeRuntime; browser?: ChromeLikeRuntime };
 
 beforeEach(() => {
-  const windowRuntime = globalThis as unknown as WindowLike;
-  originalChrome = windowRuntime.chrome;
-  originalBrowser = windowRuntime.browser;
+  currentWindowRuntime = globalThis as unknown as WindowLike;
+  originalChrome = currentWindowRuntime.chrome;
+  originalBrowser = currentWindowRuntime.browser;
 
   const runtime: ChromeLikeRuntime = {
     runtime: {
@@ -58,25 +65,30 @@ beforeEach(() => {
     },
     scripting: {
       executeScript: vi.fn(async () => undefined)
+    },
+    action: {
+      setIcon: vi.fn(async () => undefined),
+      setBadgeText: vi.fn(async () => undefined),
+      setBadgeBackgroundColor: vi.fn(async () => undefined),
+      setBadgeTextColor: vi.fn(async () => undefined)
     }
   };
 
-  windowRuntime.chrome = runtime;
-  delete windowRuntime.browser;
+  currentWindowRuntime.chrome = runtime;
+  delete currentWindowRuntime.browser;
 });
 
 afterEach(() => {
-  const windowRuntime = globalThis as unknown as WindowLike;
   if (originalChrome) {
-    windowRuntime.chrome = originalChrome;
+    currentWindowRuntime.chrome = originalChrome;
   } else {
-    delete windowRuntime.chrome;
+    delete currentWindowRuntime.chrome;
   }
 
   if (originalBrowser) {
-    windowRuntime.browser = originalBrowser;
+    currentWindowRuntime.browser = originalBrowser;
   } else {
-    delete windowRuntime.browser;
+    delete currentWindowRuntime.browser;
   }
 });
 
@@ -96,4 +108,10 @@ it('resolves scan context from active tab when pageContext is omitted', async ()
   }
 
   expect(reply.payload.snapshot.origin).toBe('https://example.com');
+  const action = (currentWindowRuntime.chrome as ChromeLikeRuntime).action;
+  expect(action?.setIcon).toHaveBeenCalled();
+  expect(action?.setBadgeText).toHaveBeenCalledWith({
+    tabId: 77,
+    text: String(reply.payload.snapshot.summary.total)
+  });
 });

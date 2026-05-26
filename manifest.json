@@ -3,6 +3,13 @@
   "name": "Stealth Lightbeacon (Addon Lite)",
   "version": "0.1.3",
   "description": "Browser-only DOM audit + limited same-origin crawl scanner",
+  "icons": {
+    "16": "icons/icon-16.svg",
+    "32": "icons/icon-32.svg",
+    "48": "icons/icon-48.svg",
+    "64": "icons/icon-64.svg",
+    "128": "icons/icon-128.svg"
+  },
   "minimum_chrome_version": "116",
   "background": {
     "service_worker": "service-worker.js",
@@ -18,6 +25,13 @@
   ],
   "host_permissions": [],
   "action": {
-    "default_title": "Stealth Lightbeacon"
+    "default_title": "Stealth Lightbeacon",
+    "default_icon": {
+      "16": "icons/icon-normal-16.svg",
+      "32": "icons/icon-normal-32.svg",
+      "48": "icons/icon-normal-48.svg",
+      "64": "icons/icon-normal-64.svg",
+      "128": "icons/icon-normal-128.svg"
+    }
   }
 }
