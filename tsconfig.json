@@ -16,7 +16,7 @@
       "@content/*": ["src/content/*"]
     },
     "types": ["node"],
-    "noEmit": true,
+    "noEmit": false,
     "outDir": "dist"
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],

@@ -28,7 +28,7 @@ Stealth Lightbeacon Browser Addon is a local-first audit assistant that runs in-
    npm run build
    ```
 
-2. Load the built extension as unpacked:
+2. Load `dist/` (the built extension folder) as unpacked:
 
 ### Chrome
 - Open `chrome://extensions`

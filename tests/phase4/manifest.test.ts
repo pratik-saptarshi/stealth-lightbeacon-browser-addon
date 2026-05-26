@@ -9,7 +9,7 @@ describe('addon manifest', () => {
 
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.background?.type).toBe('module');
-    expect(manifest.background?.service_worker).toContain('service-worker.ts');
+    expect(manifest.background?.service_worker).toContain('service-worker.js');
     expect(manifest.permissions).toContain('storage');
     expect(manifest.permissions).toContain('activeTab');
     expect(manifest.permissions).toContain('scripting');
