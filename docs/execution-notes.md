@@ -31,6 +31,10 @@
 - BEAD-0018 ✅ Done.
 - BEAD-0019 ✅ Done.
 
+## Phase PR-11 — Runtime Bootstrap Reliability (Latest)
+- BEAD-0020 ✅ Done: bundle service-worker/content-script at extension root for unpacked loading.
+- Validation: `npm run build`, `npm test -- --run`, `npm run test:ui-load`.
+
 ## Validation Log
 - `npm run build`: success.
 - `npm run test:unit`: success.

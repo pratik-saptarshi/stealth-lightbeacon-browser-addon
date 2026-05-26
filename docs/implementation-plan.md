@@ -113,13 +113,18 @@ Deliver browser-addon-lite to match `backlog.md` while keeping deterministic loc
   - `api/openapi.yaml`
 
 ## Current Execution Outcome
-- Phases 1-10 are complete under this repo scope.
+- Phases 1-10 and PR-11 are complete under this repo scope.
 - Remaining implementation debt is explicitly deferred or tracked in `backlog.md`:
   - deeper remote engine parity beyond transport wiring
   - performance/PageSpeed and full WCAG/security/Drupal evaluator families
   - broken-link and Drupal API discovery probes
   - DuckDB/LanceDB + semantic search
-  - workspace watcher mode
+- workspace watcher mode
+
+## PR-11 — Runtime Bootstrap Reliability (Completed)
+- Bundle service-worker and content-script at extension root.
+- Keep host-permission surface minimal (only `storage`, `activeTab`, `scripting`, empty `host_permissions`).
+- Add build-time copy to `dist/service-worker.js` and `dist/content-script.js` for predictable package mode.
 
 ## Exit Criteria
 - All checks green after each phase.
