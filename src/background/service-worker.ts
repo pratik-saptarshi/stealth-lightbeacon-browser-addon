@@ -2,11 +2,13 @@ import type { ClientMessage, MessageResponseByType } from '../shared/message-con
 import { createFailure, isScanStartMessage } from '../shared/message-contracts';
 import { ScanOrchestrator } from './orchestrator';
 import { createBackendAdapter } from './backend-bridge';
+import { assertBackendEndpointAllowed, isLoopbackHost, sanitizeBackendHostPolicy } from './host-policy';
 import { MemoryHistoryStorage, ScanHistoryManager } from './scan-history';
 import { createChromeHistoryStorage, type ChromeLike, type ChromeLikeStorageArea } from './storage';
 import { createRulesetCatalogStorage, MemoryRulesetCatalogStorage, RulesetCatalogManager } from './ruleset-catalog';
 import { buildReport } from '../ui/export';
 import type { RuleContext } from '../shared/rule-engine';
+import type { ScanRequest } from '../shared/types';
 
 type RuntimeContext = {
   chrome?: {
@@ -89,8 +91,22 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
         };
       }
 
+      const sanitizedBackendRequest = message.request.backend
+        ? {
+            ...message.request.backend,
+            allowedHosts: sanitizeBackendHostPolicy(message.request.backend)
+          }
+        : undefined;
+
+      const pageHost = new URL(pageContext.requestUrl).hostname;
+      const loopbackBackendAllowList = sanitizedBackendRequest?.allowedHosts?.some(isLoopbackHost) ?? false;
+      const backendRequest = applyBackendHostPolicy(
+        sanitizedBackendRequest,
+        pageContext.requestUrl,
+        isLoopbackHost(pageHost) || loopbackBackendAllowList
+      );
       const backendClient = createBackendAdapter(
-        message.request.backend,
+        backendRequest,
         message.request.backend?.engine,
         message.request.backend?.mode === 'stdin' ? resolveBackendStdioExecutor(globalRuntime) : undefined
       );
@@ -101,7 +117,15 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
 
       const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : undefined;
       const catalog = await rulesetManager.getCatalog();
-      const result = await orchestrator.runScan(message.request, pageContext, previous, catalog);
+      const result = await orchestrator.runScan(
+        {
+          ...message.request,
+          backend: backendRequest
+        },
+        pageContext,
+        previous,
+        catalog
+      );
 
       if (message.persistHistory) {
         await historyManager.saveSnapshot(result.snapshot);
@@ -332,6 +356,36 @@ function resolveRuntimeTabs(context: RuntimeContext): RuntimeTabs | undefined {
   }
 
   return undefined;
+}
+
+function applyBackendHostPolicy(
+  backend: ScanRequest['backend'],
+  pageUrl: string,
+  allowLoopback = false
+): ScanRequest['backend'] {
+  if (!backend || backend.mode === 'stdin' || !backend.endpoint) {
+    return backend;
+  }
+
+  const check = assertBackendEndpointAllowed({
+    endpoint: backend.endpoint,
+    pageUrl,
+    allowLoopback,
+    allowedHosts: backend.allowedHosts
+  });
+
+  if (check.ok) {
+    return backend;
+  }
+
+  if (backend.required) {
+    throw new Error(check.reason ?? 'Backend endpoint blocked by host policy');
+  }
+
+  return {
+    ...backend,
+    enabled: false
+  };
 }
 
 function isRuntimeMessageResponse(input: unknown): input is RuntimeMessageResponse {

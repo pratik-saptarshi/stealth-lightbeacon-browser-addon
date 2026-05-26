@@ -50,11 +50,13 @@ describe('backend failure integration: endpoint + stdio', () => {
     runtime.fetch = vi.fn(async () => {
       throw new Error('endpoint unavailable');
     }) as FetchFn;
+    const policyCheckSpy = vi.spyOn(globalThis, 'fetch');
 
     const endpointRequest = scanRequest({
       enabled: true,
       mode: 'http',
-      endpoint: 'https://127.0.0.1:9999',
+      endpoint: 'https://backend.example.com:9999',
+      allowedHosts: ['backend.example.com'],
       required: false
     });
 
@@ -106,6 +108,7 @@ describe('backend failure integration: endpoint + stdio', () => {
     }
 
     expect(seoResponse.payload.issues.every((issue) => issue.domain === 'seo')).toBe(true);
+    expect(policyCheckSpy).toHaveBeenCalled();
   });
 
   it('falls back to local policy on stdio backend failure', async () => {
@@ -173,7 +176,8 @@ describe('backend failure integration: endpoint + stdio', () => {
     const requiredEndpointRequest = scanRequest({
       enabled: true,
       mode: 'http',
-      endpoint: 'https://127.0.0.1:9999',
+      endpoint: 'https://backend.example.com:9999',
+      allowedHosts: ['backend.example.com'],
       required: true
     });
 
@@ -190,6 +194,35 @@ describe('backend failure integration: endpoint + stdio', () => {
     }
 
     expect(startResponse.error).toContain('endpoint unavailable');
+  });
+
+  it('required-backend-hard-fail: blocks backend when endpoint violates host policy', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('endpoint unavailable');
+    }) as FetchFn;
+    runtime.fetch = fetchSpy;
+
+    const requiredEndpointRequest = scanRequest({
+      enabled: true,
+      mode: 'http',
+      endpoint: 'https://127.0.0.1:9999',
+      required: true
+    });
+
+    const startResponse = (await handleMessage({
+      type: 'scan:start',
+      request: requiredEndpointRequest,
+      pageContext: context,
+      persistHistory: false
+    }) as ScanStartReply);
+
+    expect(startResponse.ok).toBe(false);
+    if (startResponse.ok) {
+      throw new Error('Expected required backend hard-fail path');
+    }
+
+    expect(startResponse.error).toContain('Backend endpoint targets local/private network and is blocked by host policy');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('required-backend-hard-fail: returns scan failure when stdio backend is required but unavailable', async () => {

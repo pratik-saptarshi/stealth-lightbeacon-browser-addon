@@ -76,6 +76,7 @@ export interface ScanRequest {
     mode?: 'http' | 'stdin';
     engine?: BackendEngine;
     endpoint?: string;
+    allowedHosts?: string[];
     auth?: {
       username: string;
       password: string;

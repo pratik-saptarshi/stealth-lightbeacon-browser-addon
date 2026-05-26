@@ -7,7 +7,7 @@
     "test": "vitest",
     "build": "tsc -p tsconfig.json",
     "audit:budget": "node scripts/audit-budget.mjs --fail-on-critical --max-critical 0",
-    "test:unit": "vitest --run tests/shared/contracts.test.ts tests/shared/rule-engine.test.ts tests/shared/anti-bot.test.ts tests/background/orchestrator.test.ts tests/background/ruleset-catalog.test.ts tests/background/scan-history.test.ts tests/ui/grouping-and-export.test.ts tests/phase4/manifest.test.ts tests/cli/audit-budget.test.ts",
+    "test:unit": "vitest --run tests/shared/contracts.test.ts tests/shared/rule-engine.test.ts tests/shared/anti-bot.test.ts tests/background/orchestrator.test.ts tests/background/scan-history.test.ts tests/background/ruleset-catalog.test.ts tests/background/host-policy.test.ts tests/ui/grouping-and-export.test.ts tests/phase4/manifest.test.ts tests/cli/audit-budget.test.ts",
     "test:integration": "vitest --run tests/phase4/smoke.test.ts tests/background/backend-failure-integration.test.ts tests/background/orchestrator-backend.test.ts",
     "test:ci:backend-fallback": "vitest --run --testNamePattern 'backend-fallback' --passWithNoTests",
     "test:ci:issues:policy": "vitest --run --testNamePattern 'issues:policy' --passWithNoTests",

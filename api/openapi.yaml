@@ -151,6 +151,11 @@ components:
         endpoint:
           type: string
           format: uri
+        allowedHosts:
+          type: array
+          items:
+            type: string
+          description: Optional allowlist used by the addon/runtime host policy.
         auth:
           type: object
           nullable: true
