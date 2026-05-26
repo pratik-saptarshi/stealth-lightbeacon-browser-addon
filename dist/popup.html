@@ -28,6 +28,7 @@
         </div>
       </header>
 
+      <main class="content" id="content-panel" aria-label="Scan panel">
       <section class="settings-panel hidden" id="settings-panel" aria-label="Panel settings">
         <div class="settings-panel-head">
           <div>
@@ -211,11 +212,12 @@
         but scan actions require the extension environment.
       </div>
 
-      <main class="issues" id="issues-panel" data-testid="issues-panel"></main>
+      <section class="issues" id="issues-panel" data-testid="issues-panel" aria-label="Issue list"></section>
 
       <footer class="footer" id="footer">
         Local-only default. The rescan flow uses the active tab plus the background service worker.
       </footer>
+      </main>
     </div>
     <script type="module" src="./side-panel.js"></script>
   </body>

@@ -60,6 +60,7 @@ npm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical
 ```
 
 When the environment supports it, validate the extension in a real browser session with Playwright or the browser automation toolchain already available on the machine.
+The UI-load smoke also loads `axe.min.js` and runs an automated accessibility scan when Playwright is available.
 
 ## Repository layout
 - `src/background/` - orchestration, history, ruleset catalog, host policy, service worker
