@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 — 2026-05-26
+- Added a polished root `readme.md` and supporting `contributing.md`, `security-policy.md`, and `release.md` docs.
+- Bumped version metadata to `0.1.4` across the package manifest, lockfile, and extension manifest.
+- Preserved the browser-only default posture, opt-in backend coupling, and modular popup/service-worker split.
+- Retained PNG icon delivery for Chrome-compatible extension assets.
+
 ## 0.1.3 — 2026-05-26
 - Added backend host policy and strict allowlist validation in service worker bootstrap.
 - Enforced optional backend hard-fail + graceful fallback behavior on policy violations.

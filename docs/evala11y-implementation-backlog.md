@@ -2,7 +2,7 @@
 
 Source reviewed:
 - `https://github.com/prateekvr/evala11y`
-- `README.md`
+- `readme.md`
 - `evala11y.user.js` (single userscript, single-run client-side execution model)
 
 Reference version:
@@ -184,5 +184,5 @@ Goal: reduce noise and improve signal confidence.
 - Tag suggestion: `a11y`, `wcag`, `frontend`, `backlog`.
 - Validation references:
   - `evala11y.user.js` rule functions,
-  - `README.md` accessibility checks table,
+- `readme.md` accessibility checks table,
   - local test suite additions in `tests/shared` + `tests/ui`.
