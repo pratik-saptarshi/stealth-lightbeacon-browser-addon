@@ -338,8 +338,10 @@ describe('popup interactions', () => {
     document.getElementById('export-markdown-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     document.getElementById('export-pdf-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    expect(createObjectURL).toHaveBeenCalledTimes(3);
-    expect(revokeObjectURL).toHaveBeenCalledTimes(3);
+    await vi.waitFor(() => {
+      expect(createObjectURL).toHaveBeenCalledTimes(3);
+      expect(revokeObjectURL).toHaveBeenCalledTimes(3);
+    });
   });
 
   it('renders offline state and clipboard fallback when runtime or clipboard is unavailable', async () => {

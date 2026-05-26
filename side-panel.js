@@ -1,3 +1,168 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// src/ui/pdf.ts
+var pdf_exports = {};
+__export(pdf_exports, {
+  buildIssueReportLines: () => buildIssueReportLines,
+  buildIssuesPdfBlob: () => buildIssuesPdfBlob,
+  buildPdfDocument: () => buildPdfDocument
+});
+function buildIssuesPdfBlob(snapshot, issues) {
+  const lines = buildIssueReportLines(snapshot, issues);
+  const pdf = buildPdfDocument("Stealth Lightbeacon Issue Export", lines);
+  return new Blob([pdf], { type: "application/pdf" });
+}
+function buildIssueReportLines(snapshot, issues) {
+  const lines = [
+    `Scan ID: ${snapshot.id}`,
+    `URL: ${snapshot.url}`,
+    `Origin: ${snapshot.origin}`,
+    `Engine: ${snapshot.engine}`,
+    `Generated: ${new Date(snapshot.timestamp).toISOString()}`,
+    "",
+    `Selected issues: ${issues.length}`,
+    `Total issues on page: ${snapshot.summary.total}`,
+    ""
+  ];
+  for (const issue of issues) {
+    lines.push(`[${issue.severity}] ${issue.title}`);
+    lines.push(`Rule: ${issue.ruleId}`);
+    lines.push(`Domain: ${issue.domain}`);
+    lines.push(`Summary: ${issue.summary}`);
+    lines.push(`Evidence: ${issue.evidence}`);
+    if (issue.selector) {
+      lines.push(`Selector: ${issue.selector}`);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+function buildPdfDocument(title, lines) {
+  const pages = chunkLines([title, "", ...lines], LINES_PER_PAGE);
+  const objectParts = [];
+  const pageObjects = [];
+  const contentObjects = [];
+  objectParts.push({
+    number: 1,
+    content: `<< /Type /Catalog /Pages 2 0 R >>`
+  });
+  const firstPageObject = 4;
+  const firstContentObject = 5;
+  for (let index = 0; index < pages.length; index++) {
+    pageObjects.push(firstPageObject + index * 2);
+    contentObjects.push(firstContentObject + index * 2);
+  }
+  objectParts.push({
+    number: 2,
+    content: `<< /Type /Pages /Kids [${pageObjects.map((pageObject) => `${pageObject} 0 R`).join(" ")}] /Count ${pages.length} >>`
+  });
+  objectParts.push({
+    number: 3,
+    content: `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`
+  });
+  pages.forEach((pageLines, index) => {
+    const pageObject = pageObjects[index];
+    const contentObject = contentObjects[index];
+    const contentStream = buildPageContentStream(pageLines);
+    objectParts.push({
+      number: pageObject,
+      content: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObject} 0 R >>`
+    });
+    objectParts.push({
+      number: contentObject,
+      content: `<< /Length ${byteLength(contentStream)} >>
+stream
+${contentStream}
+endstream`
+    });
+  });
+  objectParts.sort((left, right) => left.number - right.number);
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const part of objectParts) {
+    offsets[part.number] = byteLength(pdf);
+    pdf += `${part.number} 0 obj
+${part.content}
+endobj
+`;
+  }
+  const xrefStart = byteLength(pdf);
+  const totalObjects = objectParts.length + 1;
+  const xrefLines = [`xref`, `0 ${totalObjects}`, `0000000000 65535 f `];
+  for (let objectNumber = 1; objectNumber < totalObjects; objectNumber++) {
+    const offset = offsets[objectNumber] ?? 0;
+    xrefLines.push(`${offset.toString().padStart(10, "0")} 00000 n `);
+  }
+  pdf += `${xrefLines.join("\n")}
+`;
+  pdf += `trailer << /Size ${totalObjects} /Root 1 0 R >>
+`;
+  pdf += `startxref
+`;
+  pdf += `${xrefStart}
+`;
+  pdf += `%%EOF`;
+  return pdf;
+}
+function buildPageContentStream(lines) {
+  const escapedLines = lines.map(escapePdfText);
+  const textParts = [
+    "BT",
+    "/F1 12 Tf",
+    `${LINE_HEIGHT} TL`,
+    `1 0 0 1 ${LEFT_MARGIN} ${PAGE_HEIGHT - TOP_MARGIN} Tm`
+  ];
+  escapedLines.forEach((line, index) => {
+    if (index === 0) {
+      textParts.push(`(${line}) Tj`);
+      return;
+    }
+    textParts.push("T*");
+    textParts.push(`(${line}) Tj`);
+  });
+  textParts.push("ET");
+  return textParts.join("\n");
+}
+function chunkLines(lines, chunkSize) {
+  if (lines.length === 0) {
+    return [[""]];
+  }
+  const chunks = [];
+  for (let index = 0; index < lines.length; index += chunkSize) {
+    chunks.push(lines.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+function escapePdfText(input) {
+  return input.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+function byteLength(input) {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(input).length;
+  }
+  return input.length;
+}
+var PAGE_WIDTH, PAGE_HEIGHT, LEFT_MARGIN, TOP_MARGIN, LINE_HEIGHT, LINES_PER_PAGE;
+var init_pdf = __esm({
+  "src/ui/pdf.ts"() {
+    "use strict";
+    PAGE_WIDTH = 612;
+    PAGE_HEIGHT = 792;
+    LEFT_MARGIN = 50;
+    TOP_MARGIN = 54;
+    LINE_HEIGHT = 14;
+    LINES_PER_PAGE = 42;
+  }
+});
+
 // src/popup/popup-state.ts
 var SEVERITY_ORDER = {
   critical: 0,
@@ -329,149 +494,6 @@ async function withEventLoopTrace(label, task, sink = console, clock = globalThi
   }
 }
 
-// src/ui/pdf.ts
-var PAGE_WIDTH = 612;
-var PAGE_HEIGHT = 792;
-var LEFT_MARGIN = 50;
-var TOP_MARGIN = 54;
-var LINE_HEIGHT = 14;
-var LINES_PER_PAGE = 42;
-function buildIssuesPdfBlob(snapshot, issues) {
-  const lines = buildIssueReportLines(snapshot, issues);
-  const pdf = buildPdfDocument("Stealth Lightbeacon Issue Export", lines);
-  return new Blob([pdf], { type: "application/pdf" });
-}
-function buildIssueReportLines(snapshot, issues) {
-  const lines = [
-    `Scan ID: ${snapshot.id}`,
-    `URL: ${snapshot.url}`,
-    `Origin: ${snapshot.origin}`,
-    `Engine: ${snapshot.engine}`,
-    `Generated: ${new Date(snapshot.timestamp).toISOString()}`,
-    "",
-    `Selected issues: ${issues.length}`,
-    `Total issues on page: ${snapshot.summary.total}`,
-    ""
-  ];
-  for (const issue of issues) {
-    lines.push(`[${issue.severity}] ${issue.title}`);
-    lines.push(`Rule: ${issue.ruleId}`);
-    lines.push(`Domain: ${issue.domain}`);
-    lines.push(`Summary: ${issue.summary}`);
-    lines.push(`Evidence: ${issue.evidence}`);
-    if (issue.selector) {
-      lines.push(`Selector: ${issue.selector}`);
-    }
-    lines.push("");
-  }
-  return lines;
-}
-function buildPdfDocument(title, lines) {
-  const pages = chunkLines([title, "", ...lines], LINES_PER_PAGE);
-  const objectParts = [];
-  const pageObjects = [];
-  const contentObjects = [];
-  objectParts.push({
-    number: 1,
-    content: `<< /Type /Catalog /Pages 2 0 R >>`
-  });
-  const firstPageObject = 4;
-  const firstContentObject = 5;
-  for (let index = 0; index < pages.length; index++) {
-    pageObjects.push(firstPageObject + index * 2);
-    contentObjects.push(firstContentObject + index * 2);
-  }
-  objectParts.push({
-    number: 2,
-    content: `<< /Type /Pages /Kids [${pageObjects.map((pageObject) => `${pageObject} 0 R`).join(" ")}] /Count ${pages.length} >>`
-  });
-  objectParts.push({
-    number: 3,
-    content: `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`
-  });
-  pages.forEach((pageLines, index) => {
-    const pageObject = pageObjects[index];
-    const contentObject = contentObjects[index];
-    const contentStream = buildPageContentStream(pageLines);
-    objectParts.push({
-      number: pageObject,
-      content: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObject} 0 R >>`
-    });
-    objectParts.push({
-      number: contentObject,
-      content: `<< /Length ${byteLength(contentStream)} >>
-stream
-${contentStream}
-endstream`
-    });
-  });
-  objectParts.sort((left, right) => left.number - right.number);
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  for (const part of objectParts) {
-    offsets[part.number] = byteLength(pdf);
-    pdf += `${part.number} 0 obj
-${part.content}
-endobj
-`;
-  }
-  const xrefStart = byteLength(pdf);
-  const totalObjects = objectParts.length + 1;
-  const xrefLines = [`xref`, `0 ${totalObjects}`, `0000000000 65535 f `];
-  for (let objectNumber = 1; objectNumber < totalObjects; objectNumber++) {
-    const offset = offsets[objectNumber] ?? 0;
-    xrefLines.push(`${offset.toString().padStart(10, "0")} 00000 n `);
-  }
-  pdf += `${xrefLines.join("\n")}
-`;
-  pdf += `trailer << /Size ${totalObjects} /Root 1 0 R >>
-`;
-  pdf += `startxref
-`;
-  pdf += `${xrefStart}
-`;
-  pdf += `%%EOF`;
-  return pdf;
-}
-function buildPageContentStream(lines) {
-  const escapedLines = lines.map(escapePdfText);
-  const textParts = [
-    "BT",
-    "/F1 12 Tf",
-    `${LINE_HEIGHT} TL`,
-    `1 0 0 1 ${LEFT_MARGIN} ${PAGE_HEIGHT - TOP_MARGIN} Tm`
-  ];
-  escapedLines.forEach((line, index) => {
-    if (index === 0) {
-      textParts.push(`(${line}) Tj`);
-      return;
-    }
-    textParts.push("T*");
-    textParts.push(`(${line}) Tj`);
-  });
-  textParts.push("ET");
-  return textParts.join("\n");
-}
-function chunkLines(lines, chunkSize) {
-  if (lines.length === 0) {
-    return [[""]];
-  }
-  const chunks = [];
-  for (let index = 0; index < lines.length; index += chunkSize) {
-    chunks.push(lines.slice(index, index + chunkSize));
-  }
-  return chunks;
-}
-function escapePdfText(input) {
-  return input.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-}
-function byteLength(input) {
-  if (typeof TextEncoder !== "undefined") {
-    return new TextEncoder().encode(input).length;
-  }
-  return input.length;
-}
-
 // src/popup/popup.ts
 var runtimeHost = typeof globalThis === "undefined" ? {} : globalThis;
 var state = {
@@ -482,6 +504,7 @@ var state = {
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
   settingsOpen: false
 };
+var startupHydration;
 var dom = {
   shell: null,
   statusPill: null,
@@ -584,22 +607,20 @@ async function initialize() {
     if (!hasExtensionRuntime()) {
       state.status = "idle";
       state.note = "Runtime unavailable";
-      render({ offline: true, statusLine: "Popup shell loaded outside the extension runtime." });
+      render({
+        offline: true,
+        statusLine: "Popup shell loaded outside the extension runtime.",
+        lightweight: true
+      });
       return;
     }
-    render({ statusLine: "Loading saved settings and cached scan..." });
-    const [backendSettings, panelSettings] = await Promise.all([loadBackendSettings(), loadPanelSettings()]);
-    state.backendSettings = backendSettings;
-    state.panelSettings = panelSettings;
-    const loadedCachedScan = await loadCachedScanFromHistory();
-    if (!loadedCachedScan) {
-      state.snapshot = void 0;
-      state.diff = void 0;
-      state.selectedIssueIds.clear();
-      state.status = "idle";
-      state.note = "No cached scan found. Click Rescan to scan the active tab.";
-    }
-    render();
+    state.note = "Loading saved settings and cached scan...";
+    render({ statusLine: state.note, lightweight: true });
+    startupHydration = new Promise((resolve, reject) => {
+      setTimeout(() => {
+        void hydrateStartupState().then(resolve).catch(reject);
+      }, 0);
+    });
   });
 }
 function hasExtensionRuntime() {
@@ -610,6 +631,7 @@ function getRuntime() {
 }
 async function startScan(manual) {
   await withEventLoopTrace("popup.scan", async () => {
+    await ensureStartupHydrated();
     if (state.status === "loading") {
       return;
     }
@@ -664,6 +686,37 @@ async function startScan(manual) {
     }
   });
 }
+async function hydrateStartupState() {
+  try {
+    const [backendSettings, panelSettings, loadedCachedScan] = await Promise.all([
+      loadBackendSettings(),
+      loadPanelSettings(),
+      loadCachedScanFromHistory()
+    ]);
+    state.backendSettings = backendSettings;
+    state.panelSettings = panelSettings;
+    if (!loadedCachedScan) {
+      state.snapshot = void 0;
+      state.diff = void 0;
+      state.selectedIssueIds.clear();
+      state.status = "idle";
+      state.note = "No cached scan found. Click Rescan to scan the active tab.";
+    }
+    render();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    state.error = message;
+    state.status = "failed";
+    state.note = "Startup hydration failed";
+    renderError(message);
+  }
+}
+async function ensureStartupHydrated() {
+  if (!startupHydration) {
+    return;
+  }
+  await startupHydration;
+}
 function inferStatus(payload) {
   if (payload.recommendation && payload.recommendation.confidence < 0.5) {
     return "fallback";
@@ -687,6 +740,9 @@ function render(options) {
     }
     if (dom.rescanButton) {
       dom.rescanButton.disabled = state.status === "loading" || !hasExtensionRuntime();
+    }
+    if (options?.lightweight) {
+      return;
     }
     if (dom.exportJsonButton) {
       dom.exportJsonButton.disabled = !state.snapshot;
@@ -1143,7 +1199,8 @@ async function exportCurrentSelection(format) {
     generatedAt: new Date(state.snapshot.timestamp).toISOString()
   };
   if (format === "pdf") {
-    const blob = buildIssuesPdfBlob(state.snapshot, selectedIssues);
+    const { buildIssuesPdfBlob: buildIssuesPdfBlob2 } = await Promise.resolve().then(() => (init_pdf(), pdf_exports));
+    const blob = buildIssuesPdfBlob2(state.snapshot, selectedIssues);
     downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
     return;
   }

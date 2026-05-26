@@ -21,7 +21,6 @@ import {
   type PanelSettingsForm
 } from '../shared/panel-settings';
 import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-trace';
-import { buildIssuesPdfBlob } from '../ui/pdf';
 import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
 import type { HistoryCompareReply, ScanStartReply } from '../shared/message-contracts';
 
@@ -85,6 +84,8 @@ const state: PopupState = {
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
   settingsOpen: false
 };
+
+let startupHydration: Promise<void> | undefined;
 
 const dom = {
   shell: null as HTMLElement | null,
@@ -199,26 +200,23 @@ export async function initialize(): Promise<void> {
     if (!hasExtensionRuntime()) {
       state.status = 'idle';
       state.note = 'Runtime unavailable';
-      render({ offline: true, statusLine: 'Popup shell loaded outside the extension runtime.' });
+      render({
+        offline: true,
+        statusLine: 'Popup shell loaded outside the extension runtime.',
+        lightweight: true
+      });
       return;
     }
 
-    render({ statusLine: 'Loading saved settings and cached scan...' });
-
-    const [backendSettings, panelSettings] = await Promise.all([loadBackendSettings(), loadPanelSettings()]);
-    state.backendSettings = backendSettings;
-    state.panelSettings = panelSettings;
-
-    const loadedCachedScan = await loadCachedScanFromHistory();
-    if (!loadedCachedScan) {
-      state.snapshot = undefined;
-      state.diff = undefined;
-      state.selectedIssueIds.clear();
-      state.status = 'idle';
-      state.note = 'No cached scan found. Click Rescan to scan the active tab.';
-    }
-
-    render();
+    state.note = 'Loading saved settings and cached scan...';
+    render({ statusLine: state.note, lightweight: true });
+    startupHydration = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        void hydrateStartupState()
+          .then(resolve)
+          .catch(reject);
+      }, 0);
+    });
   });
 }
 
@@ -232,6 +230,8 @@ function getRuntime(): NonNullable<PopupRuntime['chrome'] | PopupRuntime['browse
 
 async function startScan(manual: boolean): Promise<void> {
   await withEventLoopTrace('popup.scan', async () => {
+    await ensureStartupHydrated();
+
     if (state.status === 'loading') {
       return;
     }
@@ -296,6 +296,43 @@ async function startScan(manual: boolean): Promise<void> {
   });
 }
 
+async function hydrateStartupState(): Promise<void> {
+  try {
+    const [backendSettings, panelSettings, loadedCachedScan] = await Promise.all([
+      loadBackendSettings(),
+      loadPanelSettings(),
+      loadCachedScanFromHistory()
+    ]);
+
+    state.backendSettings = backendSettings;
+    state.panelSettings = panelSettings;
+
+    if (!loadedCachedScan) {
+      state.snapshot = undefined;
+      state.diff = undefined;
+      state.selectedIssueIds.clear();
+      state.status = 'idle';
+      state.note = 'No cached scan found. Click Rescan to scan the active tab.';
+    }
+
+    render();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    state.error = message;
+    state.status = 'failed';
+    state.note = 'Startup hydration failed';
+    renderError(message);
+  }
+}
+
+async function ensureStartupHydrated(): Promise<void> {
+  if (!startupHydration) {
+    return;
+  }
+
+  await startupHydration;
+}
+
 function inferStatus(payload: { recommendation?: { confidence: number } }): PopupScanStatus {
   if (payload.recommendation && payload.recommendation.confidence < 0.5) {
     return 'fallback';
@@ -304,7 +341,7 @@ function inferStatus(payload: { recommendation?: { confidence: number } }): Popu
   return 'complete';
 }
 
-function render(options?: { offline?: boolean; statusLine?: string }): void {
+function render(options?: { offline?: boolean; statusLine?: string; lightweight?: boolean }): void {
   const trace = startEventLoopTrace('popup.render');
   try {
     if (options?.offline) {
@@ -324,6 +361,10 @@ function render(options?: { offline?: boolean; statusLine?: string }): void {
 
     if (dom.rescanButton) {
       dom.rescanButton.disabled = state.status === 'loading' || !hasExtensionRuntime();
+    }
+
+    if (options?.lightweight) {
+      return;
     }
 
     if (dom.exportJsonButton) {
@@ -871,6 +912,7 @@ async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Prom
   };
 
   if (format === 'pdf') {
+    const { buildIssuesPdfBlob } = await import('../ui/pdf');
     const blob = buildIssuesPdfBlob(state.snapshot, selectedIssues);
     downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
     return;
