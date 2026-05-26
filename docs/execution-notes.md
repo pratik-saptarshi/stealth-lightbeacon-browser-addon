@@ -29,6 +29,7 @@
 - BEAD-0016 ✅ Done.
 - BEAD-0017 ✅ Done.
 - BEAD-0018 ✅ Done.
+- BEAD-0019 ✅ Done.
 
 ## Validation Log
 - `npm run build`: success.
@@ -37,7 +38,7 @@
 - `npm run test:ci:backend-fallback`: success.
 - `npm run test:ci:issues:policy`: success.
 - `npm run test:ci:required-backend-hard-fail`: success.
-- `npm test -- --run`: success (46 tests, all green).
+- `npm test -- --run`: success (53 tests, all green).
 - Browser-extension E2E smoke: not executed in this environment.
 
 ## Current Phase Conclusion

@@ -93,10 +93,27 @@ Deliver browser-addon-lite to match `backlog.md` while keeping deterministic loc
     - `required-backend-hard-fail` -> `test:ci:required-backend-hard-fail`
 
 ## Post-MCP Reminder
-- Workspace watcher remains intentionally deferred and is scheduled for a post-MCP phase.
+  - Workspace watcher remains intentionally deferred and is scheduled for a post-MCP phase.
+
+## Phase 10 — Backend Host Policy and Allowlist Gate
+- BEAD-0019: Add runtime host-policy enforcement for backend endpoints with optional loopback allow flag, allowlist normalization, and policy tests.
+- Validation (named phase gates):
+  - `npm run build`
+  - `npm run test:unit`
+  - `npm run test:integration`
+  - `npm run test:ci:backend-fallback`
+  - `npm run test:ci:issues:policy`
+  - `npm run test:ci:required-backend-hard-fail`
+- Scope:
+  - `src/background/host-policy.ts`
+  - `src/background/service-worker.ts`
+  - `src/shared/contracts.ts` and `src/shared/types.ts` (`allowedHosts`)
+  - `tests/background/host-policy.test.ts`
+  - `tests/background/backend-failure-integration.test.ts`
+  - `api/openapi.yaml`
 
 ## Current Execution Outcome
-- Phases 1-9 are complete under this repo scope.
+- Phases 1-10 are complete under this repo scope.
 - Remaining implementation debt is explicitly deferred or tracked in `backlog.md`:
   - deeper remote engine parity beyond transport wiring
   - performance/PageSpeed and full WCAG/security/Drupal evaluator families
