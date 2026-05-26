@@ -139,4 +139,22 @@ describe('phase 4 smoke contract flow', () => {
     expect(reportResponse.payload.format).toBe('html');
     expect(reportResponse.payload.report).toContain('<html');
   });
+
+  it('requires active context when no page context is supplied', async () => {
+    const scanResponse = (await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'smoke-missing-context',
+        url: 'https://example.com/page',
+        engine: 'dom-lite'
+      }
+    } as const)) as ScanStartReply;
+
+    expect(scanResponse.ok).toBe(false);
+    if (scanResponse.ok) {
+      throw new Error('Expected scan to fail');
+    }
+
+    expect(scanResponse.error).toContain('Page context is missing');
+  });
 });

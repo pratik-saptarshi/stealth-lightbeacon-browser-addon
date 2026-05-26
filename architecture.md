@@ -11,7 +11,7 @@ Provide a local-first audit path in-browser with optional backend coupling.
 - `api/openapi.yaml`: external contract for remote/backend endpoints.
 
 ## Data & Control Flow
-1. Content script emits `RuleContext`.
+1. UI/runtime supplies `RuleContext` directly, or service worker derives it from active tab context.
 2. Service worker receives `scan:start`, resolves catalog and prior history.
 3. Orchestrator runs local evaluators, optional `http`/`stdin` backend, and crawl-lite.
 4. Engine recommendation is generated from anti-bot signal and passed into backend payload where applicable.
@@ -30,6 +30,10 @@ Provide a local-first audit path in-browser with optional backend coupling.
 - Crawl validation blocks non-HTTP/HTTPS, private/reserved hostnames, cross-origin seeds, and redirect escapes.
 - Backend path supports Basic auth and timeout control.
 - Failure taxonomy is explicit: `cors`, `timeout`, `blocked`, `non_html`, `other`.
+
+## Permission posture
+- Manifest requests only minimal browser permissions: `storage`, `activeTab`, and `scripting`.
+- No broad host permissions are declared; page extraction uses explicit on-demand tab scripting only.
 
 ## Extension Points
 - Add rule families by extending `src/shared/rules` + `src/shared/rulesets`.

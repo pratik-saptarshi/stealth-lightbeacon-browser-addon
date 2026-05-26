@@ -7,6 +7,12 @@
 - Added machine-readable budget gate command (`scripts/audit-budget.mjs`) with exit-code-2 policy.
 - Updated execution docs and CI matrix with strict phase-labeled test gates.
 
+## 0.1.2 — 2026-05-26
+- Reduced extension permissions by removing broad host/page-match declarations.
+- Added active-tab-first extraction path with optional on-demand content-script injection via `scripting`.
+- Kept scan fallback when explicit page context is absent by resolving active tab context from runtime when available.
+- Updated manifest contract tests for stricter, least-privilege permission posture.
+
 ## 0.1.0 — 2026-05-26
 - Added core browser-addon-lite runtime with manifest-driven background/content architecture.
 - Implemented DOM extraction and typed rule context (`content-script`, `extractor`).

@@ -13,7 +13,7 @@
    - Intended for local Python runner integration.
 
 ## Flow
-1. `content-script` extracts `RuleContext` and sends `scan:start`.
+1. `content-script` extracts `RuleContext` and sends `scan:start`, or service worker injects and requests extraction from active tab.
 2. `service-worker` resolves ruleset catalog via `ruleset:get` cache manager.
 3. Orchestrator path:
    - chooses local rule subset using selected `ruleCategories` if present;

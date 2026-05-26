@@ -15,7 +15,7 @@ import type { AddonRulesCatalog } from './rulesets/catalog';
 export interface ScanStartMessage {
   type: 'scan:start';
   request: ScanRequest;
-  pageContext: RuleContext;
+  pageContext?: RuleContext;
   persistHistory?: boolean;
 }
 

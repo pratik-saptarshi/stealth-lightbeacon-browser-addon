@@ -22,6 +22,13 @@
 - **local runner (stdio):** optional `__STEALTH_LIGHTBEACON_STDIN_EXECUTOR__` payload injector.
 - **fallback policy:** optional backend failures fallback to embedded ruleset and keep `dom-only` issues.
 
+## Permissions
+- Active scan is requested with minimal privileges:
+  - `storage`
+  - `activeTab`
+  - `scripting`
+- No broad host permissions are declared in manifest; tab context extraction occurs through explicit on-demand script injection.
+
 ## Commands
 - `npm install`
 - `npm run build` — TypeScript build.

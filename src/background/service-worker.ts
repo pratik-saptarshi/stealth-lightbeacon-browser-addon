@@ -6,6 +6,7 @@ import { MemoryHistoryStorage, ScanHistoryManager } from './scan-history';
 import { createChromeHistoryStorage, type ChromeLike, type ChromeLikeStorageArea } from './storage';
 import { createRulesetCatalogStorage, MemoryRulesetCatalogStorage, RulesetCatalogManager } from './ruleset-catalog';
 import { buildReport } from '../ui/export';
+import type { RuleContext } from '../shared/rule-engine';
 
 type RuntimeContext = {
   chrome?: {
@@ -17,6 +18,18 @@ type RuntimeContext = {
         addListener: (callback: (...args: any[]) => void) => void;
       };
     };
+    tabs?: {
+      query?: (query: Record<string, unknown>) => Promise<ActiveTabLookup[]>;
+      sendMessage?: (tabId: number, message: unknown) => Promise<unknown>;
+    };
+    scripting?: {
+      executeScript?: (details: {
+        target: {
+          tabId: number;
+        };
+        files: string[];
+      }) => Promise<unknown>;
+    };
   };
   browser?: {
     storage?: {
@@ -27,6 +40,18 @@ type RuntimeContext = {
         addListener: (callback: (...args: any[]) => void) => void;
       };
     };
+    tabs?: {
+      query?: (query: Record<string, unknown>) => Promise<ActiveTabLookup[]>;
+      sendMessage?: (tabId: number, message: unknown) => Promise<unknown>;
+    };
+    scripting?: {
+      executeScript?: (details: {
+        target: {
+          tabId: number;
+        };
+        files: string[];
+      }) => Promise<unknown>;
+    };
   };
   runtime?: {
     onMessage?: {
@@ -34,6 +59,16 @@ type RuntimeContext = {
     };
   };
   __STEALTH_LIGHTBEACON_STDIN_EXECUTOR__?: unknown;
+};
+
+type ActiveTabLookup = {
+  id?: number;
+};
+
+type RuntimeMessageResponse = {
+  ok: boolean;
+  payload?: RuleContext;
+  error?: string;
 };
 
 const globalRuntime = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as RuntimeContext)) as RuntimeContext;
@@ -46,6 +81,14 @@ const rulesetManager = new RulesetCatalogManager(rulesetStorage ?? new MemoryRul
 export async function handleMessage(message: ClientMessage): Promise<MessageResponseByType[keyof MessageResponseByType]> {
   try {
     if (isScanStartMessage(message)) {
+      const pageContext = message.pageContext ?? await resolvePageContextFromActiveTab(message.request.tabId);
+      if (!pageContext) {
+        return {
+          ok: false,
+          error: createFailure('Page context is missing; provide pageContext or request.tabId with active-tab permissions')
+        };
+      }
+
       const backendClient = createBackendAdapter(
         message.request.backend,
         message.request.backend?.engine,
@@ -56,9 +99,9 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
         backendClient
       });
 
-      const previous = message.persistHistory ? await historyManager.getLatest(new URL(message.pageContext.requestUrl).origin) : undefined;
+      const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : undefined;
       const catalog = await rulesetManager.getCatalog();
-      const result = await orchestrator.runScan(message.request, message.pageContext, previous, catalog);
+      const result = await orchestrator.runScan(message.request, pageContext, previous, catalog);
 
       if (message.persistHistory) {
         await historyManager.saveSnapshot(result.snapshot);
@@ -194,6 +237,65 @@ function resolveHistoryStorage(context: RuntimeContext): ChromeLike | undefined 
   return undefined;
 }
 
+async function resolvePageContextFromActiveTab(tabId?: number): Promise<RuleContext | undefined> {
+  const runtimeTabs = resolveRuntimeTabs(globalRuntime);
+  if (!runtimeTabs) {
+    return undefined;
+  }
+
+  let activeTabId = tabId;
+  if (!activeTabId) {
+    const active = await pickActiveTabId(runtimeTabs);
+    activeTabId = active?.id;
+  }
+
+  if (!activeTabId) {
+    return undefined;
+  }
+
+  await ensureContentScriptLoaded(runtimeTabs, activeTabId);
+  const response = await requestContentContext(runtimeTabs, activeTabId);
+  if (isRuntimeMessageResponse(response)) {
+    return response.payload;
+  }
+
+  return undefined;
+}
+
+async function pickActiveTabId(tabs: NonNullable<RuntimeTabs>): Promise<ActiveTabLookup | undefined> {
+  if (!tabs.query) {
+    return undefined;
+  }
+
+  const matches = await tabs.query({ active: true, currentWindow: true });
+  return matches?.[0];
+}
+
+async function ensureContentScriptLoaded(tabs: NonNullable<RuntimeTabs>, tabId: number): Promise<void> {
+  const scripting = globalRuntime.chrome?.scripting ?? globalRuntime.browser?.scripting;
+  if (!scripting?.executeScript) {
+    return;
+  }
+
+  await scripting.executeScript({
+    target: {
+      tabId
+    },
+    files: ['src/content/content-script.ts']
+  });
+}
+
+async function requestContentContext(
+  tabs: NonNullable<RuntimeTabs>,
+  tabId: number
+): Promise<unknown> {
+  if (!tabs.sendMessage) {
+    return undefined;
+  }
+
+  return tabs.sendMessage(tabId, { type: 'content:extract' });
+}
+
 function resolveBackendStdioExecutor(
   context: RuntimeContext
 ): ((payload: unknown) => Promise<unknown>) | undefined {
@@ -203,6 +305,37 @@ function resolveBackendStdioExecutor(
   }
 
   return undefined;
+}
+
+type RuntimeTabs = {
+  query?: (query: Record<string, unknown>) => Promise<ActiveTabLookup[]>;
+  sendMessage?: (tabId: number, message: unknown) => Promise<unknown>;
+  scripting?: {
+    executeScript?: (details: {
+      target: {
+        tabId: number;
+      };
+      files: string[];
+    }) => Promise<unknown>;
+  };
+};
+
+function resolveRuntimeTabs(context: RuntimeContext): RuntimeTabs | undefined {
+  const chromeTabs = context.chrome?.tabs;
+  if (chromeTabs) {
+    return chromeTabs;
+  }
+
+  const browserTabs = context.browser?.tabs;
+  if (browserTabs) {
+    return browserTabs as RuntimeTabs;
+  }
+
+  return undefined;
+}
+
+function isRuntimeMessageResponse(input: unknown): input is RuntimeMessageResponse {
+  return !!input && typeof input === 'object' && 'ok' in (input as Record<string, unknown>);
 }
 
 export function registerRuntime(): void {

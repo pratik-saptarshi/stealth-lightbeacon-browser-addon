@@ -11,8 +11,9 @@ describe('addon manifest', () => {
     expect(manifest.background?.type).toBe('module');
     expect(manifest.background?.service_worker).toContain('service-worker.ts');
     expect(manifest.permissions).toContain('storage');
-    expect(Array.isArray(manifest.host_permissions)).toBe(true);
-    expect(manifest.content_scripts?.length).toBeGreaterThan(0);
-    expect(manifest.content_scripts?.[0].js?.[0]).toContain('content-script.ts');
+    expect(manifest.permissions).toContain('activeTab');
+    expect(manifest.permissions).toContain('scripting');
+    expect((manifest.host_permissions ?? [])).toEqual([]);
+    expect(manifest.content_scripts).toBeUndefined();
   });
 });
