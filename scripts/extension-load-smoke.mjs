@@ -65,6 +65,7 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
   ensureClassicScript(resolve(baseDir, 'content-script.js'));
   accessSync(resolve(baseDir, 'side-panel.js'));
   accessSync(resolve(baseDir, 'side-panel.css'));
+  accessSync(resolve(baseDir, 'api/openapi.yaml'));
 
   const manifestIcons = manifest.icons ?? {};
   for (const [_size, relativePath] of Object.entries(manifestIcons)) {
@@ -107,6 +108,7 @@ function assertPopupSurface(popupPath) {
     'backend-auth-username',
     'backend-auth-password',
     'backend-required',
+    'openapi-spec-link',
     'save-backend-button',
     'issues-panel'
   ];

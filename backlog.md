@@ -293,9 +293,9 @@ Implementation notes:
 - Epic 1: Task 1 complete, task 4 complete, export present; issue panel state + explicit rescan action remain.
 - Epic 2: Tasks 1-4 complete (crawl-lite queue, explicit failures, limits).
 - Epic 3: Local persistence and compare are implemented; IndexedDB/docs work remains for hardening.
-- Epic 4-C/4-D: UI reliability, export, and browser-toolbar click flow need dedicated implementation and smoke coverage.
-- Epic 5: ruleset/knowledge-base split is still pending architecture work.
-- Epic 6: backend settings panel and OpenAPI contract surfacing remain to be wired through the addon UI.
+- Epic 4-C/4-D: toolbar/popup reliability, PDF export, and runtime observability are implemented; keep browser-specific click-flow smoke coverage under watch.
+- Epic 5: ruleset/knowledge-base split is implemented; future updates should flow through the dedicated catalog layers.
+- Epic 6: backend settings panel and OpenAPI contract surfacing are implemented through the addon UI.
 
 ---
 

@@ -1,0 +1,466 @@
+openapi: 3.1.0
+info:
+  title: Stealth Lightbeacon Addon Scan API
+  version: 1.0.0
+  description: |
+    Optional backend contract for the browser addon.
+    The addon uses this contract when backend endpoint is configured.
+    If the backend is unavailable, the addon falls back to embedded local rules.
+  x-transport:
+    stdin:
+      enabled: true
+      description: Backend payloads can be mirrored through an external stdio worker using the same JSON payload shape.
+servers:
+  - url: https://localhost:8080
+    description: Local or remote deployment
+security:
+  - basicAuth: []
+paths:
+  /v1/audit/scan:
+    post:
+      summary: Run audit scan
+      operationId: runAuditScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditScanRequest'
+      responses:
+        '200':
+          description: Snapshot returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditScanResponse'
+        '400':
+          description: Invalid request payload
+        '500':
+          description: Backend runtime error
+  /v1/rulesets:
+    get:
+      summary: Read embedded/managed ruleset catalog
+      operationId: getRulesets
+      responses:
+        '200':
+          description: Ruleset catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddonRuleCatalog'
+    put:
+      summary: Replace addon ruleset catalog
+      operationId: upsertRulesets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddonRuleCatalog'
+      responses:
+        '200':
+          description: Ruleset catalog replaced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddonRuleCatalog'
+        '422':
+          description: Invalid catalog payload
+  /v1/reports/{snapshotId}:
+    get:
+      summary: Export a rendered report for a snapshot
+      operationId: exportReport
+      parameters:
+        - name: snapshotId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReportFormat'
+      responses:
+        '200':
+          description: Rendered report payload
+          content:
+            text/plain:
+              schema:
+                type: string
+  /v1/snapshots/{snapshotId}/issues:
+    get:
+      summary: Query issues for a snapshot
+      operationId: listSnapshotIssues
+      parameters:
+        - name: snapshotId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: domain
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/RuleCategory'
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/IssueSeverity'
+        - name: source
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/IssueSource'
+      responses:
+        '200':
+          description: Matched issues
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueList'
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+  schemas:
+    RuleCategory:
+      type: string
+      enum:
+        - seo
+        - geo
+        - aeo
+        - security-headers
+        - WCAG2.1AA
+        - WCAG2.2AA
+        - performance
+        - accessibility
+        - ux
+        - drupal
+    BackendConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        mode:
+          type: string
+          enum: [http, stdin]
+        endpoint:
+          type: string
+          format: uri
+        allowedHosts:
+          type: array
+          items:
+            type: string
+          description: Optional allowlist used by the addon/runtime host policy.
+        requestSigningSecret:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Optional secret used by the addon to generate an HMAC request signature.
+        auth:
+          type: object
+          nullable: true
+          properties:
+            username:
+              type: string
+            password:
+              type: string
+        timeoutMs:
+          type: integer
+          minimum: 100
+          default: 3500
+        required:
+          type: boolean
+          default: false
+        engine:
+          type: string
+          enum: [http, fast-obscura, stealth-playwright, mcp]
+    ScanBackendHint:
+      type: object
+      properties:
+        ruleSetVersion:
+          type: string
+        selectedCategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleCategory'
+    AuditRule:
+      type: object
+      required:
+        - id
+        - title
+        - severity
+        - enabled
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+    RuleCategoryBundle:
+      type: object
+      required:
+        - category
+        - enabled
+        - rules
+      properties:
+        category:
+          $ref: '#/components/schemas/RuleCategory'
+        enabled:
+          type: boolean
+          default: true
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditRule'
+    AddonRuleCatalog:
+      type: object
+      required:
+        - version
+        - generatedAt
+        - categories
+      properties:
+        version:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleCategoryBundle'
+    AuditIssue:
+      type: object
+      required:
+        - id
+        - ruleId
+        - title
+        - severity
+        - domain
+        - summary
+        - evidence
+        - source
+      properties:
+        id:
+          type: string
+        ruleId:
+          type: string
+        title:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        domain:
+          $ref: '#/components/schemas/RuleCategory'
+        summary:
+          type: string
+        evidence:
+          type: string
+        selector:
+          type: string
+        source:
+          type: string
+          enum: [dom-only, backend]
+    IssueSource:
+      type: string
+      enum: [dom-only, backend]
+    IssueSeverity:
+      type: string
+      enum: [critical, high, medium, low]
+    ReportFormat:
+      type: string
+      enum:
+        - json
+        - markdown
+        - html
+        - llm-markdown
+        - geo-xml
+    EngineRecommendation:
+      type: object
+      required:
+        - engine
+        - reason
+        - confidence
+      properties:
+        engine:
+          type: string
+          enum: [http, fast-obscura, stealth-playwright, mcp]
+        reason:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+    AuditScanSummary:
+      type: object
+      required:
+        - total
+        - bySeverity
+        - byDomain
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        bySeverity:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          required:
+            - critical
+            - high
+            - medium
+            - low
+          properties:
+            critical:
+              type: integer
+              minimum: 0
+            high:
+              type: integer
+              minimum: 0
+            medium:
+              type: integer
+              minimum: 0
+            low:
+              type: integer
+              minimum: 0
+        byDomain:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+    AuditSnapshot:
+      type: object
+      required:
+        - id
+        - origin
+        - url
+        - timestamp
+        - engine
+        - issues
+        - summary
+      properties:
+        id:
+          type: string
+        origin:
+          type: string
+        url:
+          type: string
+          format: uri
+        timestamp:
+          type: number
+        engine:
+          type: string
+          enum: [dom-lite, crawl-lite]
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditIssue'
+        summary:
+          $ref: '#/components/schemas/AuditScanSummary'
+    CrawlNode:
+      type: object
+      required:
+        - url
+        - depth
+        - status
+      properties:
+        url:
+          type: string
+          format: uri
+        depth:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [queued, running, done, error]
+        errorType:
+          type: string
+          enum: [cors, timeout, blocked, non_html, other]
+        discoveredFrom:
+          type: string
+          format: uri
+        finalUrl:
+          type: string
+          format: uri
+        statusCode:
+          type: integer
+          minimum: 0
+        note:
+          type: string
+    AuditScanRequest:
+      type: object
+      required:
+        - requestId
+        - request
+        - pageContext
+      properties:
+        request:
+          type: object
+          required:
+            - requestId
+            - url
+            - engine
+          properties:
+            requestId:
+              type: string
+            url:
+              type: string
+              format: uri
+            tabId:
+              type: integer
+              minimum: 0
+            engine:
+              type: string
+              enum: [dom-lite, crawl-lite]
+            crawlDepth:
+              type: integer
+              minimum: 0
+              maximum: 4
+            crawlMaxUrls:
+              type: integer
+              minimum: 0
+              maximum: 500
+            ruleCategories:
+              type: array
+              items:
+                $ref: '#/components/schemas/RuleCategory'
+            backend:
+              $ref: '#/components/schemas/BackendConfig'
+        pageContext:
+          type: object
+    AuditScanResponse:
+      type: object
+      required:
+        - snapshot
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/AuditSnapshot'
+        crawlNodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/CrawlNode'
+        recommendation:
+          $ref: '#/components/schemas/EngineRecommendation'
+    IssueList:
+      type: object
+      required:
+        - issues
+        - count
+      properties:
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditIssue'
+        count:
+          type: integer
+          minimum: 0

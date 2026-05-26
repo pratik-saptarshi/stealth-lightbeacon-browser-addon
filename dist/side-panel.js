@@ -197,6 +197,36 @@ function coerceBoolean(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+// src/shared/performance-trace.ts
+var DEFAULT_WARN_THRESHOLD_MS = 16;
+function startEventLoopTrace(label, sink = console, clock = globalThis.performance ?? { now: () => Date.now() }) {
+  const startMark = `${label}:start`;
+  const endMark = `${label}:end`;
+  const startedAt = clock.now();
+  clock.mark?.(startMark);
+  return {
+    end(details) {
+      const durationMs = clock.now() - startedAt;
+      clock.mark?.(endMark);
+      clock.measure?.(label, startMark, endMark);
+      const suffix = details ? ` ${details}` : "";
+      const message = `[perf] ${label} ${durationMs.toFixed(2)}ms${suffix}`;
+      sink.debug?.(message);
+      if (durationMs >= DEFAULT_WARN_THRESHOLD_MS) {
+        sink.warn?.(message);
+      }
+    }
+  };
+}
+async function withEventLoopTrace(label, task, sink = console, clock = globalThis.performance ?? { now: () => Date.now() }) {
+  const trace = startEventLoopTrace(label, sink, clock);
+  try {
+    return await Promise.resolve(task());
+  } finally {
+    trace.end();
+  }
+}
+
 // src/ui/pdf.ts
 var PAGE_WIDTH = 612;
 var PAGE_HEIGHT = 792;
@@ -370,7 +400,8 @@ var dom = {
   backendAuthUsername: null,
   backendAuthPassword: null,
   backendRequired: null,
-  saveBackendButton: null
+  saveBackendButton: null,
+  openApiSpecLink: null
 };
 document.addEventListener("DOMContentLoaded", () => {
   bindDom();
@@ -400,6 +431,7 @@ function bindDom() {
   dom.backendAuthPassword = document.getElementById("backend-auth-password");
   dom.backendRequired = document.getElementById("backend-required");
   dom.saveBackendButton = document.getElementById("save-backend-button");
+  dom.openApiSpecLink = document.getElementById("openapi-spec-link");
 }
 function bindActions() {
   dom.rescanButton?.addEventListener("click", () => {
@@ -423,14 +455,16 @@ function bindActions() {
   bindSettingsInputs();
 }
 async function initialize() {
-  if (!hasExtensionRuntime()) {
-    state.status = "idle";
-    state.note = "Runtime unavailable";
-    render({ offline: true, statusLine: "Popup shell loaded outside the extension runtime." });
-    return;
-  }
-  await loadBackendSettings();
-  await startScan(false);
+  await withEventLoopTrace("popup.initialize", async () => {
+    if (!hasExtensionRuntime()) {
+      state.status = "idle";
+      state.note = "Runtime unavailable";
+      render({ offline: true, statusLine: "Popup shell loaded outside the extension runtime." });
+      return;
+    }
+    await loadBackendSettings();
+    await startScan(false);
+  });
 }
 function hasExtensionRuntime() {
   return Boolean(runtimeHost.chrome?.runtime?.sendMessage || runtimeHost.browser?.runtime?.sendMessage);
@@ -439,58 +473,60 @@ function getRuntime() {
   return runtimeHost.chrome ?? runtimeHost.browser;
 }
 async function startScan(manual) {
-  if (state.status === "loading") {
-    return;
-  }
-  const runtime = getRuntime();
-  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
-    renderError("Extension runtime is unavailable. Reload the addon page and try again.");
-    return;
-  }
-  state.status = "loading";
-  state.error = void 0;
-  state.note = manual ? "Manual rescan running" : "Initial scan running";
-  render();
-  try {
-    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
-    const activeTab = activeTabs[0];
-    if (!activeTab?.id) {
-      throw new Error("No active tab available for scan");
+  await withEventLoopTrace("popup.scan", async () => {
+    if (state.status === "loading") {
+      return;
     }
-    if (!activeTab.url) {
-      throw new Error("Unable to resolve active tab URL");
+    const runtime = getRuntime();
+    if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+      renderError("Extension runtime is unavailable. Reload the addon page and try again.");
+      return;
     }
-    state.tabId = activeTab.id;
-    state.tabUrl = activeTab.url;
-    state.scanId = createScanId();
-    const backend = buildBackendRequestFromSettings(state.backendSettings);
-    const reply = await runtime.runtime.sendMessage({
-      type: "scan:start",
-      request: {
-        requestId: state.scanId,
-        tabId: activeTab.id,
-        url: activeTab.url,
-        engine: "dom-lite",
-        backend
-      },
-      persistHistory: true
-    });
-    if (!reply.ok) {
-      throw new Error(reply.error);
-    }
-    state.snapshot = reply.payload.snapshot;
-    state.diff = reply.payload.diff;
-    state.selectedIssueIds.clear();
-    state.status = inferStatus(reply.payload);
-    state.note = reply.payload.recommendation ? `Backend recommendation: ${reply.payload.recommendation.engine}` : "Scan complete";
+    state.status = "loading";
+    state.error = void 0;
+    state.note = manual ? "Manual rescan running" : "Initial scan running";
     render();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    state.error = message;
-    state.status = message.toLowerCase().includes("fallback") ? "fallback" : "failed";
-    state.note = "Scan failed";
-    renderError(message);
-  }
+    try {
+      const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+      const activeTab = activeTabs[0];
+      if (!activeTab?.id) {
+        throw new Error("No active tab available for scan");
+      }
+      if (!activeTab.url) {
+        throw new Error("Unable to resolve active tab URL");
+      }
+      state.tabId = activeTab.id;
+      state.tabUrl = activeTab.url;
+      state.scanId = createScanId();
+      const backend = buildBackendRequestFromSettings(state.backendSettings);
+      const reply = await runtime.runtime.sendMessage({
+        type: "scan:start",
+        request: {
+          requestId: state.scanId,
+          tabId: activeTab.id,
+          url: activeTab.url,
+          engine: "dom-lite",
+          backend
+        },
+        persistHistory: true
+      });
+      if (!reply.ok) {
+        throw new Error(reply.error);
+      }
+      state.snapshot = reply.payload.snapshot;
+      state.diff = reply.payload.diff;
+      state.selectedIssueIds.clear();
+      state.status = inferStatus(reply.payload);
+      state.note = reply.payload.recommendation ? `Backend recommendation: ${reply.payload.recommendation.engine}` : "Scan complete";
+      render();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      state.error = message;
+      state.status = message.toLowerCase().includes("fallback") ? "fallback" : "failed";
+      state.note = "Scan failed";
+      renderError(message);
+    }
+  });
 }
 function inferStatus(payload) {
   if (payload.recommendation && payload.recommendation.confidence < 0.5) {
@@ -499,35 +535,40 @@ function inferStatus(payload) {
   return "complete";
 }
 function render(options) {
-  if (options?.offline) {
-    dom.offlinePanel?.classList.remove("hidden");
-  } else {
-    dom.offlinePanel?.classList.add("hidden");
+  const trace = startEventLoopTrace("popup.render");
+  try {
+    if (options?.offline) {
+      dom.offlinePanel?.classList.remove("hidden");
+    } else {
+      dom.offlinePanel?.classList.add("hidden");
+    }
+    if (dom.statusPill) {
+      dom.statusPill.dataset.status = state.status;
+      dom.statusPill.textContent = statusLabel(state.status);
+    }
+    if (dom.statusLine) {
+      dom.statusLine.textContent = options?.statusLine ?? buildStatusLine();
+    }
+    if (dom.rescanButton) {
+      dom.rescanButton.disabled = state.status === "loading" || !hasExtensionRuntime();
+    }
+    if (dom.exportJsonButton) {
+      dom.exportJsonButton.disabled = !state.snapshot;
+    }
+    if (dom.exportMarkdownButton) {
+      dom.exportMarkdownButton.disabled = !state.snapshot;
+    }
+    if (dom.copySelectorsButton) {
+      dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
+    }
+    renderSettings();
+    renderSummary();
+    renderDelta();
+    renderIssues();
+    hideError();
+  } finally {
+    trace.end(state.snapshot ? `issues=${state.snapshot.summary.total}` : "empty");
   }
-  if (dom.statusPill) {
-    dom.statusPill.dataset.status = state.status;
-    dom.statusPill.textContent = statusLabel(state.status);
-  }
-  if (dom.statusLine) {
-    dom.statusLine.textContent = options?.statusLine ?? buildStatusLine();
-  }
-  if (dom.rescanButton) {
-    dom.rescanButton.disabled = state.status === "loading" || !hasExtensionRuntime();
-  }
-  if (dom.exportJsonButton) {
-    dom.exportJsonButton.disabled = !state.snapshot;
-  }
-  if (dom.exportMarkdownButton) {
-    dom.exportMarkdownButton.disabled = !state.snapshot;
-  }
-  if (dom.copySelectorsButton) {
-    dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
-  }
-  renderSettings();
-  renderSummary();
-  renderDelta();
-  renderIssues();
-  hideError();
 }
 function renderSummary() {
   if (!dom.summaryGrid) {
@@ -757,6 +798,11 @@ function renderSettings() {
   }
   if (dom.backendRequired) {
     dom.backendRequired.checked = state.backendSettings.required;
+  }
+  if (dom.openApiSpecLink) {
+    const specUrl = getRuntime()?.runtime?.getURL?.("api/openapi.yaml") ?? "api/openapi.yaml";
+    dom.openApiSpecLink.href = specUrl;
+    dom.openApiSpecLink.title = specUrl;
   }
 }
 function readBackendSettingsFromDom() {

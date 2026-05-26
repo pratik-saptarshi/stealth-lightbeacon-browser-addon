@@ -2011,6 +2011,36 @@ function toMarkdownExport(bundle) {
   return lines.join("\n");
 }
 
+// src/shared/performance-trace.ts
+var DEFAULT_WARN_THRESHOLD_MS = 16;
+function startEventLoopTrace(label, sink = console, clock = globalThis.performance ?? { now: () => Date.now() }) {
+  const startMark = `${label}:start`;
+  const endMark = `${label}:end`;
+  const startedAt = clock.now();
+  clock.mark?.(startMark);
+  return {
+    end(details) {
+      const durationMs = clock.now() - startedAt;
+      clock.mark?.(endMark);
+      clock.measure?.(label, startMark, endMark);
+      const suffix = details ? ` ${details}` : "";
+      const message = `[perf] ${label} ${durationMs.toFixed(2)}ms${suffix}`;
+      sink.debug?.(message);
+      if (durationMs >= DEFAULT_WARN_THRESHOLD_MS) {
+        sink.warn?.(message);
+      }
+    }
+  };
+}
+async function withEventLoopTrace(label, task, sink = console, clock = globalThis.performance ?? { now: () => Date.now() }) {
+  const trace = startEventLoopTrace(label, sink, clock);
+  try {
+    return await Promise.resolve(task());
+  } finally {
+    trace.end();
+  }
+}
+
 // src/background/toolbar-state.ts
 var ACTION_ICON_PATHS = {
   normal: {
@@ -2146,57 +2176,59 @@ var knowledgeBaseManager = new KnowledgeBaseManager(knowledgeBaseStorage ?? new 
 async function handleMessage(message) {
   try {
     if (isScanStartMessage(message)) {
-      const pageContext = message.pageContext ?? await resolvePageContextFromActiveTab(message.request.tabId);
-      if (!pageContext) {
-        return {
-          ok: false,
-          error: createFailure("Page context is missing; provide pageContext or request.tabId with active-tab permissions")
-        };
-      }
-      const sanitizedBackendRequest = message.request.backend ? {
-        ...message.request.backend,
-        allowedHosts: sanitizeBackendHostPolicy(message.request.backend)
-      } : void 0;
-      const pageHost = new URL(pageContext.requestUrl).hostname;
-      const loopbackBackendAllowList = sanitizedBackendRequest?.allowedHosts?.some(isLoopbackHost) ?? false;
-      const backendRequest = applyBackendHostPolicy(
-        sanitizedBackendRequest,
-        pageContext.requestUrl,
-        isLoopbackHost(pageHost) || loopbackBackendAllowList
-      );
-      const backendClient = createBackendAdapter(
-        backendRequest,
-        message.request.backend?.engine,
-        message.request.backend?.mode === "stdin" ? resolveBackendStdioExecutor(globalRuntime) : void 0
-      );
-      const orchestrator = new ScanOrchestrator({
-        backendClient
-      });
-      const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : void 0;
-      const catalog = await rulesetManager.getCatalog();
-      const result = await orchestrator.runScan(
-        {
-          ...message.request,
-          backend: backendRequest
-        },
-        pageContext,
-        previous,
-        catalog
-      );
-      const tabId = message.request.tabId ?? await resolveActiveTabId(globalRuntime);
-      await applyToolbarState(globalRuntime, tabId, result.snapshot);
-      if (message.persistHistory) {
-        await historyManager.saveSnapshot(result.snapshot);
-      }
-      return {
-        ok: true,
-        payload: {
-          snapshot: result.snapshot,
-          diff: result.diff,
-          crawlNodes: result.crawlNodes,
-          recommendation: result.recommendation
+      return await withEventLoopTrace("service-worker.scan:start", async () => {
+        const pageContext = message.pageContext ?? await resolvePageContextFromActiveTab(message.request.tabId);
+        if (!pageContext) {
+          return {
+            ok: false,
+            error: createFailure("Page context is missing; provide pageContext or request.tabId with active-tab permissions")
+          };
         }
-      };
+        const sanitizedBackendRequest = message.request.backend ? {
+          ...message.request.backend,
+          allowedHosts: sanitizeBackendHostPolicy(message.request.backend)
+        } : void 0;
+        const pageHost = new URL(pageContext.requestUrl).hostname;
+        const loopbackBackendAllowList = sanitizedBackendRequest?.allowedHosts?.some(isLoopbackHost) ?? false;
+        const backendRequest = applyBackendHostPolicy(
+          sanitizedBackendRequest,
+          pageContext.requestUrl,
+          isLoopbackHost(pageHost) || loopbackBackendAllowList
+        );
+        const backendClient = createBackendAdapter(
+          backendRequest,
+          message.request.backend?.engine,
+          message.request.backend?.mode === "stdin" ? resolveBackendStdioExecutor(globalRuntime) : void 0
+        );
+        const orchestrator = new ScanOrchestrator({
+          backendClient
+        });
+        const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : void 0;
+        const catalog = await rulesetManager.getCatalog();
+        const result = await orchestrator.runScan(
+          {
+            ...message.request,
+            backend: backendRequest
+          },
+          pageContext,
+          previous,
+          catalog
+        );
+        const tabId = message.request.tabId ?? await resolveActiveTabId(globalRuntime);
+        await applyToolbarState(globalRuntime, tabId, result.snapshot);
+        if (message.persistHistory) {
+          await historyManager.saveSnapshot(result.snapshot);
+        }
+        return {
+          ok: true,
+          payload: {
+            snapshot: result.snapshot,
+            diff: result.diff,
+            crawlNodes: result.crawlNodes,
+            recommendation: result.recommendation
+          }
+        };
+      });
     }
     if (message.type === "issues:list") {
       const issues = message.snapshot.issues.filter((issue) => {
@@ -2214,7 +2246,7 @@ async function handleMessage(message) {
       return { ok: true, payload: { issues, count: issues.length } };
     }
     if (message.type === "report:build") {
-      return {
+      return await withEventLoopTrace("service-worker.report:build", async () => ({
         ok: true,
         payload: {
           report: buildReport(
@@ -2227,7 +2259,7 @@ async function handleMessage(message) {
           ),
           format: message.format
         }
-      };
+      }));
     }
     if (message.type === "history:list") {
       const snapshots = await historyManager.listSnapshots(message.origin, message.limit);

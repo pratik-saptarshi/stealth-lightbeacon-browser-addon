@@ -8,6 +8,7 @@ import { createChromeHistoryStorage, type ChromeLike, type ChromeLikeStorageArea
 import { createRulesetCatalogStorage, MemoryRulesetCatalogStorage, RulesetCatalogManager } from './ruleset-catalog';
 import { createKnowledgeBaseStorage, KnowledgeBaseManager, MemoryKnowledgeBaseStorage } from './knowledge-base';
 import { buildReport } from '../ui/export';
+import { withEventLoopTrace } from '../shared/performance-trace';
 import { applyToolbarState } from './toolbar-state';
 import type { RuleContext } from '../shared/rule-engine';
 import type { ScanRequest } from '../shared/types';
@@ -123,66 +124,68 @@ const knowledgeBaseManager = new KnowledgeBaseManager(knowledgeBaseStorage ?? ne
 export async function handleMessage(message: ClientMessage): Promise<MessageResponseByType[keyof MessageResponseByType]> {
   try {
     if (isScanStartMessage(message)) {
-      const pageContext = message.pageContext ?? await resolvePageContextFromActiveTab(message.request.tabId);
-      if (!pageContext) {
-        return {
-          ok: false,
-          error: createFailure('Page context is missing; provide pageContext or request.tabId with active-tab permissions')
-        };
-      }
-
-      const sanitizedBackendRequest = message.request.backend
-        ? {
-            ...message.request.backend,
-            allowedHosts: sanitizeBackendHostPolicy(message.request.backend)
-          }
-        : undefined;
-
-      const pageHost = new URL(pageContext.requestUrl).hostname;
-      const loopbackBackendAllowList = sanitizedBackendRequest?.allowedHosts?.some(isLoopbackHost) ?? false;
-      const backendRequest = applyBackendHostPolicy(
-        sanitizedBackendRequest,
-        pageContext.requestUrl,
-        isLoopbackHost(pageHost) || loopbackBackendAllowList
-      );
-      const backendClient = createBackendAdapter(
-        backendRequest,
-        message.request.backend?.engine,
-        message.request.backend?.mode === 'stdin' ? resolveBackendStdioExecutor(globalRuntime) : undefined
-      );
-
-      const orchestrator = new ScanOrchestrator({
-        backendClient
-      });
-
-      const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : undefined;
-      const catalog = await rulesetManager.getCatalog();
-    const result = await orchestrator.runScan(
-        {
-          ...message.request,
-          backend: backendRequest
-        },
-      pageContext,
-      previous,
-      catalog
-    );
-
-    const tabId = message.request.tabId ?? (await resolveActiveTabId(globalRuntime));
-    await applyToolbarState(globalRuntime, tabId, result.snapshot);
-
-      if (message.persistHistory) {
-        await historyManager.saveSnapshot(result.snapshot);
-      }
-
-      return {
-        ok: true,
-        payload: {
-          snapshot: result.snapshot,
-          diff: result.diff,
-          crawlNodes: result.crawlNodes,
-          recommendation: result.recommendation
+      return await withEventLoopTrace('service-worker.scan:start', async () => {
+        const pageContext = message.pageContext ?? await resolvePageContextFromActiveTab(message.request.tabId);
+        if (!pageContext) {
+          return {
+            ok: false,
+            error: createFailure('Page context is missing; provide pageContext or request.tabId with active-tab permissions')
+          };
         }
-      };
+
+        const sanitizedBackendRequest = message.request.backend
+          ? {
+              ...message.request.backend,
+              allowedHosts: sanitizeBackendHostPolicy(message.request.backend)
+            }
+          : undefined;
+
+        const pageHost = new URL(pageContext.requestUrl).hostname;
+        const loopbackBackendAllowList = sanitizedBackendRequest?.allowedHosts?.some(isLoopbackHost) ?? false;
+        const backendRequest = applyBackendHostPolicy(
+          sanitizedBackendRequest,
+          pageContext.requestUrl,
+          isLoopbackHost(pageHost) || loopbackBackendAllowList
+        );
+        const backendClient = createBackendAdapter(
+          backendRequest,
+          message.request.backend?.engine,
+          message.request.backend?.mode === 'stdin' ? resolveBackendStdioExecutor(globalRuntime) : undefined
+        );
+
+        const orchestrator = new ScanOrchestrator({
+          backendClient
+        });
+
+        const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : undefined;
+        const catalog = await rulesetManager.getCatalog();
+        const result = await orchestrator.runScan(
+          {
+            ...message.request,
+            backend: backendRequest
+          },
+          pageContext,
+          previous,
+          catalog
+        );
+
+        const tabId = message.request.tabId ?? (await resolveActiveTabId(globalRuntime));
+        await applyToolbarState(globalRuntime, tabId, result.snapshot);
+
+        if (message.persistHistory) {
+          await historyManager.saveSnapshot(result.snapshot);
+        }
+
+        return {
+          ok: true,
+          payload: {
+            snapshot: result.snapshot,
+            diff: result.diff,
+            crawlNodes: result.crawlNodes,
+            recommendation: result.recommendation
+          }
+        };
+      });
     }
 
     if (message.type === 'issues:list') {
@@ -206,7 +209,7 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
     }
 
     if (message.type === 'report:build') {
-      return {
+      return await withEventLoopTrace('service-worker.report:build', async () => ({
         ok: true,
         payload: {
           report: buildReport(
@@ -219,7 +222,7 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
           ),
           format: message.format
         }
-      };
+      }));
     }
 
     if (message.type === 'history:list') {

@@ -12,6 +12,7 @@ import {
   normalizeBackendSettings,
   type BackendSettingsForm
 } from '../shared/backend-settings';
+import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-trace';
 import { buildIssuesPdfBlob } from '../ui/pdf';
 import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
 import type { ScanStartReply } from '../shared/message-contracts';
@@ -93,7 +94,8 @@ const dom = {
   backendAuthUsername: null as HTMLInputElement | null,
   backendAuthPassword: null as HTMLInputElement | null,
   backendRequired: null as HTMLInputElement | null,
-  saveBackendButton: null as HTMLButtonElement | null
+  saveBackendButton: null as HTMLButtonElement | null,
+  openApiSpecLink: null as HTMLAnchorElement | null
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -125,6 +127,7 @@ function bindDom(): void {
   dom.backendAuthPassword = document.getElementById('backend-auth-password') as HTMLInputElement | null;
   dom.backendRequired = document.getElementById('backend-required') as HTMLInputElement | null;
   dom.saveBackendButton = document.getElementById('save-backend-button') as HTMLButtonElement | null;
+  dom.openApiSpecLink = document.getElementById('openapi-spec-link') as HTMLAnchorElement | null;
 }
 
 function bindActions(): void {
@@ -156,15 +159,17 @@ function bindActions(): void {
 }
 
 async function initialize(): Promise<void> {
-  if (!hasExtensionRuntime()) {
-    state.status = 'idle';
-    state.note = 'Runtime unavailable';
-    render({ offline: true, statusLine: 'Popup shell loaded outside the extension runtime.' });
-    return;
-  }
+  await withEventLoopTrace('popup.initialize', async () => {
+    if (!hasExtensionRuntime()) {
+      state.status = 'idle';
+      state.note = 'Runtime unavailable';
+      render({ offline: true, statusLine: 'Popup shell loaded outside the extension runtime.' });
+      return;
+    }
 
-  await loadBackendSettings();
-  await startScan(false);
+    await loadBackendSettings();
+    await startScan(false);
+  });
 }
 
 function hasExtensionRuntime(): boolean {
@@ -176,67 +181,69 @@ function getRuntime(): NonNullable<PopupRuntime['chrome'] | PopupRuntime['browse
 }
 
 async function startScan(manual: boolean): Promise<void> {
-  if (state.status === 'loading') {
-    return;
-  }
-
-  const runtime = getRuntime();
-  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
-    renderError('Extension runtime is unavailable. Reload the addon page and try again.');
-    return;
-  }
-
-  state.status = 'loading';
-  state.error = undefined;
-  state.note = manual ? 'Manual rescan running' : 'Initial scan running';
-  render();
-
-  try {
-    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
-    const activeTab = activeTabs[0];
-    if (!activeTab?.id) {
-      throw new Error('No active tab available for scan');
+  await withEventLoopTrace('popup.scan', async () => {
+    if (state.status === 'loading') {
+      return;
     }
 
-    if (!activeTab.url) {
-      throw new Error('Unable to resolve active tab URL');
+    const runtime = getRuntime();
+    if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+      renderError('Extension runtime is unavailable. Reload the addon page and try again.');
+      return;
     }
 
-    state.tabId = activeTab.id;
-    state.tabUrl = activeTab.url;
-    state.scanId = createScanId();
-    const backend = buildBackendRequestFromSettings(state.backendSettings);
-    const reply = (await runtime.runtime.sendMessage({
-      type: 'scan:start',
-      request: {
-        requestId: state.scanId,
-        tabId: activeTab.id,
-        url: activeTab.url,
-        engine: 'dom-lite',
-        backend
-      },
-      persistHistory: true
-    })) as ScanStartReply;
-
-    if (!reply.ok) {
-      throw new Error(reply.error);
-    }
-
-    state.snapshot = reply.payload.snapshot;
-    state.diff = reply.payload.diff;
-    state.selectedIssueIds.clear();
-    state.status = inferStatus(reply.payload);
-    state.note = reply.payload.recommendation
-      ? `Backend recommendation: ${reply.payload.recommendation.engine}`
-      : 'Scan complete';
+    state.status = 'loading';
+    state.error = undefined;
+    state.note = manual ? 'Manual rescan running' : 'Initial scan running';
     render();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    state.error = message;
-    state.status = message.toLowerCase().includes('fallback') ? 'fallback' : 'failed';
-    state.note = 'Scan failed';
-    renderError(message);
-  }
+
+    try {
+      const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+      const activeTab = activeTabs[0];
+      if (!activeTab?.id) {
+        throw new Error('No active tab available for scan');
+      }
+
+      if (!activeTab.url) {
+        throw new Error('Unable to resolve active tab URL');
+      }
+
+      state.tabId = activeTab.id;
+      state.tabUrl = activeTab.url;
+      state.scanId = createScanId();
+      const backend = buildBackendRequestFromSettings(state.backendSettings);
+      const reply = (await runtime.runtime.sendMessage({
+        type: 'scan:start',
+        request: {
+          requestId: state.scanId,
+          tabId: activeTab.id,
+          url: activeTab.url,
+          engine: 'dom-lite',
+          backend
+        },
+        persistHistory: true
+      })) as ScanStartReply;
+
+      if (!reply.ok) {
+        throw new Error(reply.error);
+      }
+
+      state.snapshot = reply.payload.snapshot;
+      state.diff = reply.payload.diff;
+      state.selectedIssueIds.clear();
+      state.status = inferStatus(reply.payload);
+      state.note = reply.payload.recommendation
+        ? `Backend recommendation: ${reply.payload.recommendation.engine}`
+        : 'Scan complete';
+      render();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      state.error = message;
+      state.status = message.toLowerCase().includes('fallback') ? 'fallback' : 'failed';
+      state.note = 'Scan failed';
+      renderError(message);
+    }
+  });
 }
 
 function inferStatus(payload: { recommendation?: { confidence: number } }): PopupScanStatus {
@@ -248,43 +255,48 @@ function inferStatus(payload: { recommendation?: { confidence: number } }): Popu
 }
 
 function render(options?: { offline?: boolean; statusLine?: string }): void {
-  if (options?.offline) {
-    dom.offlinePanel?.classList.remove('hidden');
-  } else {
-    dom.offlinePanel?.classList.add('hidden');
+  const trace = startEventLoopTrace('popup.render');
+  try {
+    if (options?.offline) {
+      dom.offlinePanel?.classList.remove('hidden');
+    } else {
+      dom.offlinePanel?.classList.add('hidden');
+    }
+
+    if (dom.statusPill) {
+      dom.statusPill.dataset.status = state.status;
+      dom.statusPill.textContent = statusLabel(state.status);
+    }
+
+    if (dom.statusLine) {
+      dom.statusLine.textContent = options?.statusLine ?? buildStatusLine();
+    }
+
+    if (dom.rescanButton) {
+      dom.rescanButton.disabled = state.status === 'loading' || !hasExtensionRuntime();
+    }
+
+    if (dom.exportJsonButton) {
+      dom.exportJsonButton.disabled = !state.snapshot;
+    }
+
+    if (dom.exportMarkdownButton) {
+      dom.exportMarkdownButton.disabled = !state.snapshot;
+    }
+
+    if (dom.copySelectorsButton) {
+      dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
+    }
+
+    renderSettings();
+
+    renderSummary();
+    renderDelta();
+    renderIssues();
+    hideError();
+  } finally {
+    trace.end(state.snapshot ? `issues=${state.snapshot.summary.total}` : 'empty');
   }
-
-  if (dom.statusPill) {
-    dom.statusPill.dataset.status = state.status;
-    dom.statusPill.textContent = statusLabel(state.status);
-  }
-
-  if (dom.statusLine) {
-    dom.statusLine.textContent = options?.statusLine ?? buildStatusLine();
-  }
-
-  if (dom.rescanButton) {
-    dom.rescanButton.disabled = state.status === 'loading' || !hasExtensionRuntime();
-  }
-
-  if (dom.exportJsonButton) {
-    dom.exportJsonButton.disabled = !state.snapshot;
-  }
-
-  if (dom.exportMarkdownButton) {
-    dom.exportMarkdownButton.disabled = !state.snapshot;
-  }
-
-  if (dom.copySelectorsButton) {
-    dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
-  }
-
-  renderSettings();
-
-  renderSummary();
-  renderDelta();
-  renderIssues();
-  hideError();
 }
 
 function renderSummary(): void {
@@ -553,6 +565,11 @@ function renderSettings(): void {
   }
   if (dom.backendRequired) {
     dom.backendRequired.checked = state.backendSettings.required;
+  }
+  if (dom.openApiSpecLink) {
+    const specUrl = getRuntime()?.runtime?.getURL?.('api/openapi.yaml') ?? 'api/openapi.yaml';
+    dom.openApiSpecLink.href = specUrl;
+    dom.openApiSpecLink.title = specUrl;
   }
 }
 
