@@ -9,6 +9,7 @@
 - Completed: budget gate script (`audit:budget`) with exit-code-2 policy.
 - Completed: dedicated CI matrix slices for `backend-fallback`, `issues:policy`, `required-backend-hard-fail`.
 - Planned: Playwright browser automation mapped to `docs/roadmap/playwright-test-plan.md` and Beads child issues `.6.2.1` through `.6.9.2`; current smoke baseline remains `npm run test:ui-load`.
+- Phased execution: see `docs/phase-iterations.md` for the four backlog iterations and their exit criteria.
 - Release planning: see `docs/release-milestones.md`; minor release planning remains blocked on the open P0/P1 slices, while major release planning stays deferred until P2 persistence/workflow slices land.
 - Deferred: PageSpeed engine family, broken-link discovery, DuckDB/LanceDB persistence, semantic search, and workspace watcher.
 

@@ -60,3 +60,5 @@ Major-release gate:
 - Minor release planning: not yet ready, because the P0/P1 slices are still
   open.
 - Major release planning: later, after the P2 slices are complete.
+- See `docs/phase-iterations.md` for the ordered backlog phases that feed
+  these release gates.

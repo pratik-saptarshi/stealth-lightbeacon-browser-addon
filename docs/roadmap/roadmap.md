@@ -5,6 +5,7 @@
 - Source validation against the live repo docs is complete.
 - Beads child issue decomposition is complete.
 - Playwright browser automation is now captured in `docs/roadmap/playwright-test-plan.md`.
+- Phased backlog execution is now captured in `docs/phase-iterations.md`.
 - Implementation of the roadmap items remains open.
 
 ## Validated Sources
@@ -90,3 +91,10 @@ This summary points to the durable plan in `docs/roadmap/playwright-test-plan.md
   browser-surface quality.
 - Major release planning tracks the P2 slices that add persistence and
   workflow maturity.
+
+## Phased Iterations
+- See `docs/phase-iterations.md` for the four backlog iterations and their
+  exit criteria.
+- Iteration 1 protects the current release line.
+- Iteration 2 is the earliest minor-release boundary.
+- Iteration 4 is the major-release boundary.
