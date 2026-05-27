@@ -36,7 +36,13 @@ export class KnowledgeBaseManager {
       return embedded;
     }
 
-    return normalizeCatalog(stored);
+    try {
+      return normalizeCatalog(stored);
+    } catch {
+      const embedded = normalizeCatalog(loadEmbeddedKnowledgeBase());
+      await this.storage.save(embedded);
+      return embedded;
+    }
   }
 }
 
