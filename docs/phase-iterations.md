@@ -53,6 +53,11 @@ Release signal:
 - This is the earliest sensible minor release boundary once the validation
   gate remains green and the browser-facing slices are complete.
 
+Current execution slice:
+- See `docs/iteration-2-plan.md` for the browser-shell and accessibility work
+  that is starting now.
+- The security-header evaluator is queued as the immediate follow-on slice.
+
 ## Iteration 3: Content-Intent Depth And Governance
 
 Scope:
