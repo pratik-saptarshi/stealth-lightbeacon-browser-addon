@@ -90,7 +90,12 @@ export function runRules(rules: RuleSpec[], context: RuleContext): RuleExecution
   const issues = rules.flatMap((rule) => rule.evaluate(context));
 
   const normalized = normalizeIssues(issues);
-  const origin = new URL(context.requestUrl).origin;
+  let origin: string;
+  try {
+    origin = new URL(context.requestUrl).origin;
+  } catch {
+    throw new Error('rule context.requestUrl must be a valid URL');
+  }
 
   return {
     issues: normalized,

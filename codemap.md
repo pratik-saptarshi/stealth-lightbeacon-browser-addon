@@ -26,6 +26,8 @@ Build a browser-addon-lite auditing runtime with optional backend coupling, loca
 - OpenAPI-aligned backend bridge supports local stdio or remote HTTP with optional basic auth.
 - Optional ruleset update path (`ruleset:get`, `ruleset:update`) allows in-extension configuration changes.
 - Tests validate unit, integration, and CI-patterned fallback contracts.
+- Generated validation codemap in `docs/validation-codemap.md` tracks GEO, SEO, AEO, accessibility, and security gaps against representative tools.
+- `shared-axioms.md` records the cross-repo ownership and validation rules.
 
 ## Repository dir Map
 | path | responsibility |
@@ -35,4 +37,8 @@ Build a browser-addon-lite auditing runtime with optional backend coupling, loca
 | `docs/` | execution plan, data flow, roadmap |
 | `tests/` | unit/integration coverage by phase |
 | `.github/` | CI matrix configuration |
+| `docs/roadmap/roadmap.md` | offline evaluation roadmap, completion tracker, and Beads decomposition |
+| `docs/roadmap/playwright-test-plan.md` | Playwright browser automation matrix derived from Beads child issues |
+| `docs/release-milestones.md` | minor and major release planning gates tied to validation coverage |
+| `docs/validation-codemap.md` | generated validation coverage and gap map |
 | `.slim/codemap.json` | incremental code-map state |

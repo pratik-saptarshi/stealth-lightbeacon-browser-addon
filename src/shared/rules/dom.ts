@@ -82,6 +82,36 @@ const seoHeadingStructure: RuleSpec = {
   }
 };
 
+const seoCanonicalConsistency: RuleSpec = {
+  id: 'seo-canonical-consistency',
+  title: 'Canonical should match page origin',
+  severity: 'medium',
+  domain: 'seo',
+  evaluate: (context: RuleContext) => {
+    if (!context.canonical?.trim()) {
+      return [];
+    }
+
+    try {
+      const canonicalOrigin = new URL(context.canonical).origin;
+      const pageOrigin = new URL(context.requestUrl).origin;
+      if (canonicalOrigin === pageOrigin) {
+        return [];
+      }
+
+      return [
+        createIssue(
+          seoCanonicalConsistency,
+          'Canonical points to a different origin',
+          `Canonical ${context.canonical} differs from page origin ${pageOrigin}`
+        )
+      ];
+    } catch {
+      return [];
+    }
+  }
+};
+
 const a11yImagesAlt: RuleSpec = {
   id: 'a11y-images-alt',
   title: 'Image missing alt text',
@@ -156,6 +186,32 @@ const uxFormsRequiredLabel: RuleSpec = {
   }
 };
 
+const aeoAnswerSummary: RuleSpec = {
+  id: 'aeo-answer-summary',
+  title: 'Answer summary missing',
+  severity: 'low',
+  domain: 'aeo',
+  evaluate: (context: RuleContext) => {
+    const normalizedTitle = context.title.trim();
+    const looksLikeQuestion =
+      /\?$/.test(normalizedTitle) ||
+      /^(how|what|why|when|where|who|which|can|should|does|do|is|are)\b/i.test(normalizedTitle);
+    const answerSummary = (context.metaDescription ?? '').trim();
+
+    if (!looksLikeQuestion || answerSummary.length >= 20) {
+      return [];
+    }
+
+    return [
+      createIssue(
+        aeoAnswerSummary,
+        'Question-style page lacks a concise answer summary',
+        `Title "${context.title}" has no useful answer summary`
+      )
+    ];
+  }
+};
+
 const aeoCanonicalLink: RuleSpec = {
   id: 'aeo-canonical-link',
   title: 'Canonical link missing',
@@ -177,9 +233,11 @@ export const domRules: RuleSpec[] = [
   seoTitleShort,
   seoMetaDescriptionMissing,
   seoHeadingStructure,
+  seoCanonicalConsistency,
   a11yImagesAlt,
   a11yLangAttribute,
   uxButtonLabel,
   uxFormsRequiredLabel,
+  aeoAnswerSummary,
   aeoCanonicalLink
 ];

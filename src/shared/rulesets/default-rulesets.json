@@ -29,6 +29,12 @@
           "title": "Heading structure mismatch",
           "severity": "high",
           "enabled": true
+        },
+        {
+          "id": "seo-canonical-consistency",
+          "title": "Canonical should match page origin",
+          "severity": "medium",
+          "enabled": true
         }
       ]
     },
@@ -51,6 +57,12 @@
         {
           "id": "aeo-canonical-link",
           "title": "Canonical link missing",
+          "severity": "low",
+          "enabled": true
+        },
+        {
+          "id": "aeo-answer-summary",
+          "title": "Answer summary missing",
           "severity": "low",
           "enabled": true
         }

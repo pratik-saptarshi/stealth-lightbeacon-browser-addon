@@ -105,7 +105,12 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
 
 function normalizeUrl(href: string, baseUrl: string): string {
   try {
-    return new URL(href, baseUrl).toString();
+    const url = new URL(href, baseUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return '';
+    }
+
+    return url.toString();
   } catch {
     return '';
   }

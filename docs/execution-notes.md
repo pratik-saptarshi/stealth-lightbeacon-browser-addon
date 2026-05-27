@@ -8,6 +8,8 @@
 - Completed: deterministic issue IDs and stable diff identity matching.
 - Completed: budget gate script (`audit:budget`) with exit-code-2 policy.
 - Completed: dedicated CI matrix slices for `backend-fallback`, `issues:policy`, `required-backend-hard-fail`.
+- Planned: Playwright browser automation mapped to `docs/roadmap/playwright-test-plan.md` and Beads child issues `.6.2.1` through `.6.9.2`; current smoke baseline remains `npm run test:ui-load`.
+- Release planning: see `docs/release-milestones.md`; minor release planning remains blocked on the open P0/P1 slices, while major release planning stays deferred until P2 persistence/workflow slices land.
 - Deferred: PageSpeed engine family, broken-link discovery, DuckDB/LanceDB persistence, semantic search, and workspace watcher.
 
 ## Phase Status (Beads)
@@ -43,8 +45,12 @@
 - `npm run test:ci:issues:policy`: success.
 - `npm run test:ci:required-backend-hard-fail`: success.
 - `npm test -- --run`: success (53 tests, all green).
-- Browser-extension E2E smoke: not executed in this environment.
+- `npm run test:ui-load`: success.
+- Current coverage summary: lines `83.71%`, statements `83.73%`, functions `89.26%`, branches `66.81%`.
+- Browser-extension E2E smoke: jsdom accessibility and axe smoke passed; Playwright E2E remains planned.
 
 ## Current Phase Conclusion
 - All currently scoped phases are closed under this branch.
+- Line coverage is above the documented 80% threshold; branch coverage is the remaining
+  follow-up gap if a policy requires every coverage dimension to exceed 80%.
 - Workspace watcher mode remains a post-MCP item and is deferred by design.

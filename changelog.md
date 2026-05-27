@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+- Added an adversarial validation suite that hardens page extraction, rule execution, and coverage mapping.
+- Generated a validation codemap for GEO, SEO, AEO, accessibility, and security optimization gaps.
+- Hardened page extraction to drop unsafe non-HTTP(S) links.
+- Added explicit malformed rule-context URL validation.
+- Added the validation codemap module and generated markdown artifact.
+- Added a release-milestone doc that separates minor and major planning gates from the offline-eval roadmap.
+
 ## 0.1.5 — 2026-05-26
 - Refreshed the release documentation set with clearer installation, validation, contribution, and security guidance.
 - Bumped version metadata to `0.1.5` across `package.json`, `package-lock.json`, and `manifest.json`.

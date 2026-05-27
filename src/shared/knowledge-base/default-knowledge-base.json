@@ -9,10 +9,11 @@
         {
           "id": "seo-core-summary",
           "title": "SEO core checks",
-          "summary": "Baseline SEO guidance for title, meta description, headings, and canonical behavior.",
+          "summary": "Baseline SEO guidance for title, meta description, headings, and canonical consistency.",
           "notes": [
             "Keep one descriptive title per page.",
-            "Preserve canonical consistency across the crawl boundary."
+            "Preserve canonical consistency across the crawl boundary.",
+            "Keep canonical URLs aligned with the page origin."
           ],
           "enabled": true
         }
@@ -41,10 +42,11 @@
         {
           "id": "aeo-core-summary",
           "title": "AEO core checks",
-          "summary": "Answer engine optimization guidance for direct-answer content.",
+          "summary": "Answer engine optimization guidance for direct answer content and concise answer summaries.",
           "notes": [
             "Lead with concise answers and support with structured follow-up.",
-            "Avoid content fragmentation that obscures the primary answer."
+            "Avoid content fragmentation that obscures the primary answer.",
+            "Provide a concise answer summary when the page reads like a question."
           ],
           "enabled": true
         }
