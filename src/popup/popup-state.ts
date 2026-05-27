@@ -9,6 +9,10 @@ const SEVERITY_ORDER: Record<Severity, number> = {
   low: 3
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export interface PopupDomainGroup {
   domain: string;
   total: number;
@@ -34,6 +38,20 @@ export interface PopupIssuePanelModel {
     unchangedCount: number;
   };
 }
+
+export interface PopupUiState {
+  settingsOpen: boolean;
+  scanId?: string;
+  selectedIssueIds: string[];
+}
+
+export const POPUP_UI_STATE_STORAGE_KEY = 'addon_popup_state';
+
+export const DEFAULT_POPUP_UI_STATE: PopupUiState = {
+  settingsOpen: false,
+  scanId: undefined,
+  selectedIssueIds: []
+};
 
 export function sortIssuesForPanel(issues: Issue[]): Issue[] {
   return [...issues].sort((left, right) => {
@@ -162,6 +180,34 @@ export function buildIssueExportMarkdown(
   return lines.join('\n');
 }
 
+export function normalizePopupUiState(input: unknown): PopupUiState {
+  if (!isRecord(input)) {
+    return {
+      settingsOpen: DEFAULT_POPUP_UI_STATE.settingsOpen,
+      scanId: DEFAULT_POPUP_UI_STATE.scanId,
+      selectedIssueIds: [...DEFAULT_POPUP_UI_STATE.selectedIssueIds]
+    };
+  }
+
+  return {
+    settingsOpen: typeof input.settingsOpen === 'boolean' ? input.settingsOpen : DEFAULT_POPUP_UI_STATE.settingsOpen,
+    scanId: typeof input.scanId === 'string' && input.scanId.trim() ? input.scanId.trim() : undefined,
+    selectedIssueIds: normalizeSelectedIssueIds(input.selectedIssueIds)
+  };
+}
+
+export function buildPopupUiState(input: {
+  settingsOpen: boolean;
+  scanId?: string;
+  selectedIssueIds: Iterable<string>;
+}): PopupUiState {
+  return {
+    settingsOpen: input.settingsOpen,
+    scanId: input.scanId?.trim() || undefined,
+    selectedIssueIds: normalizeSelectedIssueIds(input.selectedIssueIds)
+  };
+}
+
 export function collectSelectors(issues: Issue[]): string[] {
   return Array.from(
     new Set(
@@ -170,4 +216,32 @@ export function collectSelectors(issues: Issue[]): string[] {
         .filter((selector): selector is string => Boolean(selector))
     )
   );
+}
+
+function normalizeSelectedIssueIds(input: unknown): string[] {
+  const values = toIterableArray(input);
+  if (!values.length) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      values
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter((value) => Boolean(value))
+    )
+  );
+}
+
+function toIterableArray(input: unknown): unknown[] {
+  if (Array.isArray(input)) {
+    return input;
+  }
+
+  if (typeof input === 'object' && input !== null && Symbol.iterator in input) {
+    return Array.from(input as Iterable<unknown>);
+  }
+
+  return [];
 }

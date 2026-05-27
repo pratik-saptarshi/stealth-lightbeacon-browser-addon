@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildIssueExportJson,
   buildIssueExportMarkdown,
+  buildPopupUiState,
   buildPopupIssuePanelModel,
   collectSelectors,
+  normalizePopupUiState,
   sortIssuesForPanel
 } from '../../src/popup/popup-state';
 import type { Issue, ScanSnapshot } from '../../src/shared/types';
@@ -110,5 +112,39 @@ describe('popup panel state', () => {
       'button.icon-only',
       'head > meta[name="description"]'
     ]);
+  });
+
+  it('normalizes popup ui state inputs', () => {
+    expect(normalizePopupUiState(undefined)).toEqual({
+      settingsOpen: false,
+      scanId: undefined,
+      selectedIssueIds: []
+    });
+
+    expect(
+      normalizePopupUiState({
+        settingsOpen: true,
+        scanId: '  scan-123  ',
+        selectedIssueIds: [' issue-1 ', 'issue-1', '', 4 as never]
+      })
+    ).toEqual({
+      settingsOpen: true,
+      scanId: 'scan-123',
+      selectedIssueIds: ['issue-1']
+    });
+  });
+
+  it('builds popup ui state payloads for persistence', () => {
+    expect(
+      buildPopupUiState({
+        settingsOpen: true,
+        scanId: '  scan-456  ',
+        selectedIssueIds: new Set([' issue-2 ', 'issue-2', 'issue-3'])
+      })
+    ).toEqual({
+      settingsOpen: true,
+      scanId: 'scan-456',
+      selectedIssueIds: ['issue-2', 'issue-3']
+    });
   });
 });
