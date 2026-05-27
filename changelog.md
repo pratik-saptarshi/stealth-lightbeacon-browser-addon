@@ -8,6 +8,7 @@
 - Added the validation codemap module and generated markdown artifact.
 - Added a release-milestone doc that separates minor and major planning gates from the offline-eval roadmap.
 - Added a phased iteration doc that orders the remaining backlog by user value and release boundary.
+- Added an execution-ready Iteration 1 plan for the offline trust and coverage-audit slice.
 
 ## 0.1.5 — 2026-05-26
 - Refreshed the release documentation set with clearer installation, validation, contribution, and security guidance.

@@ -95,6 +95,8 @@ This summary points to the durable plan in `docs/roadmap/playwright-test-plan.md
 ## Phased Iterations
 - See `docs/phase-iterations.md` for the four backlog iterations and their
   exit criteria.
+- See `docs/iteration-1-plan.md` for the execution-ready plan for the first
+  iteration.
 - Iteration 1 protects the current release line.
 - Iteration 2 is the earliest minor-release boundary.
 - Iteration 4 is the major-release boundary.

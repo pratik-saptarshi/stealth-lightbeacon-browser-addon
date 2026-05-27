@@ -23,6 +23,10 @@ Release signal:
 - Safe foundation for a minor release candidate, but not enough on its own
   unless the higher-value P1 slices are also closed.
 
+Implementation plan:
+- See `docs/iteration-1-plan.md` for the execution-ready task breakdown and
+  validation gates.
+
 ## Iteration 2: Browser-Visible User Value
 
 Scope:
