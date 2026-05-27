@@ -8,6 +8,7 @@
 - Completed: deterministic issue IDs and stable diff identity matching.
 - Completed: budget gate script (`audit:budget`) with exit-code-2 policy.
 - Completed: dedicated CI matrix slices for `backend-fallback`, `issues:policy`, `required-backend-hard-fail`.
+- Planned: Playwright browser automation mapped to `docs/roadmap/playwright-test-plan.md` and Beads child issues `.6.2.1` through `.6.9.2`; current smoke baseline remains `npm run test:ui-load`.
 - Deferred: PageSpeed engine family, broken-link discovery, DuckDB/LanceDB persistence, semantic search, and workspace watcher.
 
 ## Phase Status (Beads)

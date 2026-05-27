@@ -4,6 +4,7 @@
 - Roadmap artifact moved here from `docs/offline-eval-roadmap.md`.
 - Source validation against the live repo docs is complete.
 - Beads child issue decomposition is complete.
+- Playwright browser automation is now captured in `docs/roadmap/playwright-test-plan.md`.
 - Implementation of the roadmap items remains open.
 
 ## Validated Sources
@@ -31,6 +32,18 @@
 | Accessibility runtime evaluation | partial | Alt text, lang, button labels, and required labels only. |
 | Security optimization runtime evaluation | catalog-only | Security header checks only in catalog. |
 
+## Playwright Test Plan
+This summary points to the durable plan in `docs/roadmap/playwright-test-plan.md`.
+
+| User value priority | Beads issue(s) | Playwright coverage | Status |
+| --- | --- | --- | --- |
+| P0 trust baseline | `stealth-lightbeacon-browser-addon-zca.6.2.1` | Launch the addon UI with network disabled, assert no external requests, and verify the offline scan flow still completes. | planned |
+| P1 reviewer workflow | `stealth-lightbeacon-browser-addon-zca.6.3.1` | Exercise popup and side-panel sizing, tab order, and control reachability across viewport breakpoints. | planned |
+| P1 accessibility parity | `stealth-lightbeacon-browser-addon-zca.6.4.1`, `.6.5.1` | Run browser-level accessibility smoke on representative fixtures and validate keyboard, focus, and ARIA states in the rendered UI. | planned |
+| P1 security and content depth | `stealth-lightbeacon-browser-addon-zca.6.6.1`, `.6.7.1`, `.6.7.2`, `.6.7.3`, `.6.8.1` | Smoke the issue panel and report rendering for security-header, SEO/AEO/GEO, and performance result sets. | planned |
+| P1 governance | `stealth-lightbeacon-browser-addon-zca.6.9.1`, `.6.9.2` | Verify ruleset enablement toggles, shared-schema normalization, and catalog-driven visibility in the UI. | planned |
+| P2 persistence and workflows | `stealth-lightbeacon-browser-addon-zca.6.10`, `.6.11`, `.6.12` | Cover watcher, history/trend, and remote-engine selection flows once browser automation is wired. | deferred |
+
 ## Roadmap Decomposition
 | Capability | Epic | Feature | User story | Tasks | Beads issue | Priority | Tracking status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -52,6 +65,7 @@
 | Roadmap artifact moved and validated | complete | This file. |
 | Beads child issue decomposition | complete | `stealth-lightbeacon-browser-addon-zca.6.2` through `.6.12`. |
 | Offline-only validation capability matrix | complete | Current runtime and script gates. |
+| Playwright browser automation plan | planned | `docs/roadmap/playwright-test-plan.md` and child issues `.6.2.1` through `.6.9.2`. |
 | Accessibility parity gap closure | planned | `stealth-lightbeacon-browser-addon-zca.6.4` and `.6.5`. |
 | Security header evaluator | planned | `stealth-lightbeacon-browser-addon-zca.6.6`. |
 | SEO/AEO/GEO/Drupal depth expansion | planned | `stealth-lightbeacon-browser-addon-zca.6.7`. |

@@ -37,5 +37,6 @@ Build a browser-addon-lite auditing runtime with optional backend coupling, loca
 | `tests/` | unit/integration coverage by phase |
 | `.github/` | CI matrix configuration |
 | `docs/roadmap/roadmap.md` | offline evaluation roadmap, completion tracker, and Beads decomposition |
+| `docs/roadmap/playwright-test-plan.md` | Playwright browser automation matrix derived from Beads child issues |
 | `docs/validation-codemap.md` | generated validation coverage and gap map |
 | `.slim/codemap.json` | incremental code-map state |
