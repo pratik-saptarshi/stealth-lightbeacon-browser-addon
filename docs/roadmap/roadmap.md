@@ -82,3 +82,11 @@ This summary points to the durable plan in `docs/roadmap/playwright-test-plan.md
 4. Expand SEO, AEO, GEO, and Drupal depth.
 5. Add performance and governance depth.
 6. Add persistence, search, and watcher workflows later.
+
+## Release Milestones
+- See `docs/release-milestones.md` for the minor and major release planning
+  gates derived from this roadmap.
+- Minor release planning tracks the P0/P1 slices that protect offline trust and
+  browser-surface quality.
+- Major release planning tracks the P2 slices that add persistence and
+  workflow maturity.
