@@ -21,7 +21,11 @@ export function isPrivateOrRestrictedHost(hostname: string): boolean {
     return true;
   }
 
-  if (normalized.startsWith('fe80') || normalized.startsWith('fc') || normalized.startsWith('fd')) {
+  if (normalized.includes(':') && /^fe[89ab]/.test(normalized)) {
+    return true;
+  }
+
+  if (normalized.startsWith('fc') || normalized.startsWith('fd')) {
     return true;
   }
 
@@ -71,8 +75,17 @@ export function assertBackendEndpointAllowed(input: BackendHostPolicyInput): Hos
   }
 
   const allowedHostset = new Set((allowedHosts ?? []).filter(Boolean).map((entry) => normalizeHost(entry)));
+  let pageHost: string | undefined;
   if (!allowedHostset.size && pageUrl) {
-    const pageHost = normalizeHost(new URL(pageUrl).hostname);
+    try {
+      pageHost = normalizeHost(new URL(pageUrl).hostname);
+    } catch {
+      return {
+        ok: false,
+        reason: 'Page URL must be a valid absolute URL.'
+      };
+    }
+
     if (host !== pageHost && !(isLoopbackHost(host) && pageHost.startsWith('127.'))) {
       return {
         ok: false,

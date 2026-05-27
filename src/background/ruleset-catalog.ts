@@ -54,7 +54,13 @@ export class RulesetCatalogManager {
       return this.catalog;
     }
 
-    return normalizeCatalogIds(stored);
+    try {
+      const normalized = normalizeCatalogIds(stored);
+      return normalized;
+    } catch {
+      await this.storage.save(this.catalog);
+      return this.catalog;
+    }
   }
 }
 
