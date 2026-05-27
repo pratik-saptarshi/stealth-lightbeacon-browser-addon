@@ -36,5 +36,6 @@ Build a browser-addon-lite auditing runtime with optional backend coupling, loca
 | `docs/` | execution plan, data flow, roadmap |
 | `tests/` | unit/integration coverage by phase |
 | `.github/` | CI matrix configuration |
+| `docs/roadmap/roadmap.md` | offline evaluation roadmap, completion tracker, and Beads decomposition |
 | `docs/validation-codemap.md` | generated validation coverage and gap map |
 | `.slim/codemap.json` | incremental code-map state |
