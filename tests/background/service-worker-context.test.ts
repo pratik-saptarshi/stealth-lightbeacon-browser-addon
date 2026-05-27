@@ -246,3 +246,238 @@ it('gets and updates the knowledge base catalog through the service worker', asy
     } as const);
   }
 });
+
+it('handles issue listing, report building, history lookups, and unknown messages', async () => {
+  const scanReply = (await handleMessage({
+    type: 'scan:start',
+    request: {
+      requestId: 'service-worker-coverage',
+      url: 'https://example.com/page',
+      engine: 'dom-lite'
+    },
+    persistHistory: true
+  } as const)) as ScanStartReply;
+
+  expect(scanReply.ok).toBe(true);
+  if (!scanReply.ok) {
+    throw new Error(scanReply.error);
+  }
+
+  const issuesReply = await handleMessage({
+    type: 'issues:list',
+    snapshot: scanReply.payload.snapshot,
+    filter: {
+      domain: 'seo'
+    }
+  } as const);
+
+  expect(issuesReply.ok).toBe(true);
+  if (!issuesReply.ok) {
+    throw new Error(issuesReply.error);
+  }
+
+  expect(issuesReply.payload.count).toBeGreaterThanOrEqual(0);
+
+  const reportReply = await handleMessage({
+    type: 'report:build',
+    snapshot: scanReply.payload.snapshot,
+    diff: scanReply.payload.diff,
+    format: 'markdown'
+  } as const);
+
+  expect(reportReply.ok).toBe(true);
+  if (!reportReply.ok) {
+    throw new Error(reportReply.error);
+  }
+
+  expect(reportReply.payload.report).toContain('# Scan Export');
+
+  const historyListReply = await handleMessage({
+    type: 'history:list',
+    origin: 'https://example.com',
+    limit: 5
+  } as const);
+
+  expect(historyListReply.ok).toBe(true);
+
+  const historyLatestReply = await handleMessage({
+    type: 'history:latest',
+    origin: 'https://example.com'
+  } as const);
+
+  expect(historyLatestReply.ok).toBe(true);
+
+  const historyCompareReply = await handleMessage({
+    type: 'history:compare',
+    origin: 'https://example.com'
+  } as const);
+
+  expect(historyCompareReply.ok).toBe(true);
+
+  const unknownReply = await handleMessage({ type: 'unexpected:message' } as never);
+  expect(unknownReply.ok).toBe(false);
+  if (unknownReply.ok) {
+    throw new Error('Expected unknown message failure');
+  }
+
+  expect(unknownReply.error).toContain('Unknown message type');
+});
+
+it('fails when scan start has no page context and no active tab context is available', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalQuery = chrome.tabs?.query;
+
+  if (chrome.tabs) {
+    chrome.tabs.query = vi.fn(async () => []);
+  }
+
+  try {
+    const reply = await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'missing-context',
+        url: 'https://example.com/page',
+        engine: 'dom-lite'
+      }
+    } as const);
+
+    expect(reply.ok).toBe(false);
+    if (reply.ok) {
+      throw new Error('Expected missing context failure');
+    }
+
+    expect(reply.error).toContain('Page context is missing');
+  } finally {
+    if (chrome.tabs) {
+      chrome.tabs.query = originalQuery!;
+    }
+  }
+});
+
+it('disables an optional backend blocked by host policy', async () => {
+  const reply = (await handleMessage({
+    type: 'scan:start',
+    request: {
+      requestId: 'blocked-backend',
+      url: 'https://example.com/page',
+      engine: 'dom-lite',
+      backend: {
+        enabled: true,
+        mode: 'http',
+        endpoint: 'https://malicious.example.com/audit'
+      }
+    },
+    pageContext: extractedContext
+  } as const)) as ScanStartReply;
+
+  expect(reply.ok).toBe(true);
+  if (!reply.ok) {
+    throw new Error(reply.error);
+  }
+
+  expect(reply.payload.snapshot.summary.total).toBeGreaterThanOrEqual(1);
+  expect(reply.payload.recommendation?.engine).toBeTruthy();
+});
+
+it('initializes and scans through the browser runtime path', async () => {
+  vi.resetModules();
+
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime | undefined;
+  const browserRuntime: ChromeLikeRuntime = {
+    runtime: {
+      onMessage: {
+        addListener: vi.fn()
+      }
+    },
+    storage: {
+      local: {}
+    },
+    tabs: {
+      query: vi.fn(async () => [{ id: 88 }]),
+      sendMessage: vi.fn(async () => ({ ok: true, payload: extractedContext }))
+    },
+    scripting: {
+      executeScript: vi.fn(async () => undefined)
+    },
+    action: {
+      setIcon: vi.fn(async () => undefined),
+      setBadgeText: vi.fn(async () => undefined),
+      setBadgeBackgroundColor: vi.fn(async () => undefined),
+      setBadgeTextColor: vi.fn(async () => undefined)
+    }
+  };
+
+  delete currentWindowRuntime.chrome;
+  currentWindowRuntime.browser = browserRuntime;
+
+  try {
+    const { handleMessage: browserHandleMessage } = await import('../../src/background/service-worker');
+    const reply = (await browserHandleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'browser-runtime',
+        url: 'https://example.com/page',
+        engine: 'dom-lite'
+      },
+      persistHistory: true
+    } as const)) as ScanStartReply;
+
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) {
+      throw new Error(reply.error);
+    }
+
+    expect(browserRuntime.runtime?.onMessage?.addListener).toHaveBeenCalled();
+    expect(browserRuntime.scripting?.executeScript).toHaveBeenCalled();
+    expect(browserRuntime.tabs?.sendMessage).toHaveBeenCalledWith(88, { type: 'content:extract' });
+    expect(reply.payload.snapshot.summary.total).toBeGreaterThan(0);
+  } finally {
+    if (chrome) {
+      currentWindowRuntime.chrome = chrome;
+    } else {
+      delete currentWindowRuntime.chrome;
+    }
+
+    delete currentWindowRuntime.browser;
+    vi.resetModules();
+  }
+});
+
+it('skips runtime listener registration when no listener API exists', async () => {
+  vi.resetModules();
+
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime | undefined;
+  delete currentWindowRuntime.chrome;
+  currentWindowRuntime.browser = {
+    storage: {
+      local: {}
+    },
+    tabs: {
+      query: vi.fn(async () => [{ id: 89 }]),
+      sendMessage: vi.fn(async () => ({ ok: true, payload: extractedContext }))
+    },
+    scripting: {
+      executeScript: vi.fn(async () => undefined)
+    },
+    action: {
+      setIcon: vi.fn(async () => undefined),
+      setBadgeText: vi.fn(async () => undefined),
+      setBadgeBackgroundColor: vi.fn(async () => undefined),
+      setBadgeTextColor: vi.fn(async () => undefined)
+    }
+  } as ChromeLikeRuntime;
+
+  try {
+    await import('../../src/background/service-worker');
+    expect(true).toBe(true);
+  } finally {
+    if (chrome) {
+      currentWindowRuntime.chrome = chrome;
+    } else {
+      delete currentWindowRuntime.chrome;
+    }
+
+    delete currentWindowRuntime.browser;
+    vi.resetModules();
+  }
+});

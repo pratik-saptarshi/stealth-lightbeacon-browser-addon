@@ -1,7 +1,7 @@
 import type { CrawlNode, ScanRequest, ScanSnapshot } from '../shared/types';
 import type { RuleContext } from '../shared/rule-engine';
 import type { BackendEngine } from '../shared/types';
-import { scanSnapshotSchema } from '../shared/contracts';
+import { assertBackendScanResponse } from '../shared/contracts';
 
 export interface BackendScanResponse {
   snapshot: ScanSnapshot;
@@ -84,12 +84,7 @@ export class HttpBackendClient implements BackendAdapter {
         throw new Error(`Backend responded with status ${response.status}`);
       }
 
-      const parsed = (await response.json()) as { snapshot?: unknown; crawlNodes?: CrawlNode[] };
-      const snapshot = scanSnapshotSchema.parse(parsed.snapshot);
-      return {
-        snapshot,
-        crawlNodes: parsed.crawlNodes
-      };
+      return assertBackendScanResponse(await response.json());
     } finally {
       globalThis.clearTimeout(timer);
     }
@@ -109,12 +104,7 @@ export class StdinBackendClient implements BackendAdapter {
     }
 
     const parsed = await withTimeout(Promise.resolve(this.executor(payload)), this.timeoutMs, 'Stdio backend timed out');
-    const container = parsed as { snapshot?: unknown; crawlNodes?: CrawlNode[] };
-    const snapshot = scanSnapshotSchema.parse(container.snapshot);
-    return {
-      snapshot,
-      crawlNodes: container.crawlNodes
-    };
+    return assertBackendScanResponse(parsed);
   }
 }
 

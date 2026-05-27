@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ScanOrchestrator } from '../../src/background/orchestrator';
+import { runRules } from '../../src/shared/rule-engine';
+import { allRules } from '../../src/shared/rules';
 import type { RuleContext } from '../../src/shared/rule-engine';
 import type { ScanRequest, ScanSnapshot } from '../../src/shared/types';
 import type { BackendAdapter } from '../../src/background/backend-bridge';
@@ -152,5 +154,63 @@ describe('orchestrator backend integration', () => {
     });
 
     await expect(orchestrator.runScan(request, context)).rejects.toThrow('backend-unavailable');
+  });
+
+  it('backend-fallback: ignores invalid backend snapshots and uses the local engine when backend validation fails', async () => {
+    const request: ScanRequest = {
+      ...baseRequest,
+      requestId: 'backend-6',
+      backend: { endpoint: 'http://localhost:5000', enabled: true, required: false }
+    };
+
+    const localResult = runRules(allRules, context);
+    const orchestrator = new ScanOrchestrator({
+      backendClient: {
+        async runScan() {
+          return {
+            snapshot: {
+              ...localSnapshotFor('https://example.com/backend'),
+              origin: 'https://evil.example.com',
+              summary: {
+                ...localSnapshotFor('https://example.com/backend').summary,
+                total: 99
+              }
+            } as ScanSnapshot
+          };
+        }
+      }
+    });
+
+    const result = await orchestrator.runScan(request, context);
+
+    expect(result.snapshot.origin).toBe(localResult.snapshot.origin);
+    expect(result.snapshot.summary.total).toBe(localResult.snapshot.summary.total);
+    expect(result.snapshot.issues.every((issue) => issue.source === 'dom-only')).toBe(true);
+  });
+
+  it('required-backend-hard-fail: rejects invalid backend snapshots when backend validation fails', async () => {
+    const request: ScanRequest = {
+      ...baseRequest,
+      requestId: 'backend-7',
+      backend: { endpoint: 'http://localhost:5000', enabled: true, required: true }
+    };
+
+    const orchestrator = new ScanOrchestrator({
+      backendClient: {
+        async runScan() {
+          return {
+            snapshot: {
+              ...localSnapshotFor('https://example.com/backend'),
+              summary: {
+                ...localSnapshotFor('https://example.com/backend').summary,
+                total: 99
+              }
+            } as ScanSnapshot
+          };
+        }
+      }
+    });
+
+    await expect(orchestrator.runScan(request, context)).rejects.toThrow(/summary\.total/);
   });
 });

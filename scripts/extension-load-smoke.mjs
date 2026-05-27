@@ -3,6 +3,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JSDOM } from 'jsdom';
+import {
+  SMOKE_FIXTURE_RELATIVE_PATH,
+  SMOKE_VIEWPORTS,
+  assertNoExternalSmokeRequests
+} from './extension-load-smoke-helpers.mjs';
 
 const projectRoot = resolve(process.cwd());
 const distDir = resolve(projectRoot, 'dist');
@@ -165,8 +170,16 @@ async function validateAxeSmoke(extensionDir) {
   });
 
   try {
-    const page = await context.newPage();
-    await page.goto('about:blank');
+    const requestUrls = [];
+    context.on('request', (request) => {
+      requestUrls.push(request.url());
+    });
+
+    const fixturePage = await context.newPage();
+    const fixtureUrl = pathToFileURL(resolve(projectRoot, SMOKE_FIXTURE_RELATIVE_PATH)).href;
+    await fixturePage.goto(fixtureUrl);
+    await fixturePage.waitForLoadState('domcontentloaded');
+    await fixturePage.waitForSelector('[data-testid="local-fixture-marker"]');
 
     const deadline = Date.now() + 5000;
     let workers = context.serviceWorkers();
@@ -180,35 +193,66 @@ async function validateAxeSmoke(extensionDir) {
     }
 
     const popupUrl = new URL('popup.html', workers[0].url()).href;
-    const popupPage = await context.newPage();
-    await popupPage.goto(popupUrl);
-    await popupPage.waitForSelector('[data-testid="popup-shell"]');
-    await popupPage.waitForSelector('[data-testid="offline-banner"]');
-    await popupPage.click('#settings-toggle-button');
-    await popupPage.waitForSelector('#settings-panel:not(.hidden)');
-    await popupPage.waitForSelector('#theme-background-start');
+    for (const viewport of SMOKE_VIEWPORTS) {
+      const popupPage = await context.newPage();
+      await popupPage.setViewportSize(viewport);
+      await popupPage.goto(popupUrl);
+      await popupPage.waitForSelector('[data-testid="popup-shell"]');
+      await popupPage.waitForSelector('[data-testid="offline-banner"]');
+      await popupPage.click('#settings-toggle-button');
+      await popupPage.waitForSelector('#settings-panel:not(.hidden)');
+      await popupPage.waitForSelector('#theme-background-start');
 
-    await popupPage.addScriptTag({ path: resolve(extensionDir, 'dist', 'axe.min.js') });
-    const axeResults = await popupPage.evaluate(async () => {
-      const axe = globalThis.axe;
-      if (!axe || typeof axe.run !== 'function') {
-        throw new Error('axe-core not loaded into popup page');
+      const viewportMetrics = await popupPage.evaluate(() => {
+        const shell = document.querySelector('[data-testid="popup-shell"]');
+        const shellRect = shell?.getBoundingClientRect();
+        return {
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          innerWidth: window.innerWidth,
+          shellWidth: shellRect?.width ?? 0,
+          shellHeight: shellRect?.height ?? 0
+        };
+      });
+
+      if (viewportMetrics.scrollWidth > viewportMetrics.clientWidth) {
+        throw new Error(
+          `Popup overflows horizontally at ${viewport.width}x${viewport.height}: ` +
+            `scrollWidth=${viewportMetrics.scrollWidth}, clientWidth=${viewportMetrics.clientWidth}`
+        );
       }
 
-      return await axe.run(document, {
-        runOnly: {
-          type: 'tag',
-          values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
-        }
-      });
-    });
+      if (viewportMetrics.shellWidth <= 0 || viewportMetrics.shellWidth > viewportMetrics.innerWidth) {
+        throw new Error(
+          `Popup shell width is invalid at ${viewport.width}x${viewport.height}: ` +
+            `shellWidth=${viewportMetrics.shellWidth}, innerWidth=${viewportMetrics.innerWidth}`
+        );
+      }
 
-    if (axeResults.violations.length) {
-      const summary = axeResults.violations
-        .map((violation) => `${violation.id}:${violation.impact ?? 'unknown'}`)
-        .join(', ');
-      throw new Error(`axe accessibility violations detected: ${summary}`);
+      await popupPage.addScriptTag({ path: resolve(extensionDir, 'dist', 'axe.min.js') });
+      const axeResults = await popupPage.evaluate(async () => {
+        const axe = globalThis.axe;
+        if (!axe || typeof axe.run !== 'function') {
+          throw new Error('axe-core not loaded into popup page');
+        }
+
+        return await axe.run(document, {
+          runOnly: {
+            type: 'tag',
+            values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
+          }
+        });
+      });
+
+      if (axeResults.violations.length) {
+        const summary = axeResults.violations
+          .map((violation) => `${violation.id}:${violation.impact ?? 'unknown'}`)
+          .join(', ');
+        throw new Error(`axe accessibility violations detected: ${summary}`);
+      }
     }
+
+    assertNoExternalSmokeRequests(requestUrls, 'playwright extension smoke');
 
     return { mode: 'playwright', serviceWorkerCount: workers.length, axeChecked: true };
   } finally {

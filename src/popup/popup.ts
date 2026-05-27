@@ -1,8 +1,12 @@
 import {
   buildIssueExportJson,
   buildIssueExportMarkdown,
+  buildPopupUiState,
   buildPopupIssuePanelModel,
   collectSelectors,
+  normalizePopupUiState,
+  POPUP_UI_STATE_STORAGE_KEY,
+  type PopupUiState,
   type PopupScanStatus
 } from './popup-state';
 import {
@@ -72,6 +76,7 @@ type PopupState = {
   backendSettings: BackendSettingsForm;
   panelSettings: PanelSettingsForm;
   settingsOpen: boolean;
+  settingsFocusTarget: 'toggle' | 'close' | null;
 };
 
 const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as PopupRuntime)) as PopupRuntime;
@@ -82,10 +87,12 @@ const state: PopupState = {
   selectedIssueIds: new Set(),
   backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
-  settingsOpen: false
+  settingsOpen: false,
+  settingsFocusTarget: null
 };
 
 let startupHydration: Promise<void> | undefined;
+let popupUiSettingsTouched = false;
 
 const dom = {
   shell: null as HTMLElement | null,
@@ -164,12 +171,30 @@ function bindDom(): void {
 function bindActions(): void {
   dom.settingsToggleButton?.addEventListener('click', () => {
     state.settingsOpen = !state.settingsOpen;
+    popupUiSettingsTouched = true;
+    state.settingsFocusTarget = state.settingsOpen ? 'close' : 'toggle';
     render();
+    void persistPopupUiState();
   });
 
   dom.settingsCloseButton?.addEventListener('click', () => {
     state.settingsOpen = false;
+    popupUiSettingsTouched = true;
+    state.settingsFocusTarget = 'toggle';
     render();
+    void persistPopupUiState();
+  });
+
+  dom.settingsPanel?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') {
+      return;
+    }
+
+    state.settingsOpen = false;
+    state.settingsFocusTarget = 'toggle';
+    render();
+    void persistPopupUiState();
+    dom.settingsToggleButton?.focus();
   });
 
   dom.rescanButton?.addEventListener('click', () => {
@@ -278,14 +303,15 @@ async function startScan(manual: boolean): Promise<void> {
         throw new Error(reply.error);
       }
 
-      state.snapshot = reply.payload.snapshot;
-      state.diff = reply.payload.diff;
-      state.selectedIssueIds.clear();
-      state.status = inferStatus(reply.payload);
-      state.note = reply.payload.recommendation
-        ? `Backend recommendation: ${reply.payload.recommendation.engine}`
-        : 'Scan complete';
-      render();
+    state.snapshot = reply.payload.snapshot;
+    state.diff = reply.payload.diff;
+    state.selectedIssueIds.clear();
+    state.status = inferStatus(reply.payload);
+    state.note = reply.payload.recommendation
+      ? `Backend recommendation: ${reply.payload.recommendation.engine}`
+      : 'Scan complete';
+    void persistPopupUiState();
+    render();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       state.error = message;
@@ -298,14 +324,16 @@ async function startScan(manual: boolean): Promise<void> {
 
 async function hydrateStartupState(): Promise<void> {
   try {
-    const [backendSettings, panelSettings, loadedCachedScan] = await Promise.all([
+    const [backendSettings, panelSettings, popupUiState, loadedCachedScan] = await Promise.all([
       loadBackendSettings(),
       loadPanelSettings(),
+      loadPopupUiState(),
       loadCachedScanFromHistory()
     ]);
 
     state.backendSettings = backendSettings;
     state.panelSettings = panelSettings;
+    applyPopupUiState(popupUiState);
 
     if (!loadedCachedScan) {
       state.snapshot = undefined;
@@ -509,6 +537,7 @@ function renderIssues(): void {
       }
 
       render();
+      void persistPopupUiState();
     });
   });
 
@@ -556,7 +585,8 @@ function buildStatusLine(): string {
   }
 
   if (state.snapshot) {
-    return `${state.snapshot.url} · ${state.snapshot.summary.total} issues · ${state.snapshot.engine}`;
+    const selectedCount = state.selectedIssueIds.size;
+    return `${state.snapshot.url} · ${state.snapshot.summary.total} issues${selectedCount ? ` · ${selectedCount} selected` : ''} · ${state.snapshot.engine}`;
   }
 
   return state.note ?? 'Scan state will appear here.';
@@ -654,6 +684,16 @@ async function loadPanelSettings(): Promise<PanelSettingsForm> {
   return normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
 }
 
+async function loadPopupUiState(): Promise<PopupUiState> {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    return normalizePopupUiState(undefined);
+  }
+
+  const payload = await storage.get([POPUP_UI_STATE_STORAGE_KEY]);
+  return normalizePopupUiState(payload[POPUP_UI_STATE_STORAGE_KEY]);
+}
+
 async function loadCachedScanFromHistory(): Promise<boolean> {
   const runtime = getRuntime();
   if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
@@ -704,6 +744,21 @@ async function persistPanelSettings(): Promise<void> {
   const storage = getRuntime()?.storage?.local;
   if (storage?.set) {
     await storage.set({ [PANEL_SETTINGS_STORAGE_KEY]: state.panelSettings });
+  }
+}
+
+async function persistPopupUiState(): Promise<void> {
+  await ensureStartupHydrated();
+
+  const storage = getRuntime()?.storage?.local;
+  if (storage?.set) {
+    await storage.set({
+      [POPUP_UI_STATE_STORAGE_KEY]: buildPopupUiState({
+        settingsOpen: state.settingsOpen,
+        scanId: state.snapshot?.id,
+        selectedIssueIds: state.selectedIssueIds
+      })
+    });
   }
 }
 
@@ -769,6 +824,14 @@ function renderSettingsForm(): void {
 
   if (dom.settingsPanel) {
     dom.settingsPanel.classList.toggle('hidden', !state.settingsOpen);
+  }
+
+  if (state.settingsFocusTarget === 'close') {
+    dom.settingsCloseButton?.focus();
+    state.settingsFocusTarget = null;
+  } else if (state.settingsFocusTarget === 'toggle') {
+    dom.settingsToggleButton?.focus();
+    state.settingsFocusTarget = null;
   }
 
   for (const input of dom.themeInputs) {
@@ -838,6 +901,20 @@ function renderBugReportLink(): void {
 
   dom.bugReportLink.href = href;
   dom.bugReportLink.title = `Report a bug to ${BUG_REPORT_EMAIL}`;
+}
+
+function applyPopupUiState(popupUiState: PopupUiState): void {
+  if (!popupUiSettingsTouched) {
+    state.settingsOpen = popupUiState.settingsOpen;
+  }
+
+  if (!state.snapshot || popupUiState.scanId !== state.snapshot.id) {
+    state.selectedIssueIds.clear();
+    return;
+  }
+
+  const validIssueIds = new Set(state.snapshot.issues.map((issue) => issue.id));
+  state.selectedIssueIds = new Set(popupUiState.selectedIssueIds.filter((issueId) => validIssueIds.has(issueId)));
 }
 
 function summarizePanelSettings(): string {

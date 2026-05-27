@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BACKEND_SETTINGS_STORAGE_KEY } from '../../src/shared/backend-settings';
+import { POPUP_UI_STATE_STORAGE_KEY } from '../../src/popup/popup-state';
 import { PANEL_SETTINGS_STORAGE_KEY } from '../../src/shared/panel-settings';
 
 const cachedSnapshot = {
@@ -303,9 +304,21 @@ describe('popup interactions', () => {
 
     document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(false);
+    expect(document.activeElement).toBe(document.getElementById('settings-close-button'));
+    await vi.waitFor(() => {
+      expect(
+        storageSet.mock.calls.some(([payload]) => POPUP_UI_STATE_STORAGE_KEY in (payload as Record<string, unknown>))
+      ).toBe(true);
+    });
 
     document.getElementById('settings-close-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('settings-toggle-button'));
+
+    document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    document.getElementById('settings-panel')?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+    expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('settings-toggle-button'));
 
     const showSummary = document.getElementById('show-summary') as HTMLInputElement;
     showSummary.checked = false;
@@ -328,6 +341,14 @@ describe('popup interactions', () => {
     const issueCheckbox = document.querySelector<HTMLInputElement>('input[data-issue-id="issue-1"]');
     expect(issueCheckbox).toBeTruthy();
     issueCheckbox?.click();
+    expect(document.getElementById('status-line')?.textContent).toContain('1 selected');
+    await vi.waitFor(() => {
+      expect(
+        storageSet.mock.calls.some(([payload]) =>
+          JSON.stringify((payload as Record<string, unknown>)[POPUP_UI_STATE_STORAGE_KEY] ?? {}).includes('issue-1')
+        )
+      ).toBe(true);
+    });
 
     document.getElementById('copy-selectors-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => {
