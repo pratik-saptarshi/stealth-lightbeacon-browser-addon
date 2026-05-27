@@ -289,12 +289,33 @@ function assertScanSnapshotInput(input: unknown): ScanSnapshot {
     throw new Error('scan snapshot.url must be a valid URL');
   }
 
+  const snapshotUrlOrigin = new URL(input.url).origin;
+  if (input.origin === 'null') {
+    assert(snapshotUrlOrigin === 'null', 'scan snapshot.origin must match scan snapshot.url origin');
+  } else {
+    try {
+      new URL(input.origin);
+    } catch {
+      throw new Error('scan snapshot.origin must be a valid URL');
+    }
+
+    assert(snapshotUrlOrigin === new URL(input.origin).origin, 'scan snapshot.origin must match scan snapshot.url origin');
+  }
+
   assert(Array.isArray(input.issues), 'scan snapshot.issues must be an array');
   const issues = input.issues.map(assertIssue);
   assert(isRecord(input.summary), 'scan snapshot.summary must be an object');
   assert(isNonNegativeNumber(input.summary.total), 'scan snapshot.summary.total must be a non-negative number');
   const bySeverity = assertIssueCountsBySeverity(input.summary.bySeverity, 'scan snapshot.summary.bySeverity');
   const byDomain = assertIssueCountsByDomain(input.summary.byDomain, 'scan snapshot.summary.byDomain');
+  assertSummaryMatchesIssues(
+    {
+      total: input.summary.total,
+      bySeverity,
+      byDomain
+    },
+    issues
+  );
 
   return {
     id: input.id,
@@ -309,6 +330,40 @@ function assertScanSnapshotInput(input: unknown): ScanSnapshot {
       byDomain
     }
   };
+}
+
+function assertSummaryMatchesIssues(
+  summary: {
+    total: number;
+    bySeverity: Record<Severity, number>;
+    byDomain: Record<string, number>;
+  },
+  issues: Issue[]
+) {
+  const expected = summarizeIssues(issues);
+  assert(summary.total === expected.total, `scan snapshot.summary.total must equal the issue count (${expected.total})`);
+
+  for (const severity of SEVERITIES) {
+    assert(
+      summary.bySeverity[severity] === expected.bySeverity[severity],
+      `scan snapshot.summary.bySeverity.${severity} must equal ${expected.bySeverity[severity]}`
+    );
+  }
+
+  for (const domain of Object.keys(expected.byDomain)) {
+    const actualCount = summary.byDomain[domain] ?? 0;
+    assert(
+      actualCount === expected.byDomain[domain],
+      `scan snapshot.summary.byDomain.${domain} must equal ${expected.byDomain[domain]}`
+    );
+  }
+
+  for (const [domain, count] of Object.entries(summary.byDomain)) {
+    assert(
+      expected.byDomain[domain] !== undefined || count === 0,
+      `scan snapshot.summary.byDomain.${domain} must equal 0 when the domain is not present in the issue list`
+    );
+  }
 }
 
 function assertDiffResultInput(input: unknown): DiffResult {
@@ -342,6 +397,19 @@ function assertScanResultInput(input: unknown): ScanResult {
     snapshot,
     crawlNodes,
     recommendation
+  };
+}
+
+function assertBackendScanResponseInput(input: unknown) {
+  assert(isRecord(input), 'backend response must be an object');
+  const snapshot = assertScanSnapshotInput(input.snapshot);
+  const crawlNodes = 'crawlNodes' in input && input.crawlNodes !== undefined
+    ? (assert(Array.isArray(input.crawlNodes), 'backend response.crawlNodes must be an array when present'), input.crawlNodes.map(assertCrawlNode))
+    : undefined;
+
+  return {
+    snapshot,
+    crawlNodes
   };
 }
 
@@ -446,6 +514,7 @@ export const scanRequestSchema = createSchema(assertScanRequestInput);
 export const scanSnapshotSchema = createSchema(assertScanSnapshotInput);
 export const crawlNodeSchema = createSchema(assertCrawlNode);
 export const scanResultSchema = createSchema(assertScanResultInput);
+export const backendScanResponseSchema = createSchema(assertBackendScanResponseInput);
 export const diffResultSchema = createSchema(assertDiffResultInput);
 export const backendRulesetCategorySchema = createSchema(assertBackendRulesetCategoryArray);
 export const addonRulesetSchema = createSchema(assertAddonRulesetPayload);
@@ -494,6 +563,10 @@ export function assertScanSnapshot(input: unknown) {
 
 export function assertScanResult(input: unknown) {
   return scanResultSchema.parse(input);
+}
+
+export function assertBackendScanResponse(input: unknown) {
+  return backendScanResponseSchema.parse(input);
 }
 
 export function assertDiffResult(input: unknown) {
