@@ -103,6 +103,31 @@ describe('backend bridge', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('rejects malformed crawl nodes returned by the backend', async () => {
+    const originalFetch = globalThis.fetch;
+    const mock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        snapshot: emptySnapshot,
+        crawlNodes: [{ url: '', depth: 1, status: 'done' }]
+      })
+    } as Response));
+
+    globalThis.fetch = mock as unknown as typeof fetch;
+
+    try {
+      const client = createBackendClient(baseRequest.backend, baseRequest.backend?.engine);
+      if (!client) {
+        throw new Error('Expected backend client');
+      }
+
+      await expect(client.runScan(basePayload)).rejects.toThrow(/crawl node\.url/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('injects selected engine into stdio payload', async () => {
     const calls: BackendPayload[] = [];
     const executor: (payload: BackendPayload) => Promise<{ snapshot: unknown }> = (payload) => {

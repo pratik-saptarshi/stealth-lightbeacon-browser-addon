@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertScanRequest, assertScanResult, summarizeIssues } from '../../src/shared/contracts';
+import { assertBackendScanResponse, assertScanRequest, assertScanResult, assertScanSnapshot, summarizeIssues } from '../../src/shared/contracts';
 import type { Issue, RuleDomain, Severity } from '../../src/shared/types';
 
 const issue: Issue = {
@@ -71,5 +71,57 @@ describe('contracts', () => {
 
   it('rejects bad scan result', () => {
     expect(() => assertScanResult({ ...validSnapshot, url: 'not-a-url' })).toThrow();
+  });
+
+  it('rejects snapshots whose summary does not match the issues', () => {
+    expect(() =>
+      assertScanSnapshot({
+        ...validSnapshot,
+        summary: {
+          ...validSnapshot.summary,
+          total: 2
+        }
+      })
+    ).toThrow(/summary\.total/);
+  });
+
+  it('rejects snapshots whose origin does not match the url', () => {
+    expect(() =>
+      assertScanSnapshot({
+        ...validSnapshot,
+        origin: 'https://other.example.com'
+      })
+    ).toThrow(/origin/);
+  });
+
+  it('accepts sparse domain summaries and opaque origins', () => {
+    expect(() =>
+      assertScanSnapshot({
+        ...validSnapshot,
+        origin: 'null',
+        url: 'file:///Users/neo/example.html',
+        summary: {
+          total: 1,
+          bySeverity: { critical: 0, high: 1, medium: 0, low: 0 },
+          byDomain: { seo: 1 }
+        }
+      })
+    ).not.toThrow();
+  });
+
+  it('validates backend scan responses and crawl nodes', () => {
+    expect(() =>
+      assertBackendScanResponse({
+        snapshot: validSnapshot,
+        crawlNodes: [{ url: 'https://example.com/a', depth: 1, status: 'done' }]
+      })
+    ).not.toThrow();
+
+    expect(() =>
+      assertBackendScanResponse({
+        snapshot: validSnapshot,
+        crawlNodes: [{ url: '', depth: 1, status: 'done' }]
+      })
+    ).toThrow(/crawl node\.url/);
   });
 });

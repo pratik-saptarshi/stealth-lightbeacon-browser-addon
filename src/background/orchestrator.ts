@@ -1,4 +1,4 @@
-import { assertScanRequest, summarizeIssues } from '../shared/contracts';
+import { assertBackendScanResponse, assertScanRequest, summarizeIssues } from '../shared/contracts';
 import { recommendEngine } from '../shared/anti-bot';
 import { createIssue } from '../shared/rule-engine';
 import type {
@@ -73,7 +73,7 @@ export class ScanOrchestrator {
 
     const resultSnapshot: ScanSnapshot = {
       id: `scan-${this.clock()}`,
-      origin: snapshot.origin,
+      origin: localResult.snapshot.origin,
       url: validated.url,
       timestamp: this.clock(),
       engine: validated.engine,
@@ -142,7 +142,7 @@ export class ScanOrchestrator {
     }
 
     try {
-      return await this.backendClient.runScan(payload);
+      return assertBackendScanResponse(await this.backendClient.runScan(payload));
     } catch (error) {
       if (request.backend?.required) {
         throw error;
