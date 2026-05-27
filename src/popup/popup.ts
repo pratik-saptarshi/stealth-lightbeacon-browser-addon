@@ -76,6 +76,7 @@ type PopupState = {
   backendSettings: BackendSettingsForm;
   panelSettings: PanelSettingsForm;
   settingsOpen: boolean;
+  settingsFocusTarget: 'toggle' | 'close' | null;
 };
 
 const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as PopupRuntime)) as PopupRuntime;
@@ -86,7 +87,8 @@ const state: PopupState = {
   selectedIssueIds: new Set(),
   backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
-  settingsOpen: false
+  settingsOpen: false,
+  settingsFocusTarget: null
 };
 
 let startupHydration: Promise<void> | undefined;
@@ -170,6 +172,7 @@ function bindActions(): void {
   dom.settingsToggleButton?.addEventListener('click', () => {
     state.settingsOpen = !state.settingsOpen;
     popupUiSettingsTouched = true;
+    state.settingsFocusTarget = state.settingsOpen ? 'close' : 'toggle';
     render();
     void persistPopupUiState();
   });
@@ -177,8 +180,21 @@ function bindActions(): void {
   dom.settingsCloseButton?.addEventListener('click', () => {
     state.settingsOpen = false;
     popupUiSettingsTouched = true;
+    state.settingsFocusTarget = 'toggle';
     render();
     void persistPopupUiState();
+  });
+
+  dom.settingsPanel?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') {
+      return;
+    }
+
+    state.settingsOpen = false;
+    state.settingsFocusTarget = 'toggle';
+    render();
+    void persistPopupUiState();
+    dom.settingsToggleButton?.focus();
   });
 
   dom.rescanButton?.addEventListener('click', () => {
@@ -808,6 +824,14 @@ function renderSettingsForm(): void {
 
   if (dom.settingsPanel) {
     dom.settingsPanel.classList.toggle('hidden', !state.settingsOpen);
+  }
+
+  if (state.settingsFocusTarget === 'close') {
+    dom.settingsCloseButton?.focus();
+    state.settingsFocusTarget = null;
+  } else if (state.settingsFocusTarget === 'toggle') {
+    dom.settingsToggleButton?.focus();
+    state.settingsFocusTarget = null;
   }
 
   for (const input of dom.themeInputs) {
