@@ -100,6 +100,37 @@ describe('popup panel state', () => {
     });
   });
 
+  it('groups same-severity issues together and omits delta when absent', () => {
+    const model = buildPopupIssuePanelModel({
+      ...snapshot,
+      issues: [
+        {
+          ...issues[1],
+          id: '5',
+          title: 'Missing button label on search',
+          ruleId: 'a11y-002'
+        },
+        {
+          ...issues[1],
+          id: '6',
+          title: 'Missing button label on nav',
+          ruleId: 'a11y-003'
+        },
+        {
+          ...issues[2],
+          id: '7',
+          domain: 'seo',
+          title: 'Metadata missing'
+        }
+      ]
+    });
+
+    expect(model.delta).toBeUndefined();
+    expect(model.domains).toHaveLength(2);
+    expect(model.domains[0].groups).toHaveLength(1);
+    expect(model.domains[0].groups[0].issues).toHaveLength(2);
+  });
+
   it('serializes selected issues for export', () => {
     expect(buildIssueExportJson([issues[0]], { scanId: 'scan-123', origin: snapshot.origin, url: snapshot.url, generatedAt: '2024-01-01T00:00:00.000Z' })).toContain(
       '"scanId": "scan-123"'
@@ -145,6 +176,26 @@ describe('popup panel state', () => {
       settingsOpen: true,
       scanId: 'scan-456',
       selectedIssueIds: ['issue-2', 'issue-3']
+    });
+  });
+
+  it('normalizes empty and non-record popup state inputs', () => {
+    expect(
+      buildPopupUiState({
+        settingsOpen: false,
+        scanId: '   ',
+        selectedIssueIds: []
+      })
+    ).toEqual({
+      settingsOpen: false,
+      scanId: undefined,
+      selectedIssueIds: []
+    });
+
+    expect(normalizePopupUiState(null)).toEqual({
+      settingsOpen: false,
+      scanId: undefined,
+      selectedIssueIds: []
     });
   });
 });

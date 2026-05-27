@@ -201,6 +201,62 @@ describe('backend bridge', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('trims trailing slashes and includes basic auth for HTTP backends', async () => {
+    const originalFetch = globalThis.fetch;
+    const captured: { url?: string; authorization?: string } = {};
+    const mock = vi.fn(async (url: string, init: RequestInit) => {
+      captured.url = url;
+      const headers = init.headers as HeadersInit;
+      if (headers instanceof Headers) {
+        captured.authorization = headers.get('authorization') ?? undefined;
+      } else if (typeof headers === 'object' && headers !== null) {
+        captured.authorization = (headers as Record<string, string>)['authorization'];
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          snapshot: emptySnapshot
+        })
+      } as Response;
+    });
+
+    globalThis.fetch = mock as unknown as typeof fetch;
+
+    try {
+      const request: ScanRequest = {
+        ...baseRequest,
+        backend: {
+          ...baseRequest.backend,
+          endpoint: 'https://localhost:3000/',
+          auth: {
+            username: 'neo',
+            password: 'lightbeacon'
+          }
+        }
+      };
+
+      const client = createBackendClient(request.backend, request.backend?.engine);
+      if (!client) {
+        throw new Error('Expected backend client');
+      }
+
+      await client.runScan({ ...basePayload, request });
+
+      expect(captured.url).toBe('https://localhost:3000/v1/audit/scan');
+      expect(captured.authorization).toContain('Basic ');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('returns undefined when backend configuration is incomplete', () => {
+    expect(createBackendClient({ enabled: true, mode: 'http' } as ScanBackendConfig)).toBeUndefined();
+    expect(createStdioBackendClient({ enabled: true, mode: 'stdin' } as ScanBackendConfig, undefined)).toBeUndefined();
+    expect(createBackendAdapter({ enabled: false, mode: 'stdin' } as ScanBackendConfig, 'mcp', undefined)).toBeUndefined();
+  });
+
   it('builds adapter from backend mode', async () => {
     const request: ScanBackendConfig = {
       enabled: true,

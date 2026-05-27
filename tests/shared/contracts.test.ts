@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { assertBackendScanResponse, assertScanRequest, assertScanResult, assertScanSnapshot, summarizeIssues } from '../../src/shared/contracts';
+import {
+  addonRulesetSchema,
+  assertBackendScanResponse,
+  assertScanRequest,
+  assertScanResult,
+  assertScanSnapshot,
+  backendRulesetCategorySchema,
+  issueSchema,
+  scanRequestSchema,
+  scanResultSchema,
+  summarizeIssues
+} from '../../src/shared/contracts';
 import type { Issue, RuleDomain, Severity } from '../../src/shared/types';
 
 const issue: Issue = {
@@ -123,5 +134,142 @@ describe('contracts', () => {
         crawlNodes: [{ url: '', depth: 1, status: 'done' }]
       })
     ).toThrow(/crawl node\.url/);
+  });
+
+  it('validates fully populated requests, results, and bundle payloads', () => {
+    const request = {
+      requestId: 'r-full',
+      url: 'https://example.com/page',
+      tabId: 7,
+      engine: 'crawl-lite',
+      crawlDepth: 2,
+      crawlMaxUrls: 50,
+      ruleCategories: ['seo', 'aeo'],
+      backend: {
+        enabled: true,
+        mode: 'stdin',
+        engine: 'mcp',
+        endpoint: 'https://localhost:3000',
+        allowedHosts: ['api.example.com'],
+        requestSigningSecret: 'secret-token',
+        auth: {
+          username: 'neo',
+          password: 'lightbeacon'
+        },
+        timeoutMs: 15,
+        required: true
+      }
+    };
+
+    const result = {
+      requestId: 'r-full',
+      snapshot: {
+        ...validSnapshot,
+        id: 'scan-2',
+        issues: [
+          {
+            ...issue,
+            id: 'i2',
+            selector: 'button.primary'
+          }
+        ],
+        summary: {
+          total: 1,
+          bySeverity: { critical: 0, high: 1, medium: 0, low: 0 },
+          byDomain: {
+            seo: 1,
+            performance: 0,
+            accessibility: 0,
+            aeo: 0,
+            ux: 0,
+            drupal: 0,
+            geo: 0,
+            'security-headers': 0,
+            'WCAG2.1AA': 0,
+            'WCAG2.2AA': 0
+          }
+        }
+      },
+      crawlNodes: [{ url: 'https://example.com/a', depth: 1, status: 'done' as const }],
+      recommendation: {
+        engine: 'mcp' as const,
+        reason: 'High-complexity page surface',
+        confidence: 0.9
+      }
+    };
+
+    const bundle = {
+      version: '1.0.0',
+      generatedAt: '2026-05-27T00:00:00Z',
+      categories: [
+        {
+          category: 'seo' as const,
+          enabled: true,
+          rules: [
+            {
+              id: 'seo-title-missing',
+              title: 'Title missing',
+              enabled: false,
+              severity: 'high' as const
+            }
+          ]
+        }
+      ]
+    };
+
+    expect(() => assertScanRequest(request)).not.toThrow();
+    expect(() => scanRequestSchema.parse(request)).not.toThrow();
+    expect(() => assertScanResult(result)).not.toThrow();
+    expect(() => scanResultSchema.parse(result)).not.toThrow();
+    expect(() => issueSchema.parse({ ...issue, selector: 'button.primary' })).not.toThrow();
+    expect(() => backendRulesetCategorySchema.parse(bundle.categories)).not.toThrow();
+    expect(() => addonRulesetSchema.parse(bundle)).not.toThrow();
+  });
+
+  it('rejects invalid request field values for backend configuration', () => {
+    expect(() =>
+      assertScanRequest({
+        requestId: 'r-invalid',
+        url: 'https://example.com/page',
+        engine: 'dom-lite',
+        backend: {
+          enabled: true,
+          mode: 'http',
+          endpoint: 'https://localhost:3000',
+          requestSigningSecret: 'x'.repeat(257)
+        }
+      })
+    ).toThrow(/requestSigningSecret/);
+
+    expect(() =>
+      assertScanRequest({
+        requestId: 'r-invalid-2',
+        url: 'https://example.com/page',
+        engine: 'dom-lite',
+        backend: {
+          enabled: true,
+          mode: 'http',
+          endpoint: 'https://localhost:3000',
+          auth: {
+            username: '',
+            password: 'secret'
+          }
+        }
+      })
+    ).toThrow(/auth\.username/);
+
+    expect(() =>
+      assertScanRequest({
+        requestId: 'r-invalid-3',
+        url: 'https://example.com/page',
+        engine: 'dom-lite',
+        backend: {
+          enabled: true,
+          mode: 'http',
+          endpoint: 'https://localhost:3000',
+          timeoutMs: 0
+        }
+      })
+    ).toThrow(/timeoutMs/);
   });
 });

@@ -5,6 +5,7 @@
 - Source validation against the live repo docs is complete.
 - Beads child issue decomposition is complete.
 - Playwright browser automation is now captured in `docs/roadmap/playwright-test-plan.md`.
+- Test coverage uplift tracking is now captured in `docs/roadmap/testing-coverage-uplift.md`.
 - Phased backlog execution is now captured in `docs/phase-iterations.md`.
 - Implementation of the roadmap items remains open.
 

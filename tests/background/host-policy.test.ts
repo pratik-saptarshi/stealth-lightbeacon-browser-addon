@@ -70,6 +70,14 @@ describe('host policy', () => {
     ).toBe(true);
   });
 
+  it('recognizes ipv4 private ranges and localhost variants', () => {
+    expect(isPrivateOrRestrictedHost('10.0.0.1')).toBe(true);
+    expect(isPrivateOrRestrictedHost('172.16.0.1')).toBe(true);
+    expect(isPrivateOrRestrictedHost('100.64.0.1')).toBe(true);
+    expect(isPrivateOrRestrictedHost('example.localhost')).toBe(true);
+    expect(isPrivateOrRestrictedHost('203.0.113.1')).toBe(false);
+  });
+
   it('supports exact and wildcard allowlists', () => {
     const allowed = {
       allowedHosts: ['api.example.com', '*.cdn.example.com']
@@ -134,5 +142,24 @@ describe('host policy', () => {
     };
 
     expect(sanitizeBackendHostPolicy(request.backend)).toEqual(['api.example.com', '*.cdn.example.com']);
+  });
+
+  it('sanitizes blank entries and preserves wildcard allowlist hosts', () => {
+    expect(
+      sanitizeBackendHostPolicy({
+        enabled: true,
+        mode: 'http',
+        allowedHosts: ['*.cdn.example.com', 'https://api.example.com/path', '   ']
+      })
+    ).toEqual(['*.cdn.example.com', 'api.example.com']);
+  });
+
+  it('allows allowed-host matches without a page URL', () => {
+    const check = assertBackendEndpointAllowed({
+      endpoint: 'https://api.example.com/v1/audit',
+      allowedHosts: ['api.example.com']
+    });
+
+    expect(check.ok).toBe(true);
   });
 });
