@@ -84,3 +84,4 @@ The UI-load smoke also loads `axe.min.js` and runs an automated accessibility sc
 - [Security policy](./security-policy.md)
 - [Release notes](./release.md)
 - [Changelog](./changelog.md)
+- [Shared axioms](./shared-axioms.md)

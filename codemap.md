@@ -27,6 +27,7 @@ Build a browser-addon-lite auditing runtime with optional backend coupling, loca
 - Optional ruleset update path (`ruleset:get`, `ruleset:update`) allows in-extension configuration changes.
 - Tests validate unit, integration, and CI-patterned fallback contracts.
 - Generated validation codemap in `docs/validation-codemap.md` tracks GEO, SEO, AEO, accessibility, and security gaps against representative tools.
+- `shared-axioms.md` records the cross-repo ownership and validation rules.
 
 ## Repository dir Map
 | path | responsibility |
