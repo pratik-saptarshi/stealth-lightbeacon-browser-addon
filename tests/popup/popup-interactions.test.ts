@@ -303,9 +303,16 @@ describe('popup interactions', () => {
 
     document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(false);
+    expect(document.activeElement).toBe(document.getElementById('settings-close-button'));
 
     document.getElementById('settings-close-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('settings-toggle-button'));
+
+    document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    document.getElementById('settings-panel')?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+    expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('settings-toggle-button'));
 
     const showSummary = document.getElementById('show-summary') as HTMLInputElement;
     showSummary.checked = false;
