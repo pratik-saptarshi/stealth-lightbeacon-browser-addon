@@ -324,6 +324,15 @@ function assertScanResultInput(input) {
     recommendation
   };
 }
+function assertBackendScanResponseInput(input) {
+  assert(isRecord(input), "backend response must be an object");
+  const snapshot = assertScanSnapshotInput(input.snapshot);
+  const crawlNodes = "crawlNodes" in input && input.crawlNodes !== void 0 ? (assert(Array.isArray(input.crawlNodes), "backend response.crawlNodes must be an array when present"), input.crawlNodes.map(assertCrawlNode)) : void 0;
+  return {
+    snapshot,
+    crawlNodes
+  };
+}
 function assertBackendRulesetCategoryEntry(input) {
   assert(isRecord(input), "ruleset category must be an object");
   assert(isEnumValue(input.category, [...DOMAINS, "performance", "accessibility", "ux", "drupal"]), "ruleset category must be supported");
@@ -414,6 +423,7 @@ var scanRequestSchema = createSchema(assertScanRequestInput);
 var scanSnapshotSchema = createSchema(assertScanSnapshotInput);
 var crawlNodeSchema = createSchema(assertCrawlNode);
 var scanResultSchema = createSchema(assertScanResultInput);
+var backendScanResponseSchema = createSchema(assertBackendScanResponseInput);
 var diffResultSchema = createSchema(assertDiffResultInput);
 var backendRulesetCategorySchema = createSchema(assertBackendRulesetCategoryArray);
 var addonRulesetSchema = createSchema(assertAddonRulesetPayload);
@@ -449,6 +459,9 @@ function summarizeIssues(issues) {
 }
 function assertScanRequest(input) {
   return scanRequestSchema.parse(input);
+}
+function assertBackendScanResponse(input) {
+  return backendScanResponseSchema.parse(input);
 }
 
 // src/shared/anti-bot.ts
@@ -1581,7 +1594,7 @@ var ScanOrchestrator = class {
     const mergedIssues = [...snapshot.issues, ...crawlIssues];
     const resultSnapshot = {
       id: `scan-${this.clock()}`,
-      origin: snapshot.origin,
+      origin: localResult.snapshot.origin,
       url: validated.url,
       timestamp: this.clock(),
       engine: validated.engine,
@@ -1681,7 +1694,7 @@ var ScanOrchestrator = class {
       payload.selectedCategories = request.ruleCategories;
     }
     try {
-      return await this.backendClient.runScan(payload);
+      return assertBackendScanResponse(await this.backendClient.runScan(payload));
     } catch (error) {
       if (request.backend?.required) {
         throw error;
@@ -2030,12 +2043,7 @@ var HttpBackendClient = class {
       if (!response.ok) {
         throw new Error(`Backend responded with status ${response.status}`);
       }
-      const parsed = await response.json();
-      const snapshot = scanSnapshotSchema.parse(parsed.snapshot);
-      return {
-        snapshot,
-        crawlNodes: parsed.crawlNodes
-      };
+      return assertBackendScanResponse(await response.json());
     } finally {
       globalThis.clearTimeout(timer);
     }
@@ -2052,12 +2060,7 @@ var StdinBackendClient = class {
       throw new Error("Stdio backend payload exceeds 64KB limit");
     }
     const parsed = await withTimeout2(Promise.resolve(this.executor(payload)), this.timeoutMs, "Stdio backend timed out");
-    const container = parsed;
-    const snapshot = scanSnapshotSchema.parse(container.snapshot);
-    return {
-      snapshot,
-      crawlNodes: container.crawlNodes
-    };
+    return assertBackendScanResponse(parsed);
   }
 };
 function createBackendClient(request, selectedEngine) {

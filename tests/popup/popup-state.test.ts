@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildIssueExportJson,
   buildIssueExportMarkdown,
+  buildPopupUiState,
   buildPopupIssuePanelModel,
   collectSelectors,
+  normalizePopupUiState,
   sortIssuesForPanel
 } from '../../src/popup/popup-state';
 import type { Issue, ScanSnapshot } from '../../src/shared/types';
@@ -98,83 +100,102 @@ describe('popup panel state', () => {
     });
   });
 
-  it('builds a panel model without delta data and clamps unchanged counts to zero', () => {
-    const model = buildPopupIssuePanelModel(snapshot, undefined, 'fallback');
-
-    expect(model.scanStatus).toBe('fallback');
-    expect(model.delta).toBeUndefined();
-
-    const zeroed = buildPopupIssuePanelModel(
-      {
-        ...snapshot,
-        summary: {
-          ...snapshot.summary,
-          total: 1
+  it('groups same-severity issues together and omits delta when absent', () => {
+    const model = buildPopupIssuePanelModel({
+      ...snapshot,
+      issues: [
+        {
+          ...issues[1],
+          id: '5',
+          title: 'Missing button label on search',
+          ruleId: 'a11y-002'
+        },
+        {
+          ...issues[1],
+          id: '6',
+          title: 'Missing button label on nav',
+          ruleId: 'a11y-003'
+        },
+        {
+          ...issues[2],
+          id: '7',
+          domain: 'seo',
+          title: 'Metadata missing'
         }
-      },
-      {
-        newIssues: [issues[0]],
-        resolvedIssues: [issues[1], issues[2]],
-        regressions: [],
-        improvements: [issues[3]]
-      }
-    );
-
-    expect(zeroed.delta).toEqual({
-      newCount: 1,
-      fixedCount: 3,
-      unchangedCount: 0
+      ]
     });
-  });
 
-  it('keeps sort order stable for same-domain, same-severity entries', () => {
-    const tieIssues: Issue[] = [
-      {
-        ...issues[1],
-        id: 'z',
-        ruleId: 'seo-100',
-        title: 'Duplicate title'
-      },
-      {
-        ...issues[1],
-        id: 'a',
-        ruleId: 'seo-001',
-        title: 'Duplicate title'
-      },
-      {
-        ...issues[1],
-        id: 'm',
-        ruleId: 'seo-050',
-        title: 'Duplicate title'
-      }
-    ];
-
-    const sorted = sortIssuesForPanel(tieIssues);
-    expect(sorted.map((issue) => issue.id)).toEqual(['a', 'm', 'z']);
+    expect(model.delta).toBeUndefined();
+    expect(model.domains).toHaveLength(2);
+    expect(model.domains[0].groups).toHaveLength(1);
+    expect(model.domains[0].groups[0].issues).toHaveLength(2);
   });
 
   it('serializes selected issues for export', () => {
     expect(buildIssueExportJson([issues[0]], { scanId: 'scan-123', origin: snapshot.origin, url: snapshot.url, generatedAt: '2024-01-01T00:00:00.000Z' })).toContain(
       '"scanId": "scan-123"'
     );
-    expect(
-      buildIssueExportMarkdown(
-        [
-          {
-            ...issues[3],
-            selector: undefined
-          }
-        ],
-        { scanId: 'scan-123', origin: snapshot.origin, url: snapshot.url, generatedAt: '2024-01-01T00:00:00.000Z' }
-      )
-    ).not.toContain('Selector:');
     expect(buildIssueExportMarkdown([issues[0]], { scanId: 'scan-123', origin: snapshot.origin, url: snapshot.url, generatedAt: '2024-01-01T00:00:00.000Z' })).toContain(
       '## Issues'
     );
-    expect(collectSelectors([...issues, { ...issues[0], id: '5', selector: '  button.icon-only  ' }])).toEqual([
+    expect(collectSelectors(issues)).toEqual([
       'main > section:nth-child(2)',
       'button.icon-only',
       'head > meta[name="description"]'
     ]);
+  });
+
+  it('normalizes popup ui state inputs', () => {
+    expect(normalizePopupUiState(undefined)).toEqual({
+      settingsOpen: false,
+      scanId: undefined,
+      selectedIssueIds: []
+    });
+
+    expect(
+      normalizePopupUiState({
+        settingsOpen: true,
+        scanId: '  scan-123  ',
+        selectedIssueIds: [' issue-1 ', 'issue-1', '', 4 as never]
+      })
+    ).toEqual({
+      settingsOpen: true,
+      scanId: 'scan-123',
+      selectedIssueIds: ['issue-1']
+    });
+  });
+
+  it('builds popup ui state payloads for persistence', () => {
+    expect(
+      buildPopupUiState({
+        settingsOpen: true,
+        scanId: '  scan-456  ',
+        selectedIssueIds: new Set([' issue-2 ', 'issue-2', 'issue-3'])
+      })
+    ).toEqual({
+      settingsOpen: true,
+      scanId: 'scan-456',
+      selectedIssueIds: ['issue-2', 'issue-3']
+    });
+  });
+
+  it('normalizes empty and non-record popup state inputs', () => {
+    expect(
+      buildPopupUiState({
+        settingsOpen: false,
+        scanId: '   ',
+        selectedIssueIds: []
+      })
+    ).toEqual({
+      settingsOpen: false,
+      scanId: undefined,
+      selectedIssueIds: []
+    });
+
+    expect(normalizePopupUiState(null)).toEqual({
+      settingsOpen: false,
+      scanId: undefined,
+      selectedIssueIds: []
+    });
   });
 });

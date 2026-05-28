@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { handleMessage } from '../../src/background/service-worker';
+import { SMOKE_VIEWPORTS, isExternalSmokeRequest } from '../../scripts/extension-load-smoke-helpers.mjs';
 import type { RuleContext } from '../../src/shared/rule-engine';
 import type { ScanRequest } from '../../src/shared/types';
 import {
@@ -279,5 +282,37 @@ describe('phase 4 smoke contract flow', () => {
     }
 
     expect(scanResponse.error).toContain('Page context is missing');
+  });
+});
+
+describe('phase 4 browser smoke helpers', () => {
+  it('treats only remote network protocols as external requests', () => {
+    expect(isExternalSmokeRequest('https://example.com/app.js')).toBe(true);
+    expect(isExternalSmokeRequest('http://example.com/app.js')).toBe(true);
+    expect(isExternalSmokeRequest('wss://example.com/socket')).toBe(true);
+    expect(isExternalSmokeRequest('ws://example.com/socket')).toBe(true);
+    expect(isExternalSmokeRequest('file:///tmp/extension-load-smoke.html')).toBe(false);
+    expect(isExternalSmokeRequest('chrome-extension://abc123/popup.html')).toBe(false);
+    expect(isExternalSmokeRequest('about:blank')).toBe(false);
+    expect(isExternalSmokeRequest('data:text/html,hello')).toBe(false);
+  });
+
+  it('covers a narrow and a wide popup viewport', () => {
+    expect(SMOKE_VIEWPORTS).toEqual([
+      { width: 390, height: 844 },
+      { width: 1280, height: 900 }
+    ]);
+  });
+
+  it('keeps the local smoke fixture page free of remote assets', () => {
+    const fixturePath = resolve(process.cwd(), 'tests/phase4/fixtures/extension-load-smoke.html');
+    const html = readFileSync(fixturePath, 'utf8');
+
+    expect(html).toContain('data-testid="smoke-fixture"');
+    expect(html).toContain('data-testid="local-fixture-marker"');
+    expect(html).not.toMatch(/https?:\/\//);
+    expect(html).not.toMatch(/<script\s+src=/i);
+    expect(html).not.toMatch(/<link\s+[^>]*rel=["'](?:stylesheet|preload|modulepreload|prefetch)["']/i);
+    expect(html).not.toMatch(/<img\b/i);
   });
 });

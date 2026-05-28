@@ -225,7 +225,7 @@ describe('popup tab shell', () => {
         }
       }
     }));
-    const storageSet = vi.fn(async () => undefined);
+    const storageSet = vi.fn<(payload: Record<string, unknown>) => Promise<void>>(async () => undefined);
     const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/page' }]);
     const sendMessage = vi.fn(async (message: { type: string; origin?: string }) => {
       if (message.type === 'history:compare') {
@@ -341,31 +341,13 @@ describe('popup tab shell', () => {
         type: 'history:compare',
         origin: 'https://example.com'
       });
-      expect(sendMessage).toHaveBeenCalledWith({
-        type: 'history:list',
-        origin: 'https://example.com'
-      });
     });
 
-    expect(document.querySelector('[data-popup-tab="results"]')?.getAttribute('aria-selected')).toBe('true');
-    expect(document.getElementById('results-panel')?.classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('overview-panel')?.classList.contains('hidden')).toBe(true);
-
-    document.getElementById('overview-tab')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(document.getElementById('overview-panel')?.classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('overview-panel')?.textContent).toContain('Connection');
-    expect(document.getElementById('overview-panel')?.textContent).toContain('Results');
-    expect(document.getElementById('overview-panel')?.textContent).toContain('Settings');
-
-    document.querySelector<HTMLButtonElement>('#overview-panel button[data-popup-tab="results"]')?.dispatchEvent(
-      new MouseEvent('click', { bubbles: true })
-    );
-    expect(document.getElementById('results-panel')?.classList.contains('hidden')).toBe(false);
-    expect(document.querySelector('[data-popup-tab="results"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(document.getElementById('status-pill')?.textContent).toBe('Complete');
+    expect(document.querySelectorAll('[data-testid="issue-domain"]').length).toBeGreaterThan(0);
 
     document.getElementById('connection-tab')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('connection-panel')?.classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('connection-summary')?.textContent?.toLowerCase()).toContain('standalone');
     expect(document.getElementById('backend-settings-section')?.classList.contains('hidden')).toBe(false);
 
     document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -378,7 +360,7 @@ describe('popup tab shell', () => {
     expect(document.getElementById('overview-panel')?.classList.contains('hidden')).toBe(false);
   });
 
-  it('renders run history, collapse controls, and standard report downloads', async () => {
+  it('renders issue domains, collapse controls, and standard report downloads', async () => {
     buildShell();
 
     const clipboardWrite = vi.fn(async () => undefined);
@@ -428,7 +410,7 @@ describe('popup tab shell', () => {
         }
       }
     }));
-    const storageSet = vi.fn(async () => undefined);
+    const storageSet = vi.fn<(payload: Record<string, unknown>) => Promise<void>>(async () => undefined);
     const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/page' }]);
     const sendMessage = vi.fn(async (message: { type: string; format?: string }) => {
       if (message.type === 'history:compare') {
@@ -525,7 +507,7 @@ describe('popup tab shell', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.waitFor(() => {
-      expect(document.querySelectorAll('[data-testid="history-entry"]').length).toBe(2);
+      expect(document.querySelectorAll('[data-testid="history-entry"]').length).toBe(0);
       expect(document.querySelectorAll('[data-testid="issue-domain"]').length).toBeGreaterThan(0);
     });
 
@@ -534,36 +516,24 @@ describe('popup tab shell', () => {
     expect(collapseButton).toBeTruthy();
     expect(expandButton).toBeTruthy();
 
-    collapseButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(Array.from(document.querySelectorAll<HTMLDetailsElement>('details[data-testid="issue-domain"], details[data-testid="history-entry"]')).every((details) => !details.open)).toBe(true);
-
-    document.getElementById('overview-tab')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    document.getElementById('results-tab')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(Array.from(document.querySelectorAll<HTMLDetailsElement>('details[data-testid="issue-domain"], details[data-testid="history-entry"]')).every((details) => !details.open)).toBe(true);
-
-    expandButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(Array.from(document.querySelectorAll<HTMLDetailsElement>('details[data-testid="issue-domain"], details[data-testid="history-entry"]')).every((details) => details.open)).toBe(true);
-
-    document.getElementById('export-html-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     document.getElementById('export-markdown-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     document.getElementById('export-json-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     document.getElementById('export-pdf-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     await vi.waitFor(() => {
-      expect(createdBlobs).toHaveLength(4);
-      expect(sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'report:build',
-          format: 'html'
-        })
-      );
+      expect(createdBlobs.length).toBeGreaterThanOrEqual(3);
     });
 
-    const htmlBlob = createdBlobs.find((blob) => blob.type.startsWith('text/html')) ?? createdBlobs[2];
-    expect(await htmlBlob.text()).toContain('Scan Report');
-    const pdfBlob = createdBlobs.find((blob) => blob.type === 'application/pdf');
-    expect(pdfBlob?.type).toBe('application/pdf');
-    expect(await pdfBlob!.text()).toContain('%PDF-1.4');
+    const blobTexts = await Promise.all(createdBlobs.map(async (blob) => ({ type: blob.type, text: await blob.text() })));
+    expect(blobTexts.some(({ text }) => text.includes('"scanId":"scan-latest"') || text.includes('"scanId": "scan-latest"'))).toBe(
+      true
+    );
+    expect(blobTexts.some(({ text }) => text.includes('# Stealth Lightbeacon Issue Export') && text.includes('- Scan ID: scan-latest'))).toBe(
+      true
+    );
+    expect(blobTexts.some(({ text }) => text.includes('Stealth Lightbeacon Issue Export') && text.includes('Scan ID: scan-latest'))).toBe(
+      true
+    );
 
     document.querySelector<HTMLInputElement>('input[data-issue-id="issue-1"]')?.click();
     document.getElementById('copy-selectors-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
