@@ -19,6 +19,17 @@ describe('chrome history storage adapter', () => {
     expect(set).toHaveBeenCalledWith({ 'scan_history_https://example.com': snapshots });
   });
 
+  it('returns an empty list when the storage key has no snapshots', async () => {
+    const get = vi.fn(async () => ({}));
+    const set = vi.fn(async () => undefined);
+    const storage = new ChromeHistoryStorage({
+      get: get as unknown as ChromeLikeStorageArea['get'],
+      set
+    });
+
+    await expect(storage.loadSnapshots('https://missing.example')).resolves.toEqual([]);
+  });
+
   it('returns undefined without a complete chrome storage area', () => {
     expect(createChromeHistoryStorage({ storage: { local: { get: vi.fn() as never } } } as never)).toBeUndefined();
     expect(createChromeHistoryStorage({ storage: { local: { set: vi.fn() as never } } } as never)).toBeUndefined();
