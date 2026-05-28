@@ -11,6 +11,8 @@
 - Hardened page extraction to include richer accessibility context while continuing to drop unsafe non-HTTP(S) links.
 - Added explicit malformed rule-context URL validation and kept the validation codemap artifact in sync with the runtime surface.
 - Added a release-milestone doc that separates minor and major planning gates from the offline-eval roadmap.
+- Added a phased iteration doc that orders the remaining backlog by user value and release boundary.
+- Added an execution-ready Iteration 1 plan for the offline trust and coverage-audit slice.
 
 ## 0.1.5 — 2026-05-26
 - Refreshed the release documentation set with clearer installation, validation, contribution, and security guidance.

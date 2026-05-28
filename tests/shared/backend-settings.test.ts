@@ -3,6 +3,7 @@ import {
   buildBackendRequestFromSettings,
   composeEndpoint,
   DEFAULT_BACKEND_SETTINGS,
+  extractBackendEngine,
   normalizeBackendSettings
 } from '../../src/shared/backend-settings';
 
@@ -74,5 +75,37 @@ describe('backend settings helpers', () => {
       required: false,
       requestSigningSecret: 'secret'
     });
+  });
+
+  it('handles alias fields and invalid local endpoints', () => {
+    expect(
+      normalizeBackendSettings({
+        username: 'neo',
+        password: 'matrix'
+      })
+    ).toMatchObject({
+      authUsername: 'neo',
+      authPassword: 'matrix'
+    });
+
+    expect(
+      buildBackendRequestFromSettings({
+        ...DEFAULT_BACKEND_SETTINGS,
+        enabled: true,
+        endpoint: '   ',
+        port: '8080'
+      })
+    ).toBeUndefined();
+
+    expect(
+      buildBackendRequestFromSettings({
+        ...DEFAULT_BACKEND_SETTINGS,
+        enabled: true,
+        endpoint: 'http://%',
+        port: '8080'
+      })
+    ).toBeUndefined();
+
+    expect(extractBackendEngine({ ...DEFAULT_BACKEND_SETTINGS, mode: 'stdin' })).toBe('mcp');
   });
 });

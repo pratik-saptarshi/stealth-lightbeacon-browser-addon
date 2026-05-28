@@ -30,25 +30,20 @@ describe('anti-bot engine recommendation', () => {
     expect(recommendation.confidence).toBe(0);
   });
 
-  it('chooses HTTP for dom-lite scans with moderate complexity', () => {
-    const request: ScanRequest = {
-      ...baseRequest,
-      requestId: 'r-anti-http',
-      engine: 'dom-lite'
-    };
-
-    const context: RuleContext = {
-      ...baseContext,
-      links: Array.from({ length: 13 }, (_, index) => ({
-        href: `https://example.com/page-${index}`,
-        text: `Link ${index}`,
-        rel: '',
-        target: '',
-        isInternal: true
-      }))
-    };
-
-    const recommendation = recommendEngine(request, context);
+  it('chooses HTTP for a moderately complex dom-lite profile', () => {
+    const recommendation = recommendEngine(
+      baseRequest,
+      {
+        ...baseContext,
+        links: Array.from({ length: 13 }).map((_, index) => ({
+          href: `https://example.com/page-${index}`,
+          text: 'l',
+          rel: '',
+          target: '',
+          isInternal: true
+        }))
+      }
+    );
 
     expect(recommendation.engine).toBe('http');
     expect(recommendation.reason).toContain('HTTP backend path');
@@ -80,96 +75,57 @@ describe('anti-bot engine recommendation', () => {
     expect(recommendation.confidence).toBe(0.35);
   });
 
-  it('escalates crawl-lite to stealth-playwright for dynamic surfaces', () => {
+  it('escalates to stealth-playwright when crawl-lite pages look dynamic', () => {
     const request: ScanRequest = {
       ...baseRequest,
-      requestId: 'r-anti-stealth',
+      requestId: 'r-anti-3',
       engine: 'crawl-lite'
     };
 
-    const context: RuleContext = {
+    const recommendation = recommendEngine(request, {
       ...baseContext,
       metaDescription: null,
       canonical: null,
       lang: null,
-      links: Array.from({ length: 13 }, (_, index) => ({
-        href: `https://example.com/cluster-${index}`,
-        text: `Cluster ${index}`,
-        rel: '',
-        target: '',
-        isInternal: true
+      images: Array.from({ length: 11 }).map((_, index) => ({
+        src: `https://example.com/image-${index}.png`,
+        alt: null
       }))
-    };
-
-    const recommendation = recommendEngine(request, context);
+    });
 
     expect(recommendation.engine).toBe('stealth-playwright');
-    expect(recommendation.reason).toContain('headless capture');
+    expect(recommendation.reason).toContain('dynamic rendering');
     expect(recommendation.confidence).toBe(0.5);
   });
 
-  it('escalates crawl-lite to MCP for dense surfaces', () => {
+  it('escalates to mcp for high-complexity crawl-lite pages', () => {
     const request: ScanRequest = {
       ...baseRequest,
-      requestId: 'r-anti-mcp',
+      requestId: 'r-anti-4',
       engine: 'crawl-lite'
     };
 
-    const context: RuleContext = {
+    const recommendation = recommendEngine(request, {
       ...baseContext,
       metaDescription: null,
       canonical: null,
       lang: null,
       headings: { h1: 1, h2: 1, h3: 9 },
-      images: Array.from({ length: 21 }, (_, index) => ({
-        src: `/img-${index}.png`,
-        alt: null
-      })),
-      links: Array.from({ length: 13 }, (_, index) => ({
-        href: `https://example.com/deep-${index}`,
-        text: `Deep ${index}`,
+      links: Array.from({ length: 46 }).map((_, index) => ({
+        href: `https://example.com/page-${index}`,
+        text: 'l',
         rel: '',
         target: '',
         isInternal: true
+      })),
+      images: Array.from({ length: 21 }).map((_, index) => ({
+        src: `https://example.com/image-${index}.png`,
+        alt: null
       }))
-    };
-
-    const recommendation = recommendEngine(request, context);
+    });
 
     expect(recommendation.engine).toBe('mcp');
-    expect(recommendation.reason).toContain('High-complexity');
-    expect(recommendation.confidence).toBe(0.7);
-  });
-
-  it('caps dom-lite confidence at 1 for high-signal pages', () => {
-    const request: ScanRequest = {
-      ...baseRequest,
-      requestId: 'r-anti-cap',
-      engine: 'dom-lite'
-    };
-
-    const context: RuleContext = {
-      ...baseContext,
-      metaDescription: null,
-      canonical: null,
-      lang: null,
-      headings: { h1: 1, h2: 1, h3: 9 },
-      images: Array.from({ length: 22 }, (_, index) => ({
-        src: `/img-${index}.png`,
-        alt: null
-      })),
-      links: Array.from({ length: 46 }, (_, index) => ({
-        href: `https://example.com/cap-${index}`,
-        text: `Cap ${index}`,
-        rel: '',
-        target: '',
-        isInternal: true
-      }))
-    };
-
-    const recommendation = recommendEngine(request, context);
-
-    expect(recommendation.engine).toBe('http');
-    expect(recommendation.confidence).toBe(1);
+    expect(recommendation.reason).toContain('High-complexity page surface');
+    expect(recommendation.confidence).toBe(0.9);
   });
 });

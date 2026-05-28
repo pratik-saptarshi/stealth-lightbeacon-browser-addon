@@ -76,4 +76,31 @@ describe('pdf export', () => {
     expect(await blob.text()).toContain('Scan Report');
     expect(await blob.text()).toContain('Selected issues: 1');
   });
+
+  it('includes selector lines when present and skips diff stats when omitted', () => {
+    const snapshotWithSelector: ScanSnapshot = {
+      ...snapshot,
+      issues: [
+        {
+          ...issues[0],
+          selector: 'head > title'
+        }
+      ]
+    };
+
+    const lines = buildIssueReportLines(snapshotWithSelector, snapshotWithSelector.issues);
+    expect(lines.join('\n')).toContain('Selector: head > title');
+
+    const reportBlob = buildReportPdfBlob({
+      generatedAt: '2026-01-01T00:00:00.000Z',
+      snapshot: snapshotWithSelector
+    });
+    expect(reportBlob.type).toBe('application/pdf');
+  });
+
+  it('creates multiple pages when line count exceeds one page', () => {
+    const manyLines = Array.from({ length: 100 }, (_, index) => `line ${index + 1}`);
+    const pdf = buildPdfDocument('Stealth Lightbeacon', manyLines);
+    expect(pdf).toContain('/Count 3');
+  });
 });

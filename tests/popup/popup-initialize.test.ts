@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { POPUP_UI_STATE_STORAGE_KEY } from '../../src/popup/popup-state';
 
 const snapshot = {
   id: 'scan-123',
@@ -8,11 +9,23 @@ const snapshot = {
   url: 'https://example.com/page',
   timestamp: 1_700_000_000_000,
   engine: 'dom-lite',
-  issues: [],
+  issues: [
+    {
+      id: 'issue-1',
+      ruleId: 'a11y-001',
+      title: 'Button missing label',
+      severity: 'critical',
+      domain: 'accessibility',
+      summary: 'Icon button has no accessible name',
+      evidence: 'button',
+      selector: 'button.icon-only',
+      source: 'dom-only'
+    }
+  ],
   summary: {
-    total: 0,
-    bySeverity: { critical: 0, high: 0, medium: 0, low: 0 },
-    byDomain: { accessibility: 0, seo: 0, performance: 0, aeo: 0, ux: 0, drupal: 0, geo: 0, 'security-headers': 0, 'WCAG2.1AA': 0, 'WCAG2.2AA': 0 }
+    total: 1,
+    bySeverity: { critical: 1, high: 0, medium: 0, low: 0 },
+    byDomain: { accessibility: 1, seo: 0, performance: 0, aeo: 0, ux: 0, drupal: 0, geo: 0, 'security-headers': 0, 'WCAG2.1AA': 0, 'WCAG2.2AA': 0 }
   }
 } as const;
 
@@ -143,5 +156,168 @@ describe('popup startup', () => {
       origin: 'https://example.com'
     });
     expect(sendMessage.mock.calls.some(([message]) => (message as { type?: string }).type === 'scan:start')).toBe(false);
+  });
+
+  it('restores popup ui state for settings visibility and selected issues', async () => {
+    buildShell();
+
+    const storageGet = vi.fn(async () => ({
+      [POPUP_UI_STATE_STORAGE_KEY]: {
+        settingsOpen: true,
+        scanId: 'scan-123',
+        selectedIssueIds: ['issue-1']
+      }
+    }));
+
+    const sendMessage = vi.fn(async (message: { type: string; origin?: string }) => {
+      if (message.type === 'history:compare') {
+        return {
+          ok: true,
+          payload: {
+            latest: snapshot,
+            previous: undefined,
+            diff: {
+              newIssues: [],
+              resolvedIssues: [],
+              regressions: [],
+              improvements: []
+            }
+          }
+        };
+      }
+
+      throw new Error(`unexpected message: ${message.type}`);
+    });
+    const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/page' }]);
+
+    (globalThis as typeof globalThis & {
+      chrome?: {
+        runtime?: {
+          sendMessage?: typeof sendMessage;
+          getURL?: (path: string) => string;
+          getManifest?: () => { version?: string };
+        };
+        storage?: {
+          local?: {
+            get?: typeof storageGet;
+          };
+        };
+        tabs?: {
+          query?: typeof query;
+        };
+      };
+    }).chrome = {
+      runtime: {
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        getManifest: () => ({ version: '1.0.0' })
+      },
+      storage: {
+        local: {
+          get: storageGet
+        }
+      },
+      tabs: {
+        query
+      }
+    };
+
+    await import('../../src/popup/popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+
+    await vi.waitFor(() => {
+      expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(false);
+    });
+
+    await vi.waitFor(() => {
+    expect(document.getElementById('status-pill')?.textContent).toBe('Complete');
+    });
+
+    expect(document.querySelector<HTMLInputElement>('input[data-issue-id="issue-1"]')?.checked).toBe(true);
+  });
+
+  it('keeps a pre-hydration settings toggle open after hydration completes', async () => {
+    buildShell();
+
+    const storageSet = vi.fn<(payload: Record<string, unknown>) => Promise<void>>(async () => undefined);
+    const storageGet = vi.fn(async () => ({
+      [POPUP_UI_STATE_STORAGE_KEY]: {
+        settingsOpen: false,
+        scanId: 'scan-123',
+        selectedIssueIds: []
+      }
+    }));
+
+    const sendMessage = vi.fn(async (message: { type: string; origin?: string }) => {
+      if (message.type === 'history:compare') {
+        return {
+          ok: true,
+          payload: {
+            latest: snapshot,
+            previous: undefined,
+            diff: {
+              newIssues: [],
+              resolvedIssues: [],
+              regressions: [],
+              improvements: []
+            }
+          }
+        };
+      }
+
+      throw new Error(`unexpected message: ${message.type}`);
+    });
+    const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/page' }]);
+
+    (globalThis as typeof globalThis & {
+      chrome?: {
+        runtime?: {
+          sendMessage?: typeof sendMessage;
+          getURL?: (path: string) => string;
+          getManifest?: () => { version?: string };
+        };
+        storage?: {
+          local?: {
+            get?: typeof storageGet;
+            set?: typeof storageSet;
+          };
+        };
+        tabs?: {
+          query?: typeof query;
+        };
+      };
+    }).chrome = {
+      runtime: {
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        getManifest: () => ({ version: '1.0.0' })
+      },
+      storage: {
+        local: {
+          get: storageGet,
+          set: storageSet
+        }
+      },
+      tabs: {
+        query
+      }
+    };
+
+    await import('../../src/popup/popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(document.getElementById('status-pill')?.textContent).toBe('Complete');
+    });
+
+    expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(false);
+    await vi.waitFor(() => {
+      expect(
+        storageSet.mock.calls.some(([payload]) =>
+          JSON.stringify((payload as Record<string, unknown>)[POPUP_UI_STATE_STORAGE_KEY] ?? {}).includes('"settingsOpen":true')
+        )
+      ).toBe(true);
+    });
   });
 });

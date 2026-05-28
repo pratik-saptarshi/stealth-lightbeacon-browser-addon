@@ -402,6 +402,19 @@ function assertScanResultInput(input: unknown): ScanResult {
   };
 }
 
+function assertBackendScanResponseInput(input: unknown) {
+  assert(isRecord(input), 'backend response must be an object');
+  const snapshot = assertScanSnapshotInput(input.snapshot);
+  const crawlNodes = 'crawlNodes' in input && input.crawlNodes !== undefined
+    ? (assert(Array.isArray(input.crawlNodes), 'backend response.crawlNodes must be an array when present'), input.crawlNodes.map(assertCrawlNode))
+    : undefined;
+
+  return {
+    snapshot,
+    crawlNodes
+  };
+}
+
 function assertBackendRulesetCategoryEntry(input: unknown): BackendRulesetCategory {
   assert(isRecord(input), 'ruleset category must be an object');
   assert(isEnumValue(input.category, [...DOMAINS, 'performance', 'accessibility', 'ux', 'drupal'] as const), 'ruleset category must be supported');
@@ -503,6 +516,7 @@ export const scanRequestSchema = createSchema(assertScanRequestInput);
 export const scanSnapshotSchema = createSchema(assertScanSnapshotInput);
 export const crawlNodeSchema = createSchema(assertCrawlNode);
 export const scanResultSchema = createSchema(assertScanResultInput);
+export const backendScanResponseSchema = createSchema(assertBackendScanResponseInput);
 export const diffResultSchema = createSchema(assertDiffResultInput);
 export const backendRulesetCategorySchema = createSchema(assertBackendRulesetCategoryArray);
 export const addonRulesetSchema = createSchema(assertAddonRulesetPayload);
@@ -551,6 +565,10 @@ export function assertScanSnapshot(input: unknown) {
 
 export function assertScanResult(input: unknown) {
   return scanResultSchema.parse(input);
+}
+
+export function assertBackendScanResponse(input: unknown) {
+  return backendScanResponseSchema.parse(input);
 }
 
 export function assertDiffResult(input: unknown) {

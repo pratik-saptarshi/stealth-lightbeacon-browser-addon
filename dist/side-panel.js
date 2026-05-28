@@ -1,233 +1,56 @@
-// src/popup/popup-state.ts
-var SEVERITY_ORDER = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
-function sortIssuesForPanel(issues) {
-  return [...issues].sort((left, right) => {
-    if (left.domain !== right.domain) {
-      return left.domain.localeCompare(right.domain);
-    }
-    const severityDelta = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
-    if (severityDelta !== 0) {
-      return severityDelta;
-    }
-    const titleDelta = left.title.localeCompare(right.title);
-    if (titleDelta !== 0) {
-      return titleDelta;
-    }
-    const ruleDelta = left.ruleId.localeCompare(right.ruleId);
-    if (ruleDelta !== 0) {
-      return ruleDelta;
-    }
-    return left.id.localeCompare(right.id);
-  });
-}
-function buildPopupIssuePanelModel(snapshot, diff, scanStatus = "complete") {
-  const sortedIssues = sortIssuesForPanel(snapshot.issues);
-  const groupedByDomain = /* @__PURE__ */ new Map();
-  const counts = {
-    critical: snapshot.summary.bySeverity.critical ?? 0,
-    high: snapshot.summary.bySeverity.high ?? 0,
-    medium: snapshot.summary.bySeverity.medium ?? 0,
-    low: snapshot.summary.bySeverity.low ?? 0
-  };
-  for (const issue of sortedIssues) {
-    const current = groupedByDomain.get(issue.domain) ?? {
-      domain: issue.domain,
-      total: 0,
-      counts: {
-        critical: 0,
-        high: 0,
-        medium: 0,
-        low: 0
-      },
-      groups: []
-    };
-    current.total += 1;
-    current.counts[issue.severity] += 1;
-    const severityGroup = current.groups.find((entry) => entry.severity === issue.severity);
-    if (severityGroup) {
-      severityGroup.issues.push(issue);
-    } else {
-      current.groups.push({
-        severity: issue.severity,
-        issues: [issue]
-      });
-      current.groups.sort((left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity]);
-    }
-    groupedByDomain.set(issue.domain, current);
-  }
-  const domains = Array.from(groupedByDomain.values()).sort((left, right) => left.domain.localeCompare(right.domain));
-  return {
-    scanId: snapshot.id,
-    scanStatus,
-    origin: snapshot.origin,
-    url: snapshot.url,
-    generatedAt: new Date(snapshot.timestamp).toISOString(),
-    total: snapshot.summary.total,
-    counts,
-    domains,
-    delta: diff ? {
-      newCount: diff.newIssues.length,
-      fixedCount: diff.resolvedIssues.length + diff.improvements.length,
-      unchangedCount: Math.max(snapshot.summary.total - diff.newIssues.length - (diff.resolvedIssues.length + diff.improvements.length), 0)
-    } : void 0
-  };
-}
-function collectSelectors(issues) {
-  return Array.from(
-    new Set(
-      issues.map((issue) => issue.selector?.trim()).filter((selector) => Boolean(selector))
-    )
-  );
-}
-
-// src/ui/export.ts
-function toJsonExport(bundle) {
-  return JSON.stringify(bundle, null, 2);
-}
-function toHtmlExport(bundle) {
-  const lines = [
-    "<!doctype html>",
-    '<html lang="en">',
-    '<head><meta charset="utf-8" /><title>Scan Report</title></head>',
-    "<body>",
-    `<h1>Scan Report</h1>`,
-    `<p><strong>URL:</strong> ${bundle.snapshot.url}</p>`,
-    `<p><strong>Origin:</strong> ${bundle.snapshot.origin}</p>`,
-    `<p><strong>Engine:</strong> ${bundle.snapshot.engine}</p>`,
-    `<p><strong>Timestamp:</strong> ${new Date(bundle.snapshot.timestamp).toISOString()}</p>`,
-    `<h2>Summary</h2>`,
-    `<ul>`,
-    `<li>Total issues: ${bundle.snapshot.summary.total}</li>`,
-    `<li>Critical: ${bundle.snapshot.summary.bySeverity.critical}</li>`,
-    `<li>High: ${bundle.snapshot.summary.bySeverity.high}</li>`,
-    `<li>Medium: ${bundle.snapshot.summary.bySeverity.medium}</li>`,
-    `<li>Low: ${bundle.snapshot.summary.bySeverity.low}</li>`,
-    `</ul>`,
-    "<h2>Issues</h2>"
-  ];
-  for (const issue of bundle.snapshot.issues) {
-    lines.push(`<h3>[${issue.severity}] ${issue.title}</h3>`);
-    lines.push(`<p><strong>Rule:</strong> ${issue.ruleId}</p>`);
-    lines.push(`<p>${issue.summary}</p>`);
-    lines.push(`<p><small>${issue.domain}</small> ${issue.evidence}</p>`);
-  }
-  if (bundle.diff) {
-    lines.push("<h2>Diff</h2>");
-    lines.push(`<p>New: ${bundle.diff.newIssues.length}</p>`);
-    lines.push(`<p>Resolved: ${bundle.diff.resolvedIssues.length}</p>`);
-    lines.push(`<p>Regressions: ${bundle.diff.regressions.length}</p>`);
-    lines.push(`<p>Improvements: ${bundle.diff.improvements.length}</p>`);
-  }
-  lines.push("</body></html>");
-  return lines.join("\n");
-}
-function toLlmMarkdownExport(bundle) {
-  const lines = [
-    "# Audit Findings",
-    `URL: ${bundle.snapshot.url}`,
-    `Generated: ${new Date(bundle.snapshot.timestamp).toISOString()}`,
-    "",
-    "## Prioritized Issue List",
-    ...bundle.snapshot.issues.map((issue) => `- (${issue.severity}) ${issue.title} \u2014 ${issue.summary}`),
-    ""
-  ];
-  if (bundle.diff) {
-    lines.push("## Delta");
-    lines.push(`new: ${bundle.diff.newIssues.length}`);
-    lines.push(`resolved: ${bundle.diff.resolvedIssues.length}`);
-    lines.push(`regressions: ${bundle.diff.regressions.length}`);
-    lines.push(`improvements: ${bundle.diff.improvements.length}`);
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-function toGeoXmlExport(bundle) {
-  const issues = bundle.snapshot.issues.map(
-    (issue) => `    <issue id="${issue.id}" ruleId="${issue.ruleId}" severity="${issue.severity}" domain="${issue.domain}">
-      <summary>${xmlEscape(issue.summary)}</summary>
-      <evidence>${xmlEscape(issue.evidence)}</evidence>
-    </issue>`
-  ).join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<geoReport>
-  <scan url="${xmlEscape(bundle.snapshot.url)}" engine="${bundle.snapshot.engine}" timestamp="${new Date(bundle.snapshot.timestamp).toISOString()}">
-    <summary total="${bundle.snapshot.summary.total}" critical="${bundle.snapshot.summary.bySeverity.critical}" high="${bundle.snapshot.summary.bySeverity.high}" medium="${bundle.snapshot.summary.bySeverity.medium}" low="${bundle.snapshot.summary.bySeverity.low}" />
-  </scan>
-  <issues>
-${issues}
-  </issues>
-</geoReport>`;
-}
-function xmlEscape(input) {
-  return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
-function buildReport(bundle, format) {
-  switch (format) {
-    case "json":
-      return toJsonExport(bundle);
-    case "html":
-      return toHtmlExport(bundle);
-    case "llm-markdown":
-      return toLlmMarkdownExport(bundle);
-    case "geo-xml":
-      return toGeoXmlExport(bundle);
-    default:
-      return toMarkdownExport(bundle);
-  }
-}
-function toMarkdownExport(bundle) {
-  const lines = [
-    `# Scan Export`,
-    `- URL: ${bundle.snapshot.url}`,
-    `- Origin: ${bundle.snapshot.origin}`,
-    `- Engine: ${bundle.snapshot.engine}`,
-    `- Timestamp: ${new Date(bundle.snapshot.timestamp).toISOString()}`,
-    "",
-    `## Summary`,
-    `- Total issues: ${bundle.snapshot.summary.total}`,
-    `- Critical: ${bundle.snapshot.summary.bySeverity.critical}`,
-    `- High: ${bundle.snapshot.summary.bySeverity.high}`,
-    `- Medium: ${bundle.snapshot.summary.bySeverity.medium}`,
-    `- Low: ${bundle.snapshot.summary.bySeverity.low}`,
-    ""
-  ];
-  const byDomain = /* @__PURE__ */ new Map();
-  for (const issue of bundle.snapshot.issues) {
-    const bucket = byDomain.get(issue.domain) ?? [];
-    bucket.push(`- [${issue.severity}] **${issue.title}**: ${issue.summary}`);
-    byDomain.set(issue.domain, bucket);
-  }
-  for (const [domain, bulletPoints] of byDomain.entries()) {
-    lines.push(`## ${domain}`);
-    lines.push(...bulletPoints);
-    lines.push("");
-  }
-  if (bundle.diff) {
-    lines.push("## Diff");
-    lines.push(`- New: ${bundle.diff.newIssues.length}`);
-    lines.push(`- Resolved: ${bundle.diff.resolvedIssues.length}`);
-    lines.push(`- Regressions: ${bundle.diff.regressions.length}`);
-    lines.push(`- Improvements: ${bundle.diff.improvements.length}`);
-  }
-  return lines.join("\n");
-}
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 
 // src/ui/pdf.ts
-var PAGE_WIDTH = 612;
-var PAGE_HEIGHT = 792;
-var LEFT_MARGIN = 50;
-var TOP_MARGIN = 54;
-var LINE_HEIGHT = 14;
-var LINES_PER_PAGE = 42;
+var pdf_exports = {};
+__export(pdf_exports, {
+  buildIssueReportLines: () => buildIssueReportLines,
+  buildIssuesPdfBlob: () => buildIssuesPdfBlob,
+  buildPdfDocument: () => buildPdfDocument,
+  buildReportLines: () => buildReportLines,
+  buildReportPdfBlob: () => buildReportPdfBlob
+});
+function buildIssuesPdfBlob(snapshot, issues) {
+  const lines = buildIssueReportLines(snapshot, issues);
+  const pdf = buildPdfDocument("Stealth Lightbeacon Issue Export", lines);
+  return new Blob([pdf], { type: "application/pdf" });
+}
 function buildReportPdfBlob(bundle) {
   const lines = buildReportLines(bundle);
   const pdf = buildPdfDocument("Stealth Lightbeacon Scan Report", lines);
   return new Blob([pdf], { type: "application/pdf" });
+}
+function buildIssueReportLines(snapshot, issues) {
+  const lines = [
+    `Scan ID: ${snapshot.id}`,
+    `URL: ${snapshot.url}`,
+    `Origin: ${snapshot.origin}`,
+    `Engine: ${snapshot.engine}`,
+    `Generated: ${new Date(snapshot.timestamp).toISOString()}`,
+    "",
+    `Selected issues: ${issues.length}`,
+    `Total issues on page: ${snapshot.summary.total}`,
+    ""
+  ];
+  for (const issue of issues) {
+    lines.push(`[${issue.severity}] ${issue.title}`);
+    lines.push(`Rule: ${issue.ruleId}`);
+    lines.push(`Domain: ${issue.domain}`);
+    lines.push(`Summary: ${issue.summary}`);
+    lines.push(`Evidence: ${issue.evidence}`);
+    if (issue.selector) {
+      lines.push(`Selector: ${issue.selector}`);
+    }
+    lines.push("");
+  }
+  return lines;
 }
 function buildReportLines(bundle) {
   const lines = [
@@ -370,6 +193,185 @@ function byteLength(input) {
   }
   return input.length;
 }
+var PAGE_WIDTH, PAGE_HEIGHT, LEFT_MARGIN, TOP_MARGIN, LINE_HEIGHT, LINES_PER_PAGE;
+var init_pdf = __esm({
+  "src/ui/pdf.ts"() {
+    "use strict";
+    PAGE_WIDTH = 612;
+    PAGE_HEIGHT = 792;
+    LEFT_MARGIN = 50;
+    TOP_MARGIN = 54;
+    LINE_HEIGHT = 14;
+    LINES_PER_PAGE = 42;
+  }
+});
+
+// src/popup/popup-state.ts
+var SEVERITY_ORDER = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3
+};
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var POPUP_UI_STATE_STORAGE_KEY = "addon_popup_state";
+var DEFAULT_POPUP_UI_STATE = {
+  settingsOpen: false,
+  scanId: void 0,
+  selectedIssueIds: []
+};
+function sortIssuesForPanel(issues) {
+  return [...issues].sort((left, right) => {
+    if (left.domain !== right.domain) {
+      return left.domain.localeCompare(right.domain);
+    }
+    const severityDelta = SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity];
+    if (severityDelta !== 0) {
+      return severityDelta;
+    }
+    const titleDelta = left.title.localeCompare(right.title);
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+    const ruleDelta = left.ruleId.localeCompare(right.ruleId);
+    if (ruleDelta !== 0) {
+      return ruleDelta;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+function buildPopupIssuePanelModel(snapshot, diff, scanStatus = "complete") {
+  const sortedIssues = sortIssuesForPanel(snapshot.issues);
+  const groupedByDomain = /* @__PURE__ */ new Map();
+  const counts = {
+    critical: snapshot.summary.bySeverity.critical ?? 0,
+    high: snapshot.summary.bySeverity.high ?? 0,
+    medium: snapshot.summary.bySeverity.medium ?? 0,
+    low: snapshot.summary.bySeverity.low ?? 0
+  };
+  for (const issue of sortedIssues) {
+    const current = groupedByDomain.get(issue.domain) ?? {
+      domain: issue.domain,
+      total: 0,
+      counts: {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0
+      },
+      groups: []
+    };
+    current.total += 1;
+    current.counts[issue.severity] += 1;
+    const severityGroup = current.groups.find((entry) => entry.severity === issue.severity);
+    if (severityGroup) {
+      severityGroup.issues.push(issue);
+    } else {
+      current.groups.push({
+        severity: issue.severity,
+        issues: [issue]
+      });
+      current.groups.sort((left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity]);
+    }
+    groupedByDomain.set(issue.domain, current);
+  }
+  const domains = Array.from(groupedByDomain.values()).sort((left, right) => left.domain.localeCompare(right.domain));
+  return {
+    scanId: snapshot.id,
+    scanStatus,
+    origin: snapshot.origin,
+    url: snapshot.url,
+    generatedAt: new Date(snapshot.timestamp).toISOString(),
+    total: snapshot.summary.total,
+    counts,
+    domains,
+    delta: diff ? {
+      newCount: diff.newIssues.length,
+      fixedCount: diff.resolvedIssues.length + diff.improvements.length,
+      unchangedCount: Math.max(snapshot.summary.total - diff.newIssues.length - (diff.resolvedIssues.length + diff.improvements.length), 0)
+    } : void 0
+  };
+}
+function buildIssueExportJson(issues, meta) {
+  return JSON.stringify(
+    {
+      ...meta,
+      issues
+    },
+    null,
+    2
+  );
+}
+function buildIssueExportMarkdown(issues, meta) {
+  const lines = [
+    "# Stealth Lightbeacon Issue Export",
+    `- Scan ID: ${meta.scanId}`,
+    `- Origin: ${meta.origin}`,
+    `- URL: ${meta.url}`,
+    `- Generated: ${meta.generatedAt}`,
+    "",
+    "## Issues"
+  ];
+  for (const issue of issues) {
+    lines.push(`- [${issue.severity}] **${issue.domain}** / ${issue.ruleId}: ${issue.title}`);
+    lines.push(`  - Summary: ${issue.summary}`);
+    lines.push(`  - Evidence: ${issue.evidence}`);
+    if (issue.selector) {
+      lines.push(`  - Selector: ${issue.selector}`);
+    }
+  }
+  return lines.join("\n");
+}
+function normalizePopupUiState(input) {
+  if (!isRecord(input)) {
+    return {
+      settingsOpen: DEFAULT_POPUP_UI_STATE.settingsOpen,
+      scanId: DEFAULT_POPUP_UI_STATE.scanId,
+      selectedIssueIds: [...DEFAULT_POPUP_UI_STATE.selectedIssueIds]
+    };
+  }
+  return {
+    settingsOpen: typeof input.settingsOpen === "boolean" ? input.settingsOpen : DEFAULT_POPUP_UI_STATE.settingsOpen,
+    scanId: typeof input.scanId === "string" && input.scanId.trim() ? input.scanId.trim() : void 0,
+    selectedIssueIds: normalizeSelectedIssueIds(input.selectedIssueIds)
+  };
+}
+function buildPopupUiState(input) {
+  return {
+    settingsOpen: input.settingsOpen,
+    scanId: input.scanId?.trim() || void 0,
+    selectedIssueIds: normalizeSelectedIssueIds(input.selectedIssueIds)
+  };
+}
+function collectSelectors(issues) {
+  return Array.from(
+    new Set(
+      issues.map((issue) => issue.selector?.trim()).filter((selector) => Boolean(selector))
+    )
+  );
+}
+function normalizeSelectedIssueIds(input) {
+  const values = toIterableArray(input);
+  if (!values.length) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      values.filter((value) => typeof value === "string").map((value) => value.trim()).filter((value) => Boolean(value))
+    )
+  );
+}
+function toIterableArray(input) {
+  if (Array.isArray(input)) {
+    return input;
+  }
+  if (typeof input === "object" && input !== null && Symbol.iterator in input) {
+    return Array.from(input);
+  }
+  return [];
+}
 
 // src/shared/backend-settings.ts
 var BACKEND_SETTINGS_STORAGE_KEY = "addon_backend_settings";
@@ -384,7 +386,7 @@ var DEFAULT_BACKEND_SETTINGS = {
   required: false
 };
 function normalizeBackendSettings(input) {
-  if (!isRecord(input)) {
+  if (!isRecord2(input)) {
     return { ...DEFAULT_BACKEND_SETTINGS };
   }
   return {
@@ -443,7 +445,7 @@ function composeEndpoint(endpoint, port) {
     return void 0;
   }
 }
-function isRecord(value) {
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function coerceString(value, fallback) {
@@ -489,7 +491,7 @@ var THEME_KEYS = Object.keys(DEFAULT_PANEL_THEME);
 var VISIBILITY_KEYS = Object.keys(DEFAULT_PANEL_VISIBILITY);
 var HEX_COLOR_RE = /^#?[0-9a-fA-F]{6}$/;
 function normalizePanelSettings(input) {
-  if (!isRecord2(input)) {
+  if (!isRecord3(input)) {
     return cloneDefaultPanelSettings();
   }
   return {
@@ -511,7 +513,7 @@ function buildBugReportMailto(input = {}) {
   return `mailto:${BUG_REPORT_EMAIL}?${params.toString()}`;
 }
 function normalizeTheme(input) {
-  const source = isRecord2(input) ? input : {};
+  const source = isRecord3(input) ? input : {};
   const theme = cloneDefaultTheme();
   for (const key of THEME_KEYS) {
     theme[key] = normalizeHexColor(source[key], DEFAULT_PANEL_THEME[key]);
@@ -519,7 +521,7 @@ function normalizeTheme(input) {
   return theme;
 }
 function normalizeVisibility(input) {
-  const source = isRecord2(input) ? input : {};
+  const source = isRecord3(input) ? input : {};
   const visibility = cloneDefaultVisibility();
   for (const key of VISIBILITY_KEYS) {
     visibility[key] = normalizeBoolean(source[key], DEFAULT_PANEL_VISIBILITY[key]);
@@ -551,7 +553,7 @@ function cloneDefaultTheme() {
 function cloneDefaultVisibility() {
   return { ...DEFAULT_PANEL_VISIBILITY };
 }
-function isRecord2(value) {
+function isRecord3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -590,16 +592,14 @@ var runtimeHost = typeof globalThis === "undefined" ? {} : globalThis;
 var state = {
   status: "idle",
   scanId: "",
-  activeTab: "overview",
-  historySnapshots: [],
   selectedIssueIds: /* @__PURE__ */ new Set(),
   backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
   settingsOpen: false,
-  resultsExpanded: true
+  settingsFocusTarget: null
 };
 var startupHydration;
-var domReadyBootstrapped = false;
+var popupUiSettingsTouched = false;
 var dom = {
   shell: null,
   statusPill: null,
@@ -611,18 +611,11 @@ var dom = {
   controlsSection: null,
   footer: null,
   issuesPanel: null,
-  overviewPanel: null,
-  connectionPanel: null,
-  resultsPanel: null,
-  historyPanel: null,
   rescanButton: null,
   exportJsonButton: null,
   exportMarkdownButton: null,
-  exportHtmlButton: null,
   exportPdfButton: null,
   copySelectorsButton: null,
-  collapseResultsButton: null,
-  expandResultsButton: null,
   settingsToggleButton: null,
   settingsCloseButton: null,
   settingsPanel: null,
@@ -638,14 +631,9 @@ var dom = {
   backendRequired: null,
   openApiSpecLink: null,
   themeInputs: [],
-  visibilityInputs: [],
-  tabButtons: []
+  visibilityInputs: []
 };
 document.addEventListener("DOMContentLoaded", () => {
-  if (domReadyBootstrapped) {
-    return;
-  }
-  domReadyBootstrapped = true;
   bindDom();
   bindActions();
   void initialize();
@@ -656,10 +644,6 @@ function bindDom() {
   dom.statusLine = document.getElementById("status-line");
   dom.settingsToggleButton = document.getElementById("settings-toggle-button");
   dom.settingsCloseButton = document.getElementById("settings-close-button");
-  dom.overviewPanel = document.getElementById("overview-panel");
-  dom.connectionPanel = document.getElementById("connection-panel");
-  dom.resultsPanel = document.getElementById("results-panel");
-  dom.historyPanel = document.getElementById("history-panel");
   dom.settingsPanel = document.getElementById("settings-panel");
   dom.backendSettingsSection = document.getElementById("backend-settings-section");
   dom.bugReportLink = document.getElementById("bug-report-link");
@@ -673,11 +657,8 @@ function bindDom() {
   dom.rescanButton = document.getElementById("rescan-button");
   dom.exportJsonButton = document.getElementById("export-json-button");
   dom.exportMarkdownButton = document.getElementById("export-markdown-button");
-  dom.exportHtmlButton = document.getElementById("export-html-button");
   dom.exportPdfButton = document.getElementById("export-pdf-button");
   dom.copySelectorsButton = document.getElementById("copy-selectors-button");
-  dom.collapseResultsButton = document.getElementById("collapse-results-button");
-  dom.expandResultsButton = document.getElementById("expand-results-button");
   dom.backendEnabled = document.getElementById("backend-enabled");
   dom.backendMode = document.getElementById("backend-mode");
   dom.backendEndpoint = document.getElementById("backend-endpoint");
@@ -689,52 +670,46 @@ function bindDom() {
   dom.openApiSpecLink = document.getElementById("openapi-spec-link");
   dom.themeInputs = Array.from(document.querySelectorAll("input[data-theme-setting]"));
   dom.visibilityInputs = Array.from(document.querySelectorAll("input[data-visibility-setting]"));
-  dom.tabButtons = Array.from(document.querySelectorAll("[data-popup-tab]"));
 }
 function bindActions() {
   dom.settingsToggleButton?.addEventListener("click", () => {
-    state.settingsOpen = true;
-    setActiveTab("settings");
+    state.settingsOpen = !state.settingsOpen;
+    popupUiSettingsTouched = true;
+    state.settingsFocusTarget = state.settingsOpen ? "close" : "toggle";
+    render();
+    void persistPopupUiState();
   });
   dom.settingsCloseButton?.addEventListener("click", () => {
     state.settingsOpen = false;
-    setActiveTab("overview");
+    popupUiSettingsTouched = true;
+    state.settingsFocusTarget = "toggle";
+    render();
+    void persistPopupUiState();
   });
-  dom.overviewPanel?.addEventListener("click", handleOverviewPanelClick);
-  for (const button of dom.tabButtons) {
-    button.addEventListener("click", () => {
-      const tab = button.dataset.popupTab;
-      if (!tab) {
-        return;
-      }
-      setActiveTab(tab);
-    });
-  }
+  dom.settingsPanel?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    state.settingsOpen = false;
+    state.settingsFocusTarget = "toggle";
+    render();
+    void persistPopupUiState();
+    dom.settingsToggleButton?.focus();
+  });
   dom.rescanButton?.addEventListener("click", () => {
     void startScan(true);
   });
   dom.exportJsonButton?.addEventListener("click", () => {
-    void downloadCurrentReport("json");
+    void exportCurrentSelection("json");
   });
   dom.exportMarkdownButton?.addEventListener("click", () => {
-    void downloadCurrentReport("markdown");
-  });
-  dom.exportHtmlButton?.addEventListener("click", () => {
-    void downloadCurrentReport("html");
+    void exportCurrentSelection("markdown");
   });
   dom.exportPdfButton?.addEventListener("click", () => {
-    void downloadCurrentReport("pdf");
+    void exportCurrentSelection("pdf");
   });
   dom.copySelectorsButton?.addEventListener("click", () => {
     void copySelectedSelectors();
-  });
-  dom.collapseResultsButton?.addEventListener("click", () => {
-    state.resultsExpanded = false;
-    render();
-  });
-  dom.expandResultsButton?.addEventListener("click", () => {
-    state.resultsExpanded = true;
-    render();
   });
   bindSettingsInputs();
 }
@@ -758,25 +733,6 @@ async function initialize() {
       }, 0);
     });
   });
-}
-function setActiveTab(tab) {
-  state.activeTab = tab;
-  state.settingsOpen = tab === "settings";
-  render();
-}
-function handleOverviewPanelClick(event) {
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-  const button = target.closest("button[data-popup-tab]");
-  if (!button || !dom.overviewPanel?.contains(button)) {
-    return;
-  }
-  const tab = button.dataset.popupTab;
-  if (tab) {
-    setActiveTab(tab);
-  }
 }
 function hasExtensionRuntime() {
   return Boolean(runtimeHost.chrome?.runtime?.sendMessage || runtimeHost.browser?.runtime?.sendMessage);
@@ -828,14 +784,10 @@ async function startScan(manual) {
       }
       state.snapshot = reply.payload.snapshot;
       state.diff = reply.payload.diff;
-      state.historySnapshots = [
-        reply.payload.snapshot,
-        ...state.historySnapshots.filter((snapshot) => snapshot.id !== reply.payload.snapshot.id)
-      ];
       state.selectedIssueIds.clear();
       state.status = inferStatus(reply.payload);
       state.note = reply.payload.recommendation ? `Backend recommendation: ${reply.payload.recommendation.engine}` : "Scan complete";
-      state.activeTab = "results";
+      void persistPopupUiState();
       render();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -848,24 +800,21 @@ async function startScan(manual) {
 }
 async function hydrateStartupState() {
   try {
-    const [backendSettings, panelSettings, loadedCachedScan, historySnapshots] = await Promise.all([
+    const [backendSettings, panelSettings, popupUiState, loadedCachedScan] = await Promise.all([
       loadBackendSettings(),
       loadPanelSettings(),
-      loadCachedScanFromHistory(),
-      loadHistoryFromHistory()
+      loadPopupUiState(),
+      loadCachedScanFromHistory()
     ]);
     state.backendSettings = backendSettings;
     state.panelSettings = panelSettings;
-    state.historySnapshots = historySnapshots;
+    applyPopupUiState(popupUiState);
     if (!loadedCachedScan) {
       state.snapshot = void 0;
       state.diff = void 0;
       state.selectedIssueIds.clear();
       state.status = "idle";
       state.note = "No cached scan found. Click Rescan to scan the active tab.";
-      state.activeTab = "overview";
-    } else {
-      state.activeTab = "results";
     }
     render();
   } catch (error) {
@@ -906,8 +855,6 @@ function render(options) {
     if (dom.rescanButton) {
       dom.rescanButton.disabled = state.status === "loading" || !hasExtensionRuntime();
     }
-    renderTabNavigation();
-    renderTabPanels();
     if (options?.lightweight) {
       return;
     }
@@ -917,19 +864,10 @@ function render(options) {
     if (dom.exportMarkdownButton) {
       dom.exportMarkdownButton.disabled = !state.snapshot;
     }
-    if (dom.exportHtmlButton) {
-      dom.exportHtmlButton.disabled = !state.snapshot;
-    }
-    if (dom.exportPdfButton) {
-      dom.exportPdfButton.disabled = !state.snapshot;
-    }
     if (dom.copySelectorsButton) {
       dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
     }
     renderPanelSettings();
-    renderOverviewPanel();
-    renderConnectionPanel();
-    renderHistoryPanel();
     renderSummary();
     renderDelta();
     renderIssues();
@@ -937,143 +875,6 @@ function render(options) {
   } finally {
     trace.end(state.snapshot ? `issues=${state.snapshot.summary.total}` : "empty");
   }
-}
-function renderTabNavigation() {
-  for (const button of dom.tabButtons) {
-    const tab = button.dataset.popupTab;
-    const selected = tab === state.activeTab;
-    button.setAttribute("aria-selected", String(selected));
-    button.classList.toggle("is-active", selected);
-  }
-  if (dom.settingsToggleButton) {
-    dom.settingsToggleButton.setAttribute("aria-expanded", String(state.activeTab === "settings"));
-  }
-}
-function renderTabPanels() {
-  const setPanelHidden = (panel, hidden) => {
-    if (!panel) {
-      return;
-    }
-    panel.classList.toggle("hidden", hidden);
-  };
-  setPanelHidden(dom.overviewPanel, state.activeTab !== "overview");
-  setPanelHidden(dom.connectionPanel, state.activeTab !== "connection");
-  setPanelHidden(dom.resultsPanel, state.activeTab !== "results");
-  setPanelHidden(dom.settingsPanel, state.activeTab !== "settings");
-}
-function renderOverviewPanel() {
-  if (!dom.overviewPanel) {
-    return;
-  }
-  const snapshot = state.snapshot;
-  const issueCount = snapshot?.summary.total ?? 0;
-  const historyCount = state.historySnapshots.length;
-  const backendMode = state.backendSettings.enabled ? state.backendSettings.mode === "stdin" ? "Standalone stdin mode" : "Remote HTTP backend" : "Local-only audit mode";
-  dom.overviewPanel.innerHTML = `
-    <section class="overview-grid" aria-label="Popup overview">
-      <article class="info-card">
-        <p class="eyebrow">Connection</p>
-        <h2>Standalone audit</h2>
-        <p>${escapeHtml(
-    state.backendSettings.enabled && state.backendSettings.mode === "stdin" ? "Run locally with the packaged stdin adapter and bundled rules." : "Run locally without an external dependency, or switch to HTTP when needed."
-  )}</p>
-        <button type="button" data-popup-tab="connection">Open Connection</button>
-      </article>
-      <article class="info-card">
-        <p class="eyebrow">Results</p>
-        <h2>Recent runs and reports</h2>
-        <p>${escapeHtml(`Review ${historyCount} saved runs, collapse issue groups, and download standard reports.`)}</p>
-        <button type="button" data-popup-tab="results">Open Results</button>
-      </article>
-      <article class="info-card">
-        <p class="eyebrow">Settings</p>
-        <h2>Theme grid and visibility</h2>
-        <p>Adjust colors, toggle optional sections, and keep the popup compact on smaller screens.</p>
-        <button type="button" data-popup-tab="settings">Open Settings</button>
-      </article>
-      <article class="info-card">
-        <p class="eyebrow">Current state</p>
-        <h2>${escapeHtml(snapshot ? snapshot.url : "No scan yet")}</h2>
-        <p>${escapeHtml(snapshot ? `${issueCount} issues \xB7 ${snapshot.engine}` : state.note ?? "Waiting for a scan")}</p>
-        <p>${escapeHtml(`Mode: ${backendMode}`)}</p>
-      </article>
-    </section>
-  `;
-  dom.overviewPanel.querySelectorAll("button[data-popup-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const tab = button.dataset.popupTab;
-      if (tab) {
-        setActiveTab(tab);
-      }
-    });
-  });
-}
-function renderConnectionPanel() {
-  if (!dom.connectionPanel) {
-    return;
-  }
-  if (dom.connectionPanel.classList.contains("hidden")) {
-    return;
-  }
-  const standalone = !state.backendSettings.enabled || state.backendSettings.mode === "stdin";
-  const modeLabel = state.backendSettings.enabled ? state.backendSettings.mode === "stdin" ? "Standalone stdin engine" : "Remote HTTP backend" : "Standalone local-only audit mode";
-  const summary = standalone && state.backendSettings.enabled ? "Standalone execution is enabled. The service worker can run the audit locally through the packaged stdin adapter, parse testrun output, and keep reporting offline." : state.backendSettings.enabled ? "Backend settings are configured for a remote HTTP endpoint, but the popup still retains local audit and report generation capabilities." : "Standalone execution is available without an external dependency. The popup can run an audit locally and still produce standard reports.";
-  const summaryHost = dom.connectionPanel.querySelector("#connection-summary");
-  if (summaryHost) {
-    summaryHost.innerHTML = `
-      <article class="connection-callout">
-        <p class="eyebrow">Connection state</p>
-        <h2>${escapeHtml(modeLabel)}</h2>
-        <p>${escapeHtml(summary)}</p>
-        <ul>
-          <li>Bundled rules remain available in the popup and service worker.</li>
-          <li>History lookups and report generation use the background message bridge.</li>
-          <li>Markdown, HTML, JSON, and PDF outputs stay available for saved runs.</li>
-        </ul>
-      </article>
-    `;
-  }
-}
-function renderHistoryPanel() {
-  if (!dom.historyPanel) {
-    return;
-  }
-  if (!state.historySnapshots.length) {
-    dom.historyPanel.innerHTML = `<section class="history-empty" data-testid="history-empty">No saved runs yet.</section>`;
-    return;
-  }
-  dom.historyPanel.innerHTML = state.historySnapshots.map((snapshot, index) => {
-    const isLatest = index === 0;
-    return `
-        <details class="history-entry" data-testid="history-entry" ${state.resultsExpanded ? "open" : ""}>
-          <summary>
-            <div>
-              <span class="history-title">${escapeHtml(snapshot.url)}</span>
-              <span class="history-meta">${new Date(snapshot.timestamp).toLocaleString()} \xB7 ${snapshot.summary.total} issues \xB7 ${escapeHtml(snapshot.engine)}</span>
-            </div>
-            <div class="history-actions" aria-label="Report downloads">
-              <button type="button" data-history-report="json" data-history-index="${index}">JSON</button>
-              <button type="button" data-history-report="markdown" data-history-index="${index}">Markdown</button>
-              <button type="button" data-history-report="html" data-history-index="${index}">HTML</button>
-              <button type="button" data-history-report="pdf" data-history-index="${index}">PDF</button>
-              ${isLatest ? '<span class="history-badge">Latest</span>' : ""}
-            </div>
-          </summary>
-        </details>
-      `;
-  }).join("");
-  dom.historyPanel.querySelectorAll("button[data-history-report]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const index = Number(button.dataset.historyIndex ?? "0");
-      const snapshot = state.historySnapshots[index];
-      const format = button.dataset.historyReport;
-      if (!snapshot || !format) {
-        return;
-      }
-      void downloadReportForSnapshot(snapshot, format);
-    });
-  });
 }
 function renderSummary() {
   if (!dom.summaryGrid) {
@@ -1139,8 +940,8 @@ function renderIssues() {
     return;
   }
   dom.issuesPanel.innerHTML = model.domains.map(
-    (domain) => `
-        <details class="domain-card" ${state.resultsExpanded ? "open" : ""} data-testid="issue-domain">
+    (domain, index) => `
+        <details class="domain-card" ${index === 0 ? "open" : ""} data-testid="issue-domain">
           <summary>
             <div>
               <span class="domain-name">${escapeHtml(domain.domain)}</span>
@@ -1174,6 +975,7 @@ function renderIssues() {
         state.selectedIssueIds.delete(checkbox.dataset.issueId ?? "");
       }
       render();
+      void persistPopupUiState();
     });
   });
   dom.issuesPanel.querySelectorAll("button[data-copy-selector]").forEach((button) => {
@@ -1216,7 +1018,8 @@ function buildStatusLine() {
     return `Scanning active tab${state.tabUrl ? ` \xB7 ${state.tabUrl}` : ""}...`;
   }
   if (state.snapshot) {
-    return `${state.snapshot.url} \xB7 ${state.snapshot.summary.total} issues \xB7 ${state.snapshot.engine}`;
+    const selectedCount = state.selectedIssueIds.size;
+    return `${state.snapshot.url} \xB7 ${state.snapshot.summary.total} issues${selectedCount ? ` \xB7 ${selectedCount} selected` : ""} \xB7 ${state.snapshot.engine}`;
   }
   return state.note ?? "Scan state will appear here.";
 }
@@ -1297,6 +1100,14 @@ async function loadPanelSettings() {
   const payload = await storage.get([PANEL_SETTINGS_STORAGE_KEY]);
   return normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
 }
+async function loadPopupUiState() {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    return normalizePopupUiState(void 0);
+  }
+  const payload = await storage.get([POPUP_UI_STATE_STORAGE_KEY]);
+  return normalizePopupUiState(payload[POPUP_UI_STATE_STORAGE_KEY]);
+}
 async function loadCachedScanFromHistory() {
   const runtime = getRuntime();
   if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
@@ -1328,30 +1139,6 @@ async function loadCachedScanFromHistory() {
     return false;
   }
 }
-async function loadHistoryFromHistory() {
-  const runtime = getRuntime();
-  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
-    return [];
-  }
-  try {
-    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
-    const activeTab = activeTabs[0];
-    if (!activeTab?.url) {
-      return [];
-    }
-    const origin = new URL(activeTab.url).origin;
-    const reply = await runtime.runtime.sendMessage({
-      type: "history:list",
-      origin
-    });
-    if (!reply.ok) {
-      return [];
-    }
-    return [...reply.payload.snapshots ?? []].sort((left, right) => right.timestamp - left.timestamp);
-  } catch {
-    return [];
-  }
-}
 async function persistBackendSettings() {
   state.backendSettings = readBackendSettingsFromDom();
   const storage = getRuntime()?.storage?.local;
@@ -1363,6 +1150,19 @@ async function persistPanelSettings() {
   const storage = getRuntime()?.storage?.local;
   if (storage?.set) {
     await storage.set({ [PANEL_SETTINGS_STORAGE_KEY]: state.panelSettings });
+  }
+}
+async function persistPopupUiState() {
+  await ensureStartupHydrated();
+  const storage = getRuntime()?.storage?.local;
+  if (storage?.set) {
+    await storage.set({
+      [POPUP_UI_STATE_STORAGE_KEY]: buildPopupUiState({
+        settingsOpen: state.settingsOpen,
+        scanId: state.snapshot?.id,
+        selectedIssueIds: state.selectedIssueIds
+      })
+    });
   }
 }
 function readBackendSettingsFromDom() {
@@ -1412,12 +1212,18 @@ function renderPanelSettings() {
   renderBugReportLink();
 }
 function renderSettingsForm() {
-  state.settingsOpen = state.activeTab === "settings";
   if (dom.settingsToggleButton) {
-    dom.settingsToggleButton.setAttribute("aria-expanded", String(state.activeTab === "settings"));
+    dom.settingsToggleButton.setAttribute("aria-expanded", String(state.settingsOpen));
   }
   if (dom.settingsPanel) {
-    dom.settingsPanel.classList.toggle("hidden", state.activeTab !== "settings");
+    dom.settingsPanel.classList.toggle("hidden", !state.settingsOpen);
+  }
+  if (state.settingsFocusTarget === "close") {
+    dom.settingsCloseButton?.focus();
+    state.settingsFocusTarget = null;
+  } else if (state.settingsFocusTarget === "toggle") {
+    dom.settingsToggleButton?.focus();
+    state.settingsFocusTarget = null;
   }
   for (const input of dom.themeInputs) {
     const key = input.dataset.themeSetting;
@@ -1479,6 +1285,17 @@ function renderBugReportLink() {
   dom.bugReportLink.href = href;
   dom.bugReportLink.title = `Report a bug to ${BUG_REPORT_EMAIL}`;
 }
+function applyPopupUiState(popupUiState) {
+  if (!popupUiSettingsTouched) {
+    state.settingsOpen = popupUiState.settingsOpen;
+  }
+  if (!state.snapshot || popupUiState.scanId !== state.snapshot.id) {
+    state.selectedIssueIds.clear();
+    return;
+  }
+  const validIssueIds = new Set(state.snapshot.issues.map((issue) => issue.id));
+  state.selectedIssueIds = new Set(popupUiState.selectedIssueIds.filter((issueId) => validIssueIds.has(issueId)));
+}
 function summarizePanelSettings() {
   const enabledSections = Object.entries(state.panelSettings.visibility).filter(([, value]) => value).map(([key]) => key).join(", ");
   return enabledSections || "none";
@@ -1524,59 +1341,27 @@ function getSelectedIssues() {
   }
   return state.snapshot.issues.filter((issue) => state.selectedIssueIds.has(issue.id));
 }
-async function downloadCurrentReport(format) {
-  if (!state.snapshot) {
+async function exportCurrentSelection(format) {
+  const issues = getSelectedIssues();
+  const selectedIssues = issues.length ? issues : state.snapshot?.issues ?? [];
+  if (!selectedIssues.length || !state.snapshot) {
     return;
   }
-  await downloadReportForSnapshot(state.snapshot, format, state.diff);
-}
-async function downloadReportForSnapshot(snapshot, format, diff) {
-  const generatedAt = new Date(snapshot.timestamp).toISOString();
-  const runtime = getRuntime();
+  const metadata = {
+    scanId: state.snapshot.id,
+    origin: state.snapshot.origin,
+    url: state.snapshot.url,
+    generatedAt: new Date(state.snapshot.timestamp).toISOString()
+  };
   if (format === "pdf") {
-    const blob2 = buildReportPdfBlob({
-      generatedAt,
-      snapshot,
-      diff
-    });
-    downloadBlob(blob2, `stealth-lightbeacon-${snapshot.id}.pdf`);
+    const { buildIssuesPdfBlob: buildIssuesPdfBlob2 } = await Promise.resolve().then(() => (init_pdf(), pdf_exports));
+    const blob = buildIssuesPdfBlob2(state.snapshot, selectedIssues);
+    downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
     return;
   }
-  const report = runtime?.runtime?.sendMessage ? await buildReportFromRuntime(snapshot, format, diff, runtime.runtime.sendMessage) : buildReport(
-    {
-      generatedAt,
-      snapshot,
-      diff
-    },
-    format
-  );
-  const extension = format === "html" ? "html" : format === "json" ? "json" : "md";
-  const blob = new Blob([report], {
-    type: format === "html" ? "text/html;charset=utf-8" : "text/plain;charset=utf-8"
-  });
-  downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.${extension}`);
-}
-async function buildReportFromRuntime(snapshot, format, diff, sendMessage) {
-  try {
-    const reply = await sendMessage({
-      type: "report:build",
-      snapshot,
-      diff,
-      format
-    });
-    if (reply.ok) {
-      return reply.payload.report;
-    }
-  } catch {
-  }
-  return buildReport(
-    {
-      generatedAt: new Date(snapshot.timestamp).toISOString(),
-      snapshot,
-      diff
-    },
-    format
-  );
+  const payload = format === "json" ? buildIssueExportJson(selectedIssues, metadata) : buildIssueExportMarkdown(selectedIssues, metadata);
+  const extension = format === "json" ? "json" : "md";
+  downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
 }
 async function copySelectedSelectors() {
   await copySelectorsForIssues(Array.from(state.selectedIssueIds));
@@ -1610,6 +1395,10 @@ async function copyToClipboard(text) {
     state.note = "Selectors copied to clipboard";
     render();
   }
+}
+function downloadText(content, filename) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  downloadBlob(blob, filename);
 }
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
