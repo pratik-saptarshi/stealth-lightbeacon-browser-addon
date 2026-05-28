@@ -43,6 +43,10 @@ var StealthLightbeaconContentScript = (() => {
       h2: documentRef.querySelectorAll("h2").length,
       h3: documentRef.querySelectorAll("h3").length
     };
+    const headingSequence = [...documentRef.querySelectorAll("h1, h2, h3, h4, h5, h6")].map((heading) => ({
+      level: Number(heading.tagName.slice(1)),
+      text: (heading.textContent ?? "").trim()
+    }));
     const links = [...documentRef.querySelectorAll("a[href]")].slice(0, MAX_LINKS).map((link) => {
       const href = normalizeUrl(link.getAttribute("href") ?? "", requestUrl);
       return {
@@ -50,6 +54,8 @@ var StealthLightbeaconContentScript = (() => {
         text: (link.textContent ?? "").trim().slice(0, 120),
         rel: (link.getAttribute("rel") ?? "").toLowerCase(),
         target: (link.getAttribute("target") ?? "").toLowerCase(),
+        ariaLabel: link.getAttribute("aria-label")?.trim() ?? null,
+        title: link.getAttribute("title")?.trim() ?? null,
         isInternal: isInternalUrl(href, requestUrl)
       };
     }).filter((item) => item.href);
@@ -63,6 +69,10 @@ var StealthLightbeaconContentScript = (() => {
     const formInputs = [...documentRef.querySelectorAll("input,select,textarea")].filter((input) => input instanceof HTMLInputElement || input instanceof HTMLSelectElement || input instanceof HTMLTextAreaElement).map((input) => ({
       required: input.required,
       labelText: getLabelText(input, labelById),
+      placeholder: input.getAttribute("placeholder")?.trim() ?? null,
+      ariaLabel: input.getAttribute("aria-label")?.trim() ?? null,
+      ariaLabelledBy: input.getAttribute("aria-labelledby")?.trim() ?? null,
+      title: input.getAttribute("title")?.trim() ?? null,
       type: (input.getAttribute("type") ?? "text").toLowerCase()
     }));
     return {
@@ -72,6 +82,7 @@ var StealthLightbeaconContentScript = (() => {
       canonical,
       metaDescription,
       headings,
+      headingSequence,
       images,
       links,
       buttons,
@@ -80,7 +91,11 @@ var StealthLightbeaconContentScript = (() => {
   }
   function normalizeUrl(href, baseUrl) {
     try {
-      return new URL(href, baseUrl).toString();
+      const url = new URL(href, baseUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return "";
+      }
+      return url.toString();
     } catch {
       return "";
     }

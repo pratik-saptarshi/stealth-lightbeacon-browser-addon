@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIssueReportLines, buildPdfDocument, buildIssuesPdfBlob } from '../../src/ui/pdf';
+import { buildIssueReportLines, buildPdfDocument, buildIssuesPdfBlob, buildReportPdfBlob } from '../../src/ui/pdf';
 import type { Issue, ScanSnapshot } from '../../src/shared/types';
 
 const issues: Issue[] = [
@@ -57,5 +57,23 @@ describe('pdf export', () => {
   it('creates a blob with pdf mime type', () => {
     const blob = buildIssuesPdfBlob(snapshot, issues);
     expect(blob.type).toBe('application/pdf');
+  });
+
+  it('creates a report pdf blob for the full snapshot', async () => {
+    const blob = buildReportPdfBlob({
+      generatedAt: '2026-01-01T00:00:00.000Z',
+      snapshot,
+      diff: {
+        newIssues: [issues[0]],
+        resolvedIssues: [],
+        regressions: [],
+        improvements: []
+      }
+    });
+
+    expect(blob.type).toBe('application/pdf');
+    expect(await blob.text()).toContain('%PDF-1.4');
+    expect(await blob.text()).toContain('Scan Report');
+    expect(await blob.text()).toContain('Selected issues: 1');
   });
 });

@@ -20,6 +20,13 @@ export type IssueSource = 'dom-only' | 'backend';
 
 export type AddonRuleCategory = 'seo' | 'geo' | 'aeo' | 'security-headers' | 'WCAG2.1AA' | 'WCAG2.2AA';
 
+export interface SecurityHeaderSignals {
+  observed: boolean;
+  contentSecurityPolicy: string | null;
+  strictTransportSecurity: string | null;
+  referrerPolicy: string | null;
+}
+
 export interface Issue {
   id: string;
   ruleId: string;

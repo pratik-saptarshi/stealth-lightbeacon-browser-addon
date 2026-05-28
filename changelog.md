@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+- Ongoing roadmap and validation follow-ups remain tracked in `docs/roadmap/`.
+
+## 0.1.6 — 2026-05-27
+- Published the public release with refreshed markdown release notes and synchronized version metadata.
+- Added coverage reporting by test type, category, and technology to the release documentation.
+- Expanded the accessibility structural parity pack with deterministic WCAG 2.1 AA rules for headings, links, and forms.
+- Added the standalone security-header evaluator and wired it into the background scan path.
+- Hardened page extraction to include richer accessibility context while continuing to drop unsafe non-HTTP(S) links.
+- Added explicit malformed rule-context URL validation and kept the validation codemap artifact in sync with the runtime surface.
+- Added a release-milestone doc that separates minor and major planning gates from the offline-eval roadmap.
+
 ## 0.1.5 — 2026-05-26
 - Refreshed the release documentation set with clearer installation, validation, contribution, and security guidance.
 - Bumped version metadata to `0.1.5` across `package.json`, `package-lock.json`, and `manifest.json`.

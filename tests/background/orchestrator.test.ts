@@ -178,4 +178,52 @@ describe('scan orchestrator crawl-lite', () => {
     expect(result.crawlNodes?.[0]).toMatchObject({ status: 'error', errorType: 'blocked' });
     expect(result.crawlNodes?.[0]?.finalUrl).toBe('https://evil.com/page');
   });
+
+  it('turns crawl failures into backend issues for broken-link discovery', async () => {
+    const failureContext: RuleContext = {
+      ...context,
+      links: [{ href: 'https://example.com/missing', text: 'missing', rel: '', target: '', isInternal: true }]
+    };
+
+    const orchestrator = new ScanOrchestrator({
+      fetcher: async () =>
+        ({
+          ok: false,
+          status: 404,
+          url: 'https://example.com/missing',
+          headers: { get: () => 'text/html' }
+        } as unknown as Response),
+      crawlMaxUrls: 10
+    });
+
+    const result = await orchestrator.runScan(request, failureContext);
+
+    expect(result.crawlNodes?.[0]).toMatchObject({ status: 'error', statusCode: 404 });
+    expect(result.snapshot.issues.some((issue) => issue.ruleId === 'crawl-broken-link')).toBe(true);
+    expect(result.snapshot.issues.some((issue) => issue.source === 'backend')).toBe(true);
+  });
+
+  it('flags discovered Drupal-style endpoints during crawl', async () => {
+    const drupalContext: RuleContext = {
+      ...context,
+      links: [{ href: 'https://example.com/jsonapi/node/article', text: 'api', rel: '', target: '', isInternal: true }]
+    };
+
+    const orchestrator = new ScanOrchestrator({
+      fetcher: async () =>
+        ({
+          ok: true,
+          status: 200,
+          url: 'https://example.com/jsonapi/node/article',
+          headers: { get: () => 'text/html' }
+        } as unknown as Response),
+      crawlMaxUrls: 10
+    });
+
+    const result = await orchestrator.runScan(request, drupalContext);
+
+    expect(result.crawlNodes?.[0]).toMatchObject({ status: 'done' });
+    expect(result.snapshot.issues.some((issue) => issue.ruleId === 'drupal-endpoint-exposed')).toBe(true);
+    expect(result.snapshot.issues.some((issue) => issue.domain === 'drupal')).toBe(true);
+  });
 });

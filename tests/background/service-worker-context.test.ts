@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { handleMessage } from '../../src/background/service-worker';
 import type { ScanStartReply } from '../../src/shared/message-contracts';
+import type { AddonRulesCatalog } from '../../src/shared/rulesets/catalog';
+import type { AddonKnowledgeBaseCatalog } from '../../src/shared/knowledge-base/catalog';
+import type {
+  KnowledgeBaseGetReply,
+  KnowledgeBaseUpdateReply,
+  RulesetGetReply,
+  RulesetUpdateReply
+} from '../../src/shared/message-contracts';
 
 type ChromeLikeRuntime = {
   runtime?: {
@@ -38,6 +46,10 @@ const extractedContext = {
   buttons: [],
   formInputs: []
 };
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 let originalChrome: ChromeLikeRuntime | undefined;
 let originalBrowser: ChromeLikeRuntime | undefined;
@@ -131,4 +143,106 @@ it('returns the bundled knowledge base catalog', async () => {
 
   expect(reply.payload.catalog.version).toBeTruthy();
   expect(reply.payload.catalog.categories.length).toBeGreaterThan(0);
+});
+
+it('gets and updates the ruleset catalog through the service worker', async () => {
+  const originalReply = (await handleMessage({ type: 'ruleset:get' } as const)) as RulesetGetReply;
+
+  expect(originalReply.ok).toBe(true);
+  if (!originalReply.ok) {
+    throw new Error(originalReply.error);
+  }
+
+  const originalCatalog = clone(originalReply.payload.catalog);
+  const nextCatalog: AddonRulesCatalog = clone(originalReply.payload.catalog);
+  const targetCategory = nextCatalog.categories[0];
+  const targetRule = targetCategory.rules[0];
+
+  targetCategory.enabled = false;
+  targetRule.title = '   ';
+  targetRule.severity = 'unexpected' as never;
+  targetRule.enabled = false;
+
+  try {
+    const updateReply = (await handleMessage({
+      type: 'ruleset:update',
+      catalog: nextCatalog
+    } as const)) as RulesetUpdateReply;
+
+    expect(updateReply.ok).toBe(true);
+    if (!updateReply.ok) {
+      throw new Error(updateReply.error);
+    }
+
+    const updatedCatalog = updateReply.payload.catalog;
+    expect(updatedCatalog.categories[0].enabled).toBe(false);
+    expect(updatedCatalog.categories[0].rules[0].title).toBe(targetRule.id);
+    expect(updatedCatalog.categories[0].rules[0].severity).toBe('low');
+    expect(updatedCatalog.categories[0].rules[0].enabled).toBe(false);
+
+    const rereadReply = (await handleMessage({ type: 'ruleset:get' } as const)) as RulesetGetReply;
+    expect(rereadReply.ok).toBe(true);
+    if (!rereadReply.ok) {
+      throw new Error(rereadReply.error);
+    }
+
+    expect(rereadReply.payload.catalog.categories[0].rules[0].title).toBe(targetRule.id);
+    expect(rereadReply.payload.catalog.categories[0].rules[0].severity).toBe('low');
+  } finally {
+    await handleMessage({
+      type: 'ruleset:update',
+      catalog: originalCatalog
+    } as const);
+  }
+});
+
+it('gets and updates the knowledge base catalog through the service worker', async () => {
+  const originalReply = (await handleMessage({ type: 'knowledge-base:get' } as const)) as KnowledgeBaseGetReply;
+
+  expect(originalReply.ok).toBe(true);
+  if (!originalReply.ok) {
+    throw new Error(originalReply.error);
+  }
+
+  const originalCatalog = clone(originalReply.payload.catalog);
+  const nextCatalog: AddonKnowledgeBaseCatalog = clone(originalReply.payload.catalog);
+  const targetCategory = nextCatalog.categories[0];
+  const targetEntry = targetCategory.entries[0];
+
+  targetEntry.title = '   ';
+  targetEntry.summary = '  Updated summary  ';
+  targetEntry.notes = ['  keep me  ', '   ', ' trim me  '];
+  targetEntry.enabled = false;
+
+  try {
+    const updateReply = (await handleMessage({
+      type: 'knowledge-base:update',
+      catalog: nextCatalog
+    } as const)) as KnowledgeBaseUpdateReply;
+
+    expect(updateReply.ok).toBe(true);
+    if (!updateReply.ok) {
+      throw new Error(updateReply.error);
+    }
+
+    const updatedCatalog = updateReply.payload.catalog;
+    expect(updatedCatalog.categories[0].entries[0].title).toBe(targetEntry.id);
+    expect(updatedCatalog.categories[0].entries[0].summary).toBe('Updated summary');
+    expect(updatedCatalog.categories[0].entries[0].notes).toEqual(['keep me', 'trim me']);
+    expect(updatedCatalog.categories[0].entries[0].enabled).toBe(false);
+
+    const rereadReply = (await handleMessage({ type: 'knowledge-base:get' } as const)) as KnowledgeBaseGetReply;
+    expect(rereadReply.ok).toBe(true);
+    if (!rereadReply.ok) {
+      throw new Error(rereadReply.error);
+    }
+
+    expect(rereadReply.payload.catalog.categories[0].entries[0].title).toBe(targetEntry.id);
+    expect(rereadReply.payload.catalog.categories[0].entries[0].notes).toEqual(['keep me', 'trim me']);
+  } finally {
+    await handleMessage({
+      type: 'knowledge-base:update',
+      catalog: originalCatalog
+    } as const);
+  }
 });

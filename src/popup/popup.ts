@@ -1,10 +1,10 @@
 import {
-  buildIssueExportJson,
-  buildIssueExportMarkdown,
   buildPopupIssuePanelModel,
   collectSelectors,
   type PopupScanStatus
 } from './popup-state';
+import { buildReport } from '../ui/export';
+import { buildReportPdfBlob } from '../ui/pdf';
 import {
   BACKEND_SETTINGS_STORAGE_KEY,
   buildBackendRequestFromSettings,
@@ -12,16 +12,26 @@ import {
   normalizeBackendSettings,
   type BackendSettingsForm
 } from '../shared/backend-settings';
+import {
+  BUG_REPORT_EMAIL,
+  buildBugReportMailto,
+  DEFAULT_PANEL_SETTINGS,
+  PANEL_SETTINGS_STORAGE_KEY,
+  normalizePanelSettings,
+  type PanelSettingsForm
+} from '../shared/panel-settings';
 import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-trace';
-import { buildIssuesPdfBlob } from '../ui/pdf';
 import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
-import type { ScanStartReply } from '../shared/message-contracts';
+import type { HistoryCompareReply, HistoryListReply, ReportBuildReply, ScanStartReply } from '../shared/message-contracts';
+
+type PopupTab = 'overview' | 'connection' | 'results' | 'settings';
 
 type PopupRuntime = {
   chrome?: {
     runtime?: {
       sendMessage?: (message: unknown) => Promise<unknown>;
       getURL?: (path: string) => string;
+      getManifest?: () => { version?: string };
     };
     storage?: {
       local?: {
@@ -37,6 +47,7 @@ type PopupRuntime = {
     runtime?: {
       sendMessage?: (message: unknown) => Promise<unknown>;
       getURL?: (path: string) => string;
+      getManifest?: () => { version?: string };
     };
     storage?: {
       local?: {
@@ -53,14 +64,19 @@ type PopupRuntime = {
 type PopupState = {
   status: PopupScanStatus;
   scanId: string;
+  activeTab: PopupTab;
   tabId?: number;
   tabUrl?: string;
   snapshot?: ScanSnapshot;
   diff?: DiffResult;
+  historySnapshots: ScanSnapshot[];
   selectedIssueIds: Set<string>;
   error?: string;
   note?: string;
   backendSettings: BackendSettingsForm;
+  panelSettings: PanelSettingsForm;
+  settingsOpen: boolean;
+  resultsExpanded: boolean;
 };
 
 const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as PopupRuntime)) as PopupRuntime;
@@ -68,9 +84,17 @@ const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unk
 const state: PopupState = {
   status: 'idle',
   scanId: '',
+  activeTab: 'overview',
+  historySnapshots: [],
   selectedIssueIds: new Set(),
-  backendSettings: { ...DEFAULT_BACKEND_SETTINGS }
+  backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
+  panelSettings: { ...DEFAULT_PANEL_SETTINGS },
+  settingsOpen: false,
+  resultsExpanded: true
 };
+
+let startupHydration: Promise<void> | undefined;
+let domReadyBootstrapped = false;
 
 const dom = {
   shell: null as HTMLElement | null,
@@ -80,12 +104,26 @@ const dom = {
   deltaPanel: null as HTMLElement | null,
   errorPanel: null as HTMLElement | null,
   offlinePanel: null as HTMLElement | null,
+  controlsSection: null as HTMLElement | null,
+  footer: null as HTMLElement | null,
   issuesPanel: null as HTMLElement | null,
+  overviewPanel: null as HTMLElement | null,
+  connectionPanel: null as HTMLElement | null,
+  resultsPanel: null as HTMLElement | null,
+  historyPanel: null as HTMLElement | null,
   rescanButton: null as HTMLButtonElement | null,
   exportJsonButton: null as HTMLButtonElement | null,
   exportMarkdownButton: null as HTMLButtonElement | null,
+  exportHtmlButton: null as HTMLButtonElement | null,
   exportPdfButton: null as HTMLButtonElement | null,
   copySelectorsButton: null as HTMLButtonElement | null,
+  collapseResultsButton: null as HTMLButtonElement | null,
+  expandResultsButton: null as HTMLButtonElement | null,
+  settingsToggleButton: null as HTMLButtonElement | null,
+  settingsCloseButton: null as HTMLButtonElement | null,
+  settingsPanel: null as HTMLElement | null,
+  backendSettingsSection: null as HTMLElement | null,
+  bugReportLink: null as HTMLAnchorElement | null,
   backendEnabled: null as HTMLInputElement | null,
   backendMode: null as HTMLSelectElement | null,
   backendEndpoint: null as HTMLInputElement | null,
@@ -94,11 +132,18 @@ const dom = {
   backendAuthUsername: null as HTMLInputElement | null,
   backendAuthPassword: null as HTMLInputElement | null,
   backendRequired: null as HTMLInputElement | null,
-  saveBackendButton: null as HTMLButtonElement | null,
-  openApiSpecLink: null as HTMLAnchorElement | null
+  openApiSpecLink: null as HTMLAnchorElement | null,
+  themeInputs: [] as HTMLInputElement[],
+  visibilityInputs: [] as HTMLInputElement[],
+  tabButtons: [] as HTMLButtonElement[]
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (domReadyBootstrapped) {
+    return;
+  }
+
+  domReadyBootstrapped = true;
   bindDom();
   bindActions();
   void initialize();
@@ -108,16 +153,30 @@ function bindDom(): void {
   dom.shell = document.getElementById('popup-shell');
   dom.statusPill = document.getElementById('status-pill');
   dom.statusLine = document.getElementById('status-line');
+  dom.settingsToggleButton = document.getElementById('settings-toggle-button') as HTMLButtonElement | null;
+  dom.settingsCloseButton = document.getElementById('settings-close-button') as HTMLButtonElement | null;
+  dom.overviewPanel = document.getElementById('overview-panel');
+  dom.connectionPanel = document.getElementById('connection-panel');
+  dom.resultsPanel = document.getElementById('results-panel');
+  dom.historyPanel = document.getElementById('history-panel');
+  dom.settingsPanel = document.getElementById('settings-panel');
+  dom.backendSettingsSection = document.getElementById('backend-settings-section');
+  dom.bugReportLink = document.getElementById('bug-report-link') as HTMLAnchorElement | null;
+  dom.controlsSection = document.querySelector('.controls');
   dom.summaryGrid = document.getElementById('summary-grid');
   dom.deltaPanel = document.getElementById('delta-panel');
   dom.errorPanel = document.getElementById('error-panel');
   dom.offlinePanel = document.getElementById('offline-panel');
+  dom.footer = document.getElementById('footer');
   dom.issuesPanel = document.getElementById('issues-panel');
   dom.rescanButton = document.getElementById('rescan-button') as HTMLButtonElement | null;
   dom.exportJsonButton = document.getElementById('export-json-button') as HTMLButtonElement | null;
   dom.exportMarkdownButton = document.getElementById('export-markdown-button') as HTMLButtonElement | null;
+  dom.exportHtmlButton = document.getElementById('export-html-button') as HTMLButtonElement | null;
   dom.exportPdfButton = document.getElementById('export-pdf-button') as HTMLButtonElement | null;
   dom.copySelectorsButton = document.getElementById('copy-selectors-button') as HTMLButtonElement | null;
+  dom.collapseResultsButton = document.getElementById('collapse-results-button') as HTMLButtonElement | null;
+  dom.expandResultsButton = document.getElementById('expand-results-button') as HTMLButtonElement | null;
   dom.backendEnabled = document.getElementById('backend-enabled') as HTMLInputElement | null;
   dom.backendMode = document.getElementById('backend-mode') as HTMLSelectElement | null;
   dom.backendEndpoint = document.getElementById('backend-endpoint') as HTMLInputElement | null;
@@ -126,50 +185,119 @@ function bindDom(): void {
   dom.backendAuthUsername = document.getElementById('backend-auth-username') as HTMLInputElement | null;
   dom.backendAuthPassword = document.getElementById('backend-auth-password') as HTMLInputElement | null;
   dom.backendRequired = document.getElementById('backend-required') as HTMLInputElement | null;
-  dom.saveBackendButton = document.getElementById('save-backend-button') as HTMLButtonElement | null;
   dom.openApiSpecLink = document.getElementById('openapi-spec-link') as HTMLAnchorElement | null;
+  dom.themeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-theme-setting]'));
+  dom.visibilityInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-visibility-setting]'));
+  dom.tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-popup-tab]'));
 }
 
 function bindActions(): void {
+  dom.settingsToggleButton?.addEventListener('click', () => {
+    state.settingsOpen = true;
+    setActiveTab('settings');
+  });
+
+  dom.settingsCloseButton?.addEventListener('click', () => {
+    state.settingsOpen = false;
+    setActiveTab('overview');
+  });
+
+  dom.overviewPanel?.addEventListener('click', handleOverviewPanelClick);
+
+  for (const button of dom.tabButtons) {
+    button.addEventListener('click', () => {
+      const tab = button.dataset.popupTab as PopupTab | undefined;
+      if (!tab) {
+        return;
+      }
+
+      setActiveTab(tab);
+    });
+  }
+
   dom.rescanButton?.addEventListener('click', () => {
     void startScan(true);
   });
 
   dom.exportJsonButton?.addEventListener('click', () => {
-    void exportCurrentSelection('json');
+    void downloadCurrentReport('json');
   });
 
   dom.exportMarkdownButton?.addEventListener('click', () => {
-    void exportCurrentSelection('markdown');
+    void downloadCurrentReport('markdown');
+  });
+
+  dom.exportHtmlButton?.addEventListener('click', () => {
+    void downloadCurrentReport('html');
   });
 
   dom.exportPdfButton?.addEventListener('click', () => {
-    void exportCurrentSelection('pdf');
+    void downloadCurrentReport('pdf');
   });
 
   dom.copySelectorsButton?.addEventListener('click', () => {
     void copySelectedSelectors();
   });
 
-  dom.saveBackendButton?.addEventListener('click', () => {
-    void persistBackendSettings();
+  dom.collapseResultsButton?.addEventListener('click', () => {
+    state.resultsExpanded = false;
+    render();
+  });
+
+  dom.expandResultsButton?.addEventListener('click', () => {
+    state.resultsExpanded = true;
+    render();
   });
 
   bindSettingsInputs();
 }
 
-async function initialize(): Promise<void> {
+export async function initialize(): Promise<void> {
   await withEventLoopTrace('popup.initialize', async () => {
     if (!hasExtensionRuntime()) {
       state.status = 'idle';
       state.note = 'Runtime unavailable';
-      render({ offline: true, statusLine: 'Popup shell loaded outside the extension runtime.' });
+      render({
+        offline: true,
+        statusLine: 'Popup shell loaded outside the extension runtime.',
+        lightweight: true
+      });
       return;
     }
 
-    await loadBackendSettings();
-    await startScan(false);
+    state.note = 'Loading saved settings and cached scan...';
+    render({ statusLine: state.note, lightweight: true });
+    startupHydration = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        void hydrateStartupState()
+          .then(resolve)
+          .catch(reject);
+      }, 0);
+    });
   });
+}
+
+function setActiveTab(tab: PopupTab): void {
+  state.activeTab = tab;
+  state.settingsOpen = tab === 'settings';
+  render();
+}
+
+function handleOverviewPanelClick(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const button = target.closest<HTMLButtonElement>('button[data-popup-tab]');
+  if (!button || !dom.overviewPanel?.contains(button)) {
+    return;
+  }
+
+  const tab = button.dataset.popupTab as PopupTab | undefined;
+  if (tab) {
+    setActiveTab(tab);
+  }
 }
 
 function hasExtensionRuntime(): boolean {
@@ -182,6 +310,8 @@ function getRuntime(): NonNullable<PopupRuntime['chrome'] | PopupRuntime['browse
 
 async function startScan(manual: boolean): Promise<void> {
   await withEventLoopTrace('popup.scan', async () => {
+    await ensureStartupHydrated();
+
     if (state.status === 'loading') {
       return;
     }
@@ -230,11 +360,16 @@ async function startScan(manual: boolean): Promise<void> {
 
       state.snapshot = reply.payload.snapshot;
       state.diff = reply.payload.diff;
+      state.historySnapshots = [
+        reply.payload.snapshot,
+        ...state.historySnapshots.filter((snapshot) => snapshot.id !== reply.payload.snapshot.id)
+      ];
       state.selectedIssueIds.clear();
       state.status = inferStatus(reply.payload);
       state.note = reply.payload.recommendation
         ? `Backend recommendation: ${reply.payload.recommendation.engine}`
         : 'Scan complete';
+      state.activeTab = 'results';
       render();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -246,6 +381,48 @@ async function startScan(manual: boolean): Promise<void> {
   });
 }
 
+async function hydrateStartupState(): Promise<void> {
+  try {
+    const [backendSettings, panelSettings, loadedCachedScan, historySnapshots] = await Promise.all([
+      loadBackendSettings(),
+      loadPanelSettings(),
+      loadCachedScanFromHistory(),
+      loadHistoryFromHistory()
+    ]);
+
+    state.backendSettings = backendSettings;
+    state.panelSettings = panelSettings;
+    state.historySnapshots = historySnapshots;
+
+    if (!loadedCachedScan) {
+      state.snapshot = undefined;
+      state.diff = undefined;
+      state.selectedIssueIds.clear();
+      state.status = 'idle';
+      state.note = 'No cached scan found. Click Rescan to scan the active tab.';
+      state.activeTab = 'overview';
+    } else {
+      state.activeTab = 'results';
+    }
+
+    render();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    state.error = message;
+    state.status = 'failed';
+    state.note = 'Startup hydration failed';
+    renderError(message);
+  }
+}
+
+async function ensureStartupHydrated(): Promise<void> {
+  if (!startupHydration) {
+    return;
+  }
+
+  await startupHydration;
+}
+
 function inferStatus(payload: { recommendation?: { confidence: number } }): PopupScanStatus {
   if (payload.recommendation && payload.recommendation.confidence < 0.5) {
     return 'fallback';
@@ -254,7 +431,7 @@ function inferStatus(payload: { recommendation?: { confidence: number } }): Popu
   return 'complete';
 }
 
-function render(options?: { offline?: boolean; statusLine?: string }): void {
+function render(options?: { offline?: boolean; statusLine?: string; lightweight?: boolean }): void {
   const trace = startEventLoopTrace('popup.render');
   try {
     if (options?.offline) {
@@ -276,6 +453,13 @@ function render(options?: { offline?: boolean; statusLine?: string }): void {
       dom.rescanButton.disabled = state.status === 'loading' || !hasExtensionRuntime();
     }
 
+    renderTabNavigation();
+    renderTabPanels();
+
+    if (options?.lightweight) {
+      return;
+    }
+
     if (dom.exportJsonButton) {
       dom.exportJsonButton.disabled = !state.snapshot;
     }
@@ -284,12 +468,23 @@ function render(options?: { offline?: boolean; statusLine?: string }): void {
       dom.exportMarkdownButton.disabled = !state.snapshot;
     }
 
+    if (dom.exportHtmlButton) {
+      dom.exportHtmlButton.disabled = !state.snapshot;
+    }
+
+    if (dom.exportPdfButton) {
+      dom.exportPdfButton.disabled = !state.snapshot;
+    }
+
     if (dom.copySelectorsButton) {
       dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
     }
 
-    renderSettings();
+    renderPanelSettings();
 
+    renderOverviewPanel();
+    renderConnectionPanel();
+    renderHistoryPanel();
     renderSummary();
     renderDelta();
     renderIssues();
@@ -299,10 +494,190 @@ function render(options?: { offline?: boolean; statusLine?: string }): void {
   }
 }
 
+function renderTabNavigation(): void {
+  for (const button of dom.tabButtons) {
+    const tab = button.dataset.popupTab as PopupTab | undefined;
+    const selected = tab === state.activeTab;
+    button.setAttribute('aria-selected', String(selected));
+    button.classList.toggle('is-active', selected);
+  }
+
+  if (dom.settingsToggleButton) {
+    dom.settingsToggleButton.setAttribute('aria-expanded', String(state.activeTab === 'settings'));
+  }
+}
+
+function renderTabPanels(): void {
+  const setPanelHidden = (panel: HTMLElement | null | undefined, hidden: boolean) => {
+    if (!panel) {
+      return;
+    }
+
+    panel.classList.toggle('hidden', hidden);
+  };
+
+  setPanelHidden(dom.overviewPanel, state.activeTab !== 'overview');
+  setPanelHidden(dom.connectionPanel, state.activeTab !== 'connection');
+  setPanelHidden(dom.resultsPanel, state.activeTab !== 'results');
+  setPanelHidden(dom.settingsPanel, state.activeTab !== 'settings');
+}
+
+function renderOverviewPanel(): void {
+  if (!dom.overviewPanel) {
+    return;
+  }
+
+  const snapshot = state.snapshot;
+  const issueCount = snapshot?.summary.total ?? 0;
+  const historyCount = state.historySnapshots.length;
+  const backendMode = state.backendSettings.enabled
+    ? state.backendSettings.mode === 'stdin'
+      ? 'Standalone stdin mode'
+      : 'Remote HTTP backend'
+    : 'Local-only audit mode';
+
+  dom.overviewPanel.innerHTML = `
+    <section class="overview-grid" aria-label="Popup overview">
+      <article class="info-card">
+        <p class="eyebrow">Connection</p>
+        <h2>Standalone audit</h2>
+        <p>${escapeHtml(
+          state.backendSettings.enabled && state.backendSettings.mode === 'stdin'
+            ? 'Run locally with the packaged stdin adapter and bundled rules.'
+            : 'Run locally without an external dependency, or switch to HTTP when needed.'
+        )}</p>
+        <button type="button" data-popup-tab="connection">Open Connection</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Results</p>
+        <h2>Recent runs and reports</h2>
+        <p>${escapeHtml(`Review ${historyCount} saved runs, collapse issue groups, and download standard reports.`)}</p>
+        <button type="button" data-popup-tab="results">Open Results</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Settings</p>
+        <h2>Theme grid and visibility</h2>
+        <p>Adjust colors, toggle optional sections, and keep the popup compact on smaller screens.</p>
+        <button type="button" data-popup-tab="settings">Open Settings</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Current state</p>
+        <h2>${escapeHtml(snapshot ? snapshot.url : 'No scan yet')}</h2>
+        <p>${escapeHtml(snapshot ? `${issueCount} issues · ${snapshot.engine}` : state.note ?? 'Waiting for a scan')}</p>
+        <p>${escapeHtml(`Mode: ${backendMode}`)}</p>
+      </article>
+    </section>
+  `;
+
+  dom.overviewPanel.querySelectorAll<HTMLButtonElement>('button[data-popup-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const tab = button.dataset.popupTab as PopupTab | undefined;
+      if (tab) {
+        setActiveTab(tab);
+      }
+    });
+  });
+}
+
+function renderConnectionPanel(): void {
+  if (!dom.connectionPanel) {
+    return;
+  }
+
+  if (dom.connectionPanel.classList.contains('hidden')) {
+    return;
+  }
+
+  const standalone = !state.backendSettings.enabled || state.backendSettings.mode === 'stdin';
+  const modeLabel = state.backendSettings.enabled
+    ? state.backendSettings.mode === 'stdin'
+      ? 'Standalone stdin engine'
+      : 'Remote HTTP backend'
+    : 'Standalone local-only audit mode';
+  const summary =
+    standalone && state.backendSettings.enabled
+      ? 'Standalone execution is enabled. The service worker can run the audit locally through the packaged stdin adapter, parse testrun output, and keep reporting offline.'
+      : state.backendSettings.enabled
+        ? 'Backend settings are configured for a remote HTTP endpoint, but the popup still retains local audit and report generation capabilities.'
+        : 'Standalone execution is available without an external dependency. The popup can run an audit locally and still produce standard reports.';
+
+  const summaryHost = dom.connectionPanel.querySelector<HTMLElement>('#connection-summary');
+  if (summaryHost) {
+    summaryHost.innerHTML = `
+      <article class="connection-callout">
+        <p class="eyebrow">Connection state</p>
+        <h2>${escapeHtml(modeLabel)}</h2>
+        <p>${escapeHtml(summary)}</p>
+        <ul>
+          <li>Bundled rules remain available in the popup and service worker.</li>
+          <li>History lookups and report generation use the background message bridge.</li>
+          <li>Markdown, HTML, JSON, and PDF outputs stay available for saved runs.</li>
+        </ul>
+      </article>
+    `;
+  }
+}
+
+function renderHistoryPanel(): void {
+  if (!dom.historyPanel) {
+    return;
+  }
+
+  if (!state.historySnapshots.length) {
+    dom.historyPanel.innerHTML = `<section class="history-empty" data-testid="history-empty">No saved runs yet.</section>`;
+    return;
+  }
+
+  dom.historyPanel.innerHTML = state.historySnapshots
+    .map((snapshot, index) => {
+      const isLatest = index === 0;
+      return `
+        <details class="history-entry" data-testid="history-entry" ${state.resultsExpanded ? 'open' : ''}>
+          <summary>
+            <div>
+              <span class="history-title">${escapeHtml(snapshot.url)}</span>
+              <span class="history-meta">${new Date(snapshot.timestamp).toLocaleString()} · ${snapshot.summary.total} issues · ${escapeHtml(snapshot.engine)}</span>
+            </div>
+            <div class="history-actions" aria-label="Report downloads">
+              <button type="button" data-history-report="json" data-history-index="${index}">JSON</button>
+              <button type="button" data-history-report="markdown" data-history-index="${index}">Markdown</button>
+              <button type="button" data-history-report="html" data-history-index="${index}">HTML</button>
+              <button type="button" data-history-report="pdf" data-history-index="${index}">PDF</button>
+              ${isLatest ? '<span class="history-badge">Latest</span>' : ''}
+            </div>
+          </summary>
+        </details>
+      `;
+    })
+    .join('');
+
+  dom.historyPanel.querySelectorAll<HTMLButtonElement>('button[data-history-report]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const index = Number(button.dataset.historyIndex ?? '0');
+      const snapshot = state.historySnapshots[index];
+      const format = button.dataset.historyReport as 'json' | 'markdown' | 'html' | 'pdf' | undefined;
+      if (!snapshot || !format) {
+        return;
+      }
+
+      void downloadReportForSnapshot(snapshot, format);
+    });
+  });
+}
+
 function renderSummary(): void {
   if (!dom.summaryGrid) {
     return;
   }
+
+  if (!state.panelSettings.visibility.showSummary) {
+    dom.summaryGrid.classList.add('hidden');
+    dom.summaryGrid.innerHTML = '';
+    return;
+  }
+
+  dom.summaryGrid.classList.remove('hidden');
 
   const counts = state.snapshot?.summary.bySeverity ?? { critical: 0, high: 0, medium: 0, low: 0 };
   const total = state.snapshot?.summary.total ?? 0;
@@ -324,6 +699,12 @@ function metricCard(label: string, value: string): string {
 
 function renderDelta(): void {
   if (!dom.deltaPanel) {
+    return;
+  }
+
+  if (!state.panelSettings.visibility.showDelta) {
+    dom.deltaPanel.classList.add('hidden');
+    dom.deltaPanel.innerHTML = '';
     return;
   }
 
@@ -364,8 +745,8 @@ function renderIssues(): void {
 
   dom.issuesPanel.innerHTML = model.domains
     .map(
-      (domain, index) => `
-        <details class="domain-card" ${index === 0 ? 'open' : ''} data-testid="issue-domain">
+      (domain) => `
+        <details class="domain-card" ${state.resultsExpanded ? 'open' : ''} data-testid="issue-domain">
           <summary>
             <div>
               <span class="domain-name">${escapeHtml(domain.domain)}</span>
@@ -500,31 +881,119 @@ function hideError(): void {
 }
 
 function bindSettingsInputs(): void {
-  const update = () => {
+  const updateBackend = () => {
     state.backendSettings = readBackendSettingsFromDom();
+    void persistBackendSettings();
   };
 
-  dom.backendEnabled?.addEventListener('change', update);
-  dom.backendMode?.addEventListener('change', update);
-  dom.backendEndpoint?.addEventListener('input', update);
-  dom.backendPort?.addEventListener('input', update);
-  dom.backendSecret?.addEventListener('input', update);
-  dom.backendAuthUsername?.addEventListener('input', update);
-  dom.backendAuthPassword?.addEventListener('input', update);
-  dom.backendRequired?.addEventListener('change', update);
+  const updatePanel = () => {
+    state.panelSettings = readPanelSettingsFromDom();
+    void persistPanelSettings();
+    render();
+  };
+
+  dom.backendEnabled?.addEventListener('change', updateBackend);
+  dom.backendMode?.addEventListener('change', updateBackend);
+  dom.backendEndpoint?.addEventListener('change', updateBackend);
+  dom.backendPort?.addEventListener('change', updateBackend);
+  dom.backendSecret?.addEventListener('change', updateBackend);
+  dom.backendAuthUsername?.addEventListener('change', updateBackend);
+  dom.backendAuthPassword?.addEventListener('change', updateBackend);
+  dom.backendRequired?.addEventListener('change', updateBackend);
+
+  for (const input of dom.themeInputs) {
+    input.addEventListener('change', updatePanel);
+  }
+
+  for (const input of dom.visibilityInputs) {
+    input.addEventListener('change', updatePanel);
+  }
 }
 
-async function loadBackendSettings(): Promise<void> {
+async function loadBackendSettings(): Promise<BackendSettingsForm> {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
-    state.backendSettings = { ...DEFAULT_BACKEND_SETTINGS };
-    renderSettings();
-    return;
+    return { ...DEFAULT_BACKEND_SETTINGS };
   }
 
   const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
-  state.backendSettings = normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
-  renderSettings();
+  return normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
+}
+
+async function loadPanelSettings(): Promise<PanelSettingsForm> {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    return { ...DEFAULT_PANEL_SETTINGS };
+  }
+
+  const payload = await storage.get([PANEL_SETTINGS_STORAGE_KEY]);
+  return normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
+}
+
+async function loadCachedScanFromHistory(): Promise<boolean> {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+    return false;
+  }
+
+  try {
+    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+    const activeTab = activeTabs[0];
+    if (!activeTab?.url || !activeTab.id) {
+      return false;
+    }
+
+    const activeUrl = new URL(activeTab.url);
+    const reply = (await runtime.runtime.sendMessage({
+      type: 'history:compare',
+      origin: activeUrl.origin
+    })) as HistoryCompareReply;
+
+    state.tabId = activeTab.id;
+    state.tabUrl = activeTab.url;
+
+    if (!reply.ok || !reply.payload.latest) {
+      return false;
+    }
+
+    state.snapshot = reply.payload.latest;
+    state.diff = reply.payload.diff;
+    state.selectedIssueIds.clear();
+    state.status = 'complete';
+    state.note = 'Cached scan loaded';
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function loadHistoryFromHistory(): Promise<ScanSnapshot[]> {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+    return [];
+  }
+
+  try {
+    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+    const activeTab = activeTabs[0];
+    if (!activeTab?.url) {
+      return [];
+    }
+
+    const origin = new URL(activeTab.url).origin;
+    const reply = (await runtime.runtime.sendMessage({
+      type: 'history:list',
+      origin
+    })) as HistoryListReply;
+
+    if (!reply.ok) {
+      return [];
+    }
+
+    return [...(reply.payload.snapshots ?? [])].sort((left, right) => right.timestamp - left.timestamp);
+  } catch {
+    return [];
+  }
 }
 
 async function persistBackendSettings(): Promise<void> {
@@ -534,17 +1003,102 @@ async function persistBackendSettings(): Promise<void> {
   if (storage?.set) {
     await storage.set({ [BACKEND_SETTINGS_STORAGE_KEY]: state.backendSettings });
   }
-
-  state.note = state.backendSettings.enabled ? 'Backend settings saved' : 'Backend settings cleared';
-  render();
 }
 
-function renderSettings(): void {
-  if (!dom.backendEnabled) {
-    return;
+async function persistPanelSettings(): Promise<void> {
+  const storage = getRuntime()?.storage?.local;
+  if (storage?.set) {
+    await storage.set({ [PANEL_SETTINGS_STORAGE_KEY]: state.panelSettings });
+  }
+}
+
+function readBackendSettingsFromDom(): BackendSettingsForm {
+  return normalizeBackendSettings({
+    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
+    mode: dom.backendMode?.value === 'stdin' ? 'stdin' : 'http',
+    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
+    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
+    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
+    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
+    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
+    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+  });
+}
+
+function readPanelSettingsFromDom(): PanelSettingsForm {
+  return normalizePanelSettings({
+    theme: readThemeSettingsFromDom(),
+    visibility: readVisibilitySettingsFromDom()
+  });
+}
+
+function readThemeSettingsFromDom(): Record<string, string> {
+  const theme: Record<string, string> = {};
+  for (const input of dom.themeInputs) {
+    const key = input.dataset.themeSetting;
+    if (!key) {
+      continue;
+    }
+
+    theme[key] = input.value;
   }
 
-  dom.backendEnabled.checked = state.backendSettings.enabled;
+  return theme;
+}
+
+function readVisibilitySettingsFromDom(): Record<string, boolean> {
+  const visibility: Record<string, boolean> = {};
+  for (const input of dom.visibilityInputs) {
+    const key = input.dataset.visibilitySetting;
+    if (!key) {
+      continue;
+    }
+
+    visibility[key] = input.checked;
+  }
+
+  return visibility;
+}
+
+function renderPanelSettings(): void {
+  applyPanelTheme();
+  applyVisibilitySettings();
+  renderSettingsForm();
+  renderBugReportLink();
+}
+
+function renderSettingsForm(): void {
+  state.settingsOpen = state.activeTab === 'settings';
+
+  if (dom.settingsToggleButton) {
+    dom.settingsToggleButton.setAttribute('aria-expanded', String(state.activeTab === 'settings'));
+  }
+
+  if (dom.settingsPanel) {
+    dom.settingsPanel.classList.toggle('hidden', state.activeTab !== 'settings');
+  }
+
+  for (const input of dom.themeInputs) {
+    const key = input.dataset.themeSetting as keyof PanelSettingsForm['theme'] | undefined;
+    if (!key) {
+      continue;
+    }
+
+    input.value = state.panelSettings.theme[key];
+  }
+
+  for (const input of dom.visibilityInputs) {
+    const key = input.dataset.visibilitySetting as keyof PanelSettingsForm['visibility'] | undefined;
+    if (!key) {
+      continue;
+    }
+
+    input.checked = state.panelSettings.visibility[key];
+  }
+
+  if (dom.backendEnabled) {
+    dom.backendEnabled.checked = state.backendSettings.enabled;
+  }
   if (dom.backendMode) {
     dom.backendMode.value = state.backendSettings.mode;
   }
@@ -566,6 +1120,7 @@ function renderSettings(): void {
   if (dom.backendRequired) {
     dom.backendRequired.checked = state.backendSettings.required;
   }
+
   if (dom.openApiSpecLink) {
     const specUrl = getRuntime()?.runtime?.getURL?.('api/openapi.yaml') ?? 'api/openapi.yaml';
     dom.openApiSpecLink.href = specUrl;
@@ -573,17 +1128,72 @@ function renderSettings(): void {
   }
 }
 
-function readBackendSettingsFromDom(): BackendSettingsForm {
-  return normalizeBackendSettings({
-    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
-    mode: dom.backendMode?.value === 'stdin' ? 'stdin' : 'http',
-    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
-    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
-    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
-    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
-    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
-    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
+function renderBugReportLink(): void {
+  if (!dom.bugReportLink) {
+    return;
+  }
+
+  const runtime = getRuntime();
+  const version = runtime?.runtime?.getManifest?.().version ?? 'unknown';
+  const href = buildBugReportMailto({
+    version,
+    pageUrl: state.snapshot?.url ?? state.tabUrl,
+    status: state.status,
+    note: state.note,
+    settingsSummary: summarizePanelSettings()
   });
+
+  dom.bugReportLink.href = href;
+  dom.bugReportLink.title = `Report a bug to ${BUG_REPORT_EMAIL}`;
+}
+
+function summarizePanelSettings(): string {
+  const enabledSections = Object.entries(state.panelSettings.visibility)
+    .filter(([, value]) => value)
+    .map(([key]) => key)
+    .join(', ');
+
+  return enabledSections || 'none';
+}
+
+function applyPanelTheme(): void {
+  if (!dom.shell) {
+    return;
+  }
+
+  const style = dom.shell.style;
+  style.setProperty('--bg-0', state.panelSettings.theme.backgroundStart);
+  style.setProperty('--bg-1', state.panelSettings.theme.backgroundEnd);
+  style.setProperty('--panel', state.panelSettings.theme.panel);
+  style.setProperty('--panel-strong', state.panelSettings.theme.panelStrong);
+  style.setProperty('--border', state.panelSettings.theme.border);
+  style.setProperty('--text', state.panelSettings.theme.text);
+  style.setProperty('--muted', state.panelSettings.theme.muted);
+  style.setProperty('--muted-strong', state.panelSettings.theme.mutedStrong);
+  style.setProperty('--accent', state.panelSettings.theme.accent);
+  style.setProperty('--accent-weak', state.panelSettings.theme.accentWeak);
+  style.setProperty('--alert', state.panelSettings.theme.alert);
+  style.setProperty('--alert-weak', state.panelSettings.theme.alertWeak);
+  style.setProperty('--danger', state.panelSettings.theme.danger);
+  style.setProperty('--danger-weak', state.panelSettings.theme.dangerWeak);
+}
+
+function applyVisibilitySettings(): void {
+  setSectionVisibility(dom.controlsSection, state.panelSettings.visibility.showControls);
+  setSectionVisibility(dom.backendSettingsSection, state.panelSettings.visibility.showBackendSettings);
+  setSectionVisibility(dom.summaryGrid, state.panelSettings.visibility.showSummary);
+  setSectionVisibility(dom.deltaPanel, state.panelSettings.visibility.showDelta);
+  setSectionVisibility(dom.statusLine, state.panelSettings.visibility.showStatusLine);
+  setSectionVisibility(dom.offlinePanel, state.panelSettings.visibility.showOfflineBanner);
+  setSectionVisibility(dom.footer, state.panelSettings.visibility.showFooter);
+}
+
+function setSectionVisibility(element: Element | null | undefined, visible: boolean): void {
+  if (!element || !(element instanceof HTMLElement)) {
+    return;
+  }
+
+  element.classList.toggle('hidden', !visible);
 }
 
 function getSelectedIssues(): Issue[] {
@@ -594,33 +1204,80 @@ function getSelectedIssues(): Issue[] {
   return state.snapshot.issues.filter((issue) => state.selectedIssueIds.has(issue.id));
 }
 
-async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Promise<void> {
-  const issues = getSelectedIssues();
-  const selectedIssues = issues.length ? issues : state.snapshot?.issues ?? [];
-  if (!selectedIssues.length || !state.snapshot) {
+async function downloadCurrentReport(format: 'json' | 'markdown' | 'html' | 'pdf'): Promise<void> {
+  if (!state.snapshot) {
     return;
   }
 
-  const metadata = {
-    scanId: state.snapshot.id,
-    origin: state.snapshot.origin,
-    url: state.snapshot.url,
-    generatedAt: new Date(state.snapshot.timestamp).toISOString()
-  };
+  await downloadReportForSnapshot(state.snapshot, format, state.diff);
+}
+
+async function downloadReportForSnapshot(
+  snapshot: ScanSnapshot,
+  format: 'json' | 'markdown' | 'html' | 'pdf',
+  diff?: DiffResult
+): Promise<void> {
+  const generatedAt = new Date(snapshot.timestamp).toISOString();
+  const runtime = getRuntime();
 
   if (format === 'pdf') {
-    const blob = buildIssuesPdfBlob(state.snapshot, selectedIssues);
-    downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
+    const blob = buildReportPdfBlob({
+      generatedAt,
+      snapshot,
+      diff
+    });
+    downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.pdf`);
     return;
   }
 
-  const payload =
-    format === 'json'
-      ? buildIssueExportJson(selectedIssues, metadata)
-      : buildIssueExportMarkdown(selectedIssues, metadata);
+  const report =
+    runtime?.runtime?.sendMessage
+      ? await buildReportFromRuntime(snapshot, format, diff, runtime.runtime.sendMessage)
+      : buildReport(
+          {
+            generatedAt,
+            snapshot,
+            diff
+          },
+          format
+        );
 
-  const extension = format === 'json' ? 'json' : 'md';
-  downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
+  const extension = format === 'html' ? 'html' : format === 'json' ? 'json' : 'md';
+  const blob = new Blob([report], {
+    type: format === 'html' ? 'text/html;charset=utf-8' : 'text/plain;charset=utf-8'
+  });
+  downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.${extension}`);
+}
+
+async function buildReportFromRuntime(
+  snapshot: ScanSnapshot,
+  format: 'json' | 'markdown' | 'html',
+  diff: DiffResult | undefined,
+  sendMessage: (message: unknown) => Promise<unknown>
+): Promise<string> {
+  try {
+    const reply = (await sendMessage({
+      type: 'report:build',
+      snapshot,
+      diff,
+      format
+    })) as ReportBuildReply;
+
+    if (reply.ok) {
+      return reply.payload.report;
+    }
+  } catch {
+    // Fall back to the local renderer below.
+  }
+
+  return buildReport(
+    {
+      generatedAt: new Date(snapshot.timestamp).toISOString(),
+      snapshot,
+      diff
+    },
+    format
+  );
 }
 
 async function copySelectedSelectors(): Promise<void> {
@@ -660,11 +1317,6 @@ async function copyToClipboard(text: string): Promise<void> {
     state.note = 'Selectors copied to clipboard';
     render();
   }
-}
-
-function downloadText(content: string, filename: string): void {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  downloadBlob(blob, filename);
 }
 
 function downloadBlob(blob: Blob, filename: string): void {

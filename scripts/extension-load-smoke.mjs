@@ -2,6 +2,7 @@ import { accessSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 const projectRoot = resolve(process.cwd());
 const distDir = resolve(projectRoot, 'dist');
@@ -66,6 +67,9 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
   accessSync(resolve(baseDir, 'side-panel.js'));
   accessSync(resolve(baseDir, 'side-panel.css'));
   accessSync(resolve(baseDir, 'api/openapi.yaml'));
+  if (label === 'dist') {
+    accessSync(resolve(baseDir, 'axe.min.js'));
+  }
 
   const manifestIcons = manifest.icons ?? {};
   for (const [_size, relativePath] of Object.entries(manifestIcons)) {
@@ -94,12 +98,25 @@ function assertPopupSurface(popupPath) {
   const popupHtml = readFileSync(popupPath, 'utf8');
   const requiredIds = [
     'popup-shell',
+    'settings-toggle-button',
+    'settings-panel',
+    'settings-close-button',
     'status-pill',
     'rescan-button',
     'export-json-button',
     'export-markdown-button',
     'export-pdf-button',
     'copy-selectors-button',
+    'theme-background-start',
+    'theme-panel',
+    'show-controls',
+    'show-summary',
+    'show-delta',
+    'show-status-line',
+    'show-offline-banner',
+    'show-footer',
+    'bug-report-link',
+    'backend-settings-section',
     'backend-enabled',
     'backend-mode',
     'backend-endpoint',
@@ -109,7 +126,6 @@ function assertPopupSurface(popupPath) {
     'backend-auth-password',
     'backend-required',
     'openapi-spec-link',
-    'save-backend-button',
     'issues-panel'
   ];
 
@@ -118,20 +134,22 @@ function assertPopupSurface(popupPath) {
       throw new Error(`Popup surface missing required control id: ${id}`);
     }
   }
+
+  if (!popupHtml.includes('mailto:pratik.saptarshi@outlook.com')) {
+    throw new Error('Popup surface missing bug-report mailto link');
+  }
 }
 
-async function validatePlaywrightSmoke(extensionDir) {
+async function validateAxeSmoke(extensionDir) {
   let playwright;
   try {
     playwright = await import('playwright');
   } catch (error) {
-    console.log('[extension-load-smoke] Playwright not available; skipping runtime browser smoke test.');
-    return { skipped: true };
+    return validateJsdomAxeSmoke(extensionDir);
   }
 
   if (!playwright.chromium) {
-    console.log('[extension-load-smoke] Playwright did not expose chromium; skipping runtime browser smoke test.');
-    return { skipped: true };
+    return validateJsdomAxeSmoke(extensionDir);
   }
 
   const tmpProfile = mkdtempSync(join(tmpdir(), 'slt-extension-load-'));
@@ -161,17 +179,117 @@ async function validatePlaywrightSmoke(extensionDir) {
       throw new Error('No extension service workers detected within 5s');
     }
 
-    const popupUrl = pathToFileURL(resolve(projectRoot, 'popup.html')).href;
+    const popupUrl = new URL('popup.html', workers[0].url()).href;
     const popupPage = await context.newPage();
     await popupPage.goto(popupUrl);
     await popupPage.waitForSelector('[data-testid="popup-shell"]');
     await popupPage.waitForSelector('[data-testid="offline-banner"]');
+    await popupPage.click('#settings-toggle-button');
+    await popupPage.waitForSelector('#settings-panel:not(.hidden)');
+    await popupPage.waitForSelector('#theme-background-start');
 
-    return { skipped: false, serviceWorkerCount: workers.length };
+    await popupPage.addScriptTag({ path: resolve(extensionDir, 'dist', 'axe.min.js') });
+    const axeResults = await popupPage.evaluate(async () => {
+      const axe = globalThis.axe;
+      if (!axe || typeof axe.run !== 'function') {
+        throw new Error('axe-core not loaded into popup page');
+      }
+
+      return await axe.run(document, {
+        runOnly: {
+          type: 'tag',
+          values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
+        }
+      });
+    });
+
+    if (axeResults.violations.length) {
+      const summary = axeResults.violations
+        .map((violation) => `${violation.id}:${violation.impact ?? 'unknown'}`)
+        .join(', ');
+      throw new Error(`axe accessibility violations detected: ${summary}`);
+    }
+
+    return { mode: 'playwright', serviceWorkerCount: workers.length, axeChecked: true };
   } finally {
     await context.close();
     mkdirSync(tmpProfile, { recursive: true });
     rmSync(tmpProfile, { recursive: true, force: true });
+  }
+}
+
+async function validateJsdomAxeSmoke(extensionDir) {
+  const popupHtmlPath = resolve(extensionDir, 'dist', 'popup.html');
+  const popupHtml = readFileSync(popupHtmlPath, 'utf8');
+  const axeSource = readFileSync(resolve(extensionDir, 'dist', 'axe.min.js'), 'utf8');
+  const dom = new JSDOM(popupHtml, {
+    url: pathToFileURL(popupHtmlPath).href,
+    pretendToBeVisual: true
+  });
+
+  const previous = {
+    window: globalThis.window,
+    document: globalThis.document,
+    HTMLElement: globalThis.HTMLElement,
+    Node: globalThis.Node,
+    Element: globalThis.Element,
+    CustomEvent: globalThis.CustomEvent,
+    MutationObserver: globalThis.MutationObserver,
+    Blob: globalThis.Blob,
+    URL: globalThis.URL
+  };
+
+  try {
+    globalThis.window = dom.window;
+    globalThis.document = dom.window.document;
+    globalThis.HTMLElement = dom.window.HTMLElement;
+    globalThis.Node = dom.window.Node;
+    globalThis.Element = dom.window.Element;
+    globalThis.CustomEvent = dom.window.CustomEvent;
+    globalThis.MutationObserver = dom.window.MutationObserver;
+    globalThis.Blob = dom.window.Blob;
+    globalThis.URL = dom.window.URL;
+
+    dom.window.eval(axeSource);
+
+    const sidePanelModule = await import(pathToFileURL(resolve(extensionDir, 'dist', 'side-panel.js')).href);
+    void sidePanelModule;
+    dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded', { bubbles: true }));
+    await sleep(50);
+
+    const axe = dom.window.axe;
+    if (!axe || typeof axe.run !== 'function') {
+      throw new Error('axe-core not loaded into jsdom popup page');
+    }
+
+    const axeResults = await axe.run(dom.window.document, {
+      rules: {
+        'color-contrast': { enabled: false }
+      },
+      runOnly: {
+        type: 'tag',
+        values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
+      }
+    });
+
+    if (axeResults.violations.length) {
+      const summary = axeResults.violations
+        .map((violation) => `${violation.id}:${violation.impact ?? 'unknown'}`)
+        .join(', ');
+      throw new Error(`axe accessibility violations detected: ${summary}`);
+    }
+
+    return { mode: 'jsdom', serviceWorkerCount: 0, axeChecked: true };
+  } finally {
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.HTMLElement = previous.HTMLElement;
+    globalThis.Node = previous.Node;
+    globalThis.Element = previous.Element;
+    globalThis.CustomEvent = previous.CustomEvent;
+    globalThis.MutationObserver = previous.MutationObserver;
+    globalThis.Blob = previous.Blob;
+    globalThis.URL = previous.URL;
   }
 }
 
@@ -189,15 +307,18 @@ async function main() {
 
     console.log(`[extension-load-smoke] Loaded manifest ${sourceManifest.name}@${sourceManifest.version}`);
 
-    const runtime = await validatePlaywrightSmoke(projectRoot);
-    if (runtime.skipped) {
-      console.log('[extension-load-smoke] PASS (static validation only).');
-      return;
+    const runtime = await validateAxeSmoke(projectRoot);
+    if (runtime.mode === 'playwright') {
+      console.log(
+        `[extension-load-smoke] PASS runtime extension workers: ${runtime.serviceWorkerCount}`
+      );
+    } else {
+      console.log('[extension-load-smoke] PASS jsdom accessibility scan.');
     }
 
-    console.log(
-      `[extension-load-smoke] PASS runtime extension workers: ${runtime.serviceWorkerCount}`
-    );
+    if (runtime.axeChecked) {
+      console.log('[extension-load-smoke] PASS axe accessibility scan.');
+    }
   } catch (error) {
     console.error('[extension-load-smoke] FAIL', error instanceof Error ? error.message : String(error));
     process.exit(1);

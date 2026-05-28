@@ -1,5 +1,5 @@
 import { summarizeIssues } from './contracts';
-import type { DiffResult, Issue, ScanSnapshot, Severity, RuleDomain } from './types';
+import type { DiffResult, Issue, IssueSource, ScanSnapshot, Severity, RuleDomain, SecurityHeaderSignals } from './types';
 
 export interface RuleContext {
   requestUrl: string;
@@ -12,6 +12,10 @@ export interface RuleContext {
     h2: number;
     h3: number;
   };
+  headingSequence?: Array<{
+    level: number;
+    text: string;
+  }>;
   images: Array<{
     src: string;
     alt: string | null;
@@ -23,6 +27,8 @@ export interface RuleContext {
     text: string;
     rel: string;
     target: string;
+    ariaLabel?: string | null;
+    title?: string | null;
     isInternal: boolean;
   }>;
   buttons: Array<{
@@ -34,8 +40,13 @@ export interface RuleContext {
   formInputs: Array<{
     required: boolean;
     labelText: string | null;
+    placeholder?: string | null;
+    ariaLabel?: string | null;
+    ariaLabelledBy?: string | null;
+    title?: string | null;
     type: string;
   }>;
+  securityHeaders?: SecurityHeaderSignals;
 }
 
 export interface RuleSpec {
@@ -70,7 +81,8 @@ export function createIssue(
   rule: Pick<RuleSpec, 'id' | 'title' | 'severity' | 'domain'>,
   summary: string,
   evidence: string,
-  selector?: string
+  selector?: string,
+  source: IssueSource = 'dom-only'
 ): Issue {
   return {
     id: createIssueId(rule.id, summary, evidence, selector),
@@ -81,7 +93,7 @@ export function createIssue(
     summary,
     evidence,
     selector,
-    source: 'dom-only'
+    source
   };
 }
 
@@ -89,7 +101,12 @@ export function runRules(rules: RuleSpec[], context: RuleContext): RuleExecution
   const issues = rules.flatMap((rule) => rule.evaluate(context));
 
   const normalized = normalizeIssues(issues);
-  const origin = new URL(context.requestUrl).origin;
+  let origin: string;
+  try {
+    origin = new URL(context.requestUrl).origin;
+  } catch {
+    throw new Error('rule context.requestUrl must be a valid URL');
+  }
 
   return {
     issues: normalized,

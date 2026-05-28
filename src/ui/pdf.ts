@@ -1,4 +1,4 @@
-import type { Issue, ScanSnapshot } from '../shared/types';
+import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -10,6 +10,12 @@ const LINES_PER_PAGE = 42;
 export function buildIssuesPdfBlob(snapshot: ScanSnapshot, issues: Issue[]): Blob {
   const lines = buildIssueReportLines(snapshot, issues);
   const pdf = buildPdfDocument('Stealth Lightbeacon Issue Export', lines);
+  return new Blob([pdf], { type: 'application/pdf' });
+}
+
+export function buildReportPdfBlob(bundle: { generatedAt: string; snapshot: ScanSnapshot; diff?: DiffResult }): Blob {
+  const lines = buildReportLines(bundle);
+  const pdf = buildPdfDocument('Stealth Lightbeacon Scan Report', lines);
   return new Blob([pdf], { type: 'application/pdf' });
 }
 
@@ -27,6 +33,46 @@ export function buildIssueReportLines(snapshot: ScanSnapshot, issues: Issue[]): 
   ];
 
   for (const issue of issues) {
+    lines.push(`[${issue.severity}] ${issue.title}`);
+    lines.push(`Rule: ${issue.ruleId}`);
+    lines.push(`Domain: ${issue.domain}`);
+    lines.push(`Summary: ${issue.summary}`);
+    lines.push(`Evidence: ${issue.evidence}`);
+    if (issue.selector) {
+      lines.push(`Selector: ${issue.selector}`);
+    }
+    lines.push('');
+  }
+
+  return lines;
+}
+
+export function buildReportLines(bundle: { generatedAt: string; snapshot: ScanSnapshot; diff?: DiffResult }): string[] {
+  const lines = [
+    `Scan ID: ${bundle.snapshot.id}`,
+    `URL: ${bundle.snapshot.url}`,
+    `Origin: ${bundle.snapshot.origin}`,
+    `Engine: ${bundle.snapshot.engine}`,
+    `Generated: ${bundle.generatedAt}`,
+    '',
+    `Selected issues: ${bundle.snapshot.issues.length}`,
+    `Total issues on page: ${bundle.snapshot.summary.total}`,
+    `Critical: ${bundle.snapshot.summary.bySeverity.critical}`,
+    `High: ${bundle.snapshot.summary.bySeverity.high}`,
+    `Medium: ${bundle.snapshot.summary.bySeverity.medium}`,
+    `Low: ${bundle.snapshot.summary.bySeverity.low}`,
+    ''
+  ];
+
+  if (bundle.diff) {
+    lines.push(`New issues: ${bundle.diff.newIssues.length}`);
+    lines.push(`Resolved issues: ${bundle.diff.resolvedIssues.length}`);
+    lines.push(`Regressions: ${bundle.diff.regressions.length}`);
+    lines.push(`Improvements: ${bundle.diff.improvements.length}`);
+    lines.push('');
+  }
+
+  for (const issue of bundle.snapshot.issues) {
     lines.push(`[${issue.severity}] ${issue.title}`);
     lines.push(`Rule: ${issue.ruleId}`);
     lines.push(`Domain: ${issue.domain}`);

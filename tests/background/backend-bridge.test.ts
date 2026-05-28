@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createBackendAdapter,
   createBackendClient,
@@ -65,7 +65,14 @@ const emptySnapshot = {
   }
 };
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
 describe('backend bridge', () => {
+  type FetchCall = [RequestInfo | URL, RequestInit | undefined];
+
   it('creates engine-specific HTTP path for fast-obscura', async () => {
     const originalFetch = globalThis.fetch;
     const mock = vi.fn(async (url: string) => ({
@@ -94,7 +101,8 @@ describe('backend bridge', () => {
     const result = (await client.runScan({ ...basePayload, request })) as BackendScanResponse;
     expect(mock).toHaveBeenCalledTimes(1);
 
-    const calledUrl = mock.mock.calls[0]![0] as string;
+    const calls = mock.mock.calls as unknown as Array<FetchCall>;
+    const calledUrl = calls[0]![0];
 
     expect(result.snapshot.id).toBe('scan-1');
     expect(typeof calledUrl).toBe('string');
@@ -176,6 +184,196 @@ describe('backend bridge', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('adds basic auth when credentials are present', async () => {
+    const originalFetch = globalThis.fetch;
+    const mock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        snapshot: emptySnapshot
+      })
+    } as Response));
+
+    globalThis.fetch = mock as unknown as typeof fetch;
+
+    const request: ScanRequest = {
+      ...baseRequest,
+      backend: {
+        ...baseRequest.backend,
+        endpoint: 'https://localhost:3000/',
+        auth: {
+          username: 'user',
+          password: 'pass'
+        }
+      }
+    };
+
+    const client = createBackendClient(request.backend, request.backend?.engine);
+    if (!client) {
+      throw new Error('Expected backend client');
+    }
+
+    await client.runScan({ ...basePayload, request });
+
+    const calls = mock.mock.calls as unknown as Array<FetchCall>;
+    const firstInit = calls[0]![1];
+    const headers = firstInit?.headers as HeadersInit;
+    const authorization = headers instanceof Headers
+      ? headers.get('authorization')
+      : typeof headers === 'object' && headers !== null
+        ? String((headers as Record<string, string>)['authorization'] ?? '')
+        : '';
+
+    expect(authorization).toBe('Basic dXNlcjpwYXNz');
+    expect(String((mock.mock.calls as unknown as Array<FetchCall>)[0]![0])).toBe('https://localhost:3000/v1/audit/scan');
+    globalThis.fetch = originalFetch;
+  });
+
+  it('falls back to hexadecimal signatures when base64 helpers are unavailable', async () => {
+    const originalFetch = globalThis.fetch;
+    const mock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        snapshot: emptySnapshot
+      })
+    } as Response));
+
+    globalThis.fetch = mock as unknown as typeof fetch;
+    vi.stubGlobal('btoa', undefined);
+    vi.stubGlobal('Buffer', undefined);
+    vi.stubGlobal('crypto', {
+      subtle: {
+        importKey: async () => ({}),
+        sign: async () => new Uint8Array([1, 2, 3]).buffer
+      }
+    });
+
+    const request: ScanRequest = {
+      ...baseRequest,
+      backend: {
+        ...baseRequest.backend,
+        requestSigningSecret: 'unit-signing-secret'
+      }
+    };
+
+    const client = createBackendClient(request.backend, request.backend?.engine);
+    if (!client) {
+      throw new Error('Expected backend client');
+    }
+
+    await client.runScan({ ...basePayload, request });
+
+    const calls = mock.mock.calls as unknown as Array<FetchCall>;
+    const firstInit = calls[0]![1];
+    const headers = firstInit?.headers as HeadersInit;
+    const signature = headers instanceof Headers
+      ? headers.get('x-stlt-signature')
+      : typeof headers === 'object' && headers !== null
+        ? String((headers as Record<string, string>)['x-stlt-signature'] ?? '')
+        : '';
+
+    expect(signature).toBe('010203');
+    globalThis.fetch = originalFetch;
+  });
+
+  it('falls back to deterministic signatures when WebCrypto is unavailable', async () => {
+    const originalFetch = globalThis.fetch;
+    const mock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        snapshot: emptySnapshot
+      })
+    } as Response));
+
+    globalThis.fetch = mock as unknown as typeof fetch;
+    vi.stubGlobal('crypto', {
+      subtle: undefined
+    });
+
+    const request: ScanRequest = {
+      ...baseRequest,
+      backend: {
+        ...baseRequest.backend,
+        requestSigningSecret: 'unit-signing-secret'
+      }
+    };
+
+    const client = createBackendClient(request.backend, request.backend?.engine);
+    if (!client) {
+      throw new Error('Expected backend client');
+    }
+
+    await client.runScan({ ...basePayload, request });
+
+    const calls = mock.mock.calls as unknown as Array<FetchCall>;
+    const firstInit = calls[0]![1];
+    const headers = firstInit?.headers as HeadersInit;
+    const signature = headers instanceof Headers
+      ? headers.get('x-stlt-signature')
+      : typeof headers === 'object' && headers !== null
+        ? String((headers as Record<string, string>)['x-stlt-signature'] ?? '')
+        : '';
+
+    expect(signature).toMatch(/^fallback:/);
+    globalThis.fetch = originalFetch;
+  });
+
+  it('uses Buffer-based base64 encoding when btoa is unavailable', async () => {
+    const originalFetch = globalThis.fetch;
+    const mock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        snapshot: emptySnapshot
+      })
+    } as Response));
+
+    globalThis.fetch = mock as unknown as typeof fetch;
+    vi.stubGlobal('btoa', undefined);
+    vi.stubGlobal('crypto', {
+      subtle: {
+        importKey: async () => ({}),
+        sign: async () => new Uint8Array([1, 2, 3]).buffer
+      }
+    });
+
+    const request: ScanRequest = {
+      ...baseRequest,
+      backend: {
+        ...baseRequest.backend,
+        requestSigningSecret: 'unit-signing-secret'
+      }
+    };
+
+    const client = createBackendClient(request.backend, request.backend?.engine);
+    if (!client) {
+      throw new Error('Expected backend client');
+    }
+
+    await client.runScan({ ...basePayload, request });
+
+    const calls = mock.mock.calls as unknown as Array<FetchCall>;
+    const firstInit = calls[0]![1];
+    const headers = firstInit?.headers as HeadersInit;
+    const signature = headers instanceof Headers
+      ? headers.get('x-stlt-signature')
+      : typeof headers === 'object' && headers !== null
+        ? String((headers as Record<string, string>)['x-stlt-signature'] ?? '')
+        : '';
+
+    expect(signature).toBe('AQID');
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns undefined for disabled or incomplete backend configs', () => {
+    expect(createBackendClient({ enabled: false, mode: 'http', endpoint: 'https://localhost:3000' })).toBeUndefined();
+    expect(createBackendClient({ enabled: true, mode: 'stdin' })).toBeUndefined();
+    expect(createStdioBackendClient({ enabled: true, mode: 'stdin' }, undefined)).toBeUndefined();
+    expect(createBackendAdapter({ enabled: true, mode: 'http' })).toBeUndefined();
+  });
+
   it('builds adapter from backend mode', async () => {
     const request: ScanBackendConfig = {
       enabled: true,
@@ -197,6 +395,41 @@ describe('backend bridge', () => {
     expect(calls).toHaveLength(1);
 
     expect(response.snapshot.id).toBe('scan-1');
+  });
+
+  it('passes through the request engine when no selected engine is provided', async () => {
+    const request: ScanBackendConfig = {
+      enabled: true,
+      mode: 'stdin',
+      engine: 'stealth-playwright'
+    };
+
+    const calls: BackendPayload[] = [];
+    const executor: (payload: BackendPayload) => Promise<{ snapshot: unknown }> = (payload) => {
+      calls.push(payload);
+      return Promise.resolve({
+        snapshot: emptySnapshot
+      });
+    };
+
+    const adapter = createStdioBackendClient(request, executor);
+    if (!adapter) {
+      throw new Error('Expected stdio adapter');
+    }
+
+    await adapter.runScan({
+      ...basePayload,
+      request: {
+        ...baseRequest,
+        backend: {
+          ...baseRequest.backend,
+          mode: 'stdin',
+          engine: 'stealth-playwright'
+        }
+      }
+    });
+
+    expect(calls[0]?.request.backend?.engine).toBe('stealth-playwright');
   });
 
   it('enforces stdio payload limit', async () => {

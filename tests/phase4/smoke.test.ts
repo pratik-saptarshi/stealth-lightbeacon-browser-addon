@@ -140,6 +140,129 @@ describe('phase 4 smoke contract flow', () => {
     expect(reportResponse.payload.report).toContain('<html');
   });
 
+  it('tracks multiple snapshots and exercises history/report branches', async () => {
+    const origin = 'https://phase4-history.example.com';
+    const firstRequest: ScanRequest = {
+      requestId: 'smoke-history-1',
+      url: `${origin}/first`,
+      engine: 'dom-lite'
+    };
+    const secondRequest: ScanRequest = {
+      requestId: 'smoke-history-2',
+      url: `${origin}/second`,
+      engine: 'dom-lite'
+    };
+
+    const firstScanResponse = (await handleMessage({
+      type: 'scan:start',
+      request: firstRequest,
+      pageContext: {
+        ...context,
+        requestUrl: firstRequest.url,
+        canonical: firstRequest.url,
+        title: 'First snapshot'
+      },
+      persistHistory: true
+    } as const)) as ScanStartReply;
+
+    expect(firstScanResponse.ok).toBe(true);
+    if (!firstScanResponse.ok) {
+      throw new Error(firstScanResponse.error);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const secondScanResponse = (await handleMessage({
+      type: 'scan:start',
+      request: secondRequest,
+      pageContext: {
+        ...context,
+        requestUrl: secondRequest.url,
+        canonical: secondRequest.url,
+        title: 'Second snapshot'
+      },
+      persistHistory: true
+    } as const)) as ScanStartReply;
+
+    expect(secondScanResponse.ok).toBe(true);
+    if (!secondScanResponse.ok) {
+      throw new Error(secondScanResponse.error);
+    }
+
+    const listResponse = (await handleMessage({
+      type: 'history:list',
+      origin,
+      limit: 1
+    } as const)) as HistoryListReply;
+
+    expect(listResponse.ok).toBe(true);
+    if (!listResponse.ok) {
+      throw new Error(listResponse.error);
+    }
+
+    const listPayload = listResponse.payload as HistoryListResult;
+    expect(listPayload.snapshots).toHaveLength(1);
+    expect(listPayload.snapshots[0].url).toBe(secondRequest.url);
+
+    const latestResponse = (await handleMessage({
+      type: 'history:latest',
+      origin
+    } as const)) as HistoryLatestReply;
+
+    expect(latestResponse.ok).toBe(true);
+    if (!latestResponse.ok) {
+      throw new Error(latestResponse.error);
+    }
+
+    const latestPayload = latestResponse.payload as HistoryLatestResult;
+    expect(latestPayload.snapshot?.url).toBe(secondRequest.url);
+
+    const compareResponse = (await handleMessage({
+      type: 'history:compare',
+      origin
+    } as const)) as HistoryCompareReply;
+
+    expect(compareResponse.ok).toBe(true);
+    if (!compareResponse.ok) {
+      throw new Error(compareResponse.error);
+    }
+
+    const comparePayload = compareResponse.payload as HistoryCompareResult;
+    expect(comparePayload.latest?.url).toBe(secondRequest.url);
+    expect(comparePayload.previous?.url).toBe(firstRequest.url);
+    expect(comparePayload.diff).toBeDefined();
+
+    const jsonReportResponse = (await handleMessage({
+      type: 'report:build',
+      snapshot: secondScanResponse.payload.snapshot,
+      diff: secondScanResponse.payload.diff,
+      format: 'json'
+    } as const)) as ReportBuildReply;
+
+    expect(jsonReportResponse.ok).toBe(true);
+    if (!jsonReportResponse.ok) {
+      throw new Error(jsonReportResponse.error);
+    }
+
+    expect(jsonReportResponse.payload.format).toBe('json');
+    expect(jsonReportResponse.payload.report).toContain('"url": "https://phase4-history.example.com/second"');
+
+    const geoXmlReportResponse = (await handleMessage({
+      type: 'report:build',
+      snapshot: secondScanResponse.payload.snapshot,
+      diff: secondScanResponse.payload.diff,
+      format: 'geo-xml'
+    } as const)) as ReportBuildReply;
+
+    expect(geoXmlReportResponse.ok).toBe(true);
+    if (!geoXmlReportResponse.ok) {
+      throw new Error(geoXmlReportResponse.error);
+    }
+
+    expect(geoXmlReportResponse.payload.format).toBe('geo-xml');
+    expect(geoXmlReportResponse.payload.report).toContain('<geoReport>');
+  });
+
   it('requires active context when no page context is supplied', async () => {
     const scanResponse = (await handleMessage({
       type: 'scan:start',

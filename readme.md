@@ -2,7 +2,7 @@
 
 Stealth Lightbeacon Browser Addon is the browser-only companion to the Stealth Lightbeacon audit workflow. It performs local DOM auditing in the active tab, groups issues by domain and severity, supports manual rescan flows, and can optionally talk to a local or remote backend when you opt in.
 
-Current release: `0.1.5`
+Current release: `0.1.6`
 
 ## What it does
 - Audits the active tab from a popup and side-panel UI.
@@ -13,6 +13,7 @@ Current release: `0.1.5`
 - Supports optional backend-assisted recommendations over HTTP or stdio.
 - Uses machine-readable rulesets for SEO, accessibility, AEO/GEO, UX, Drupal, and security-header checks.
 - Surfaces the backend OpenAPI contract directly from the extension UI.
+- Includes a settings drawer for panel color tuning, section visibility, and bug reporting.
 
 ## Supported browsers
 - Google Chrome
@@ -59,6 +60,7 @@ npm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical
 ```
 
 When the environment supports it, validate the extension in a real browser session with Playwright or the browser automation toolchain already available on the machine.
+The UI-load smoke also loads `axe.min.js` and runs an automated accessibility scan when Playwright is available.
 
 ## Repository layout
 - `src/background/` - orchestration, history, ruleset catalog, host policy, service worker
@@ -75,9 +77,11 @@ When the environment supports it, validate the extension in a real browser sessi
 - Backend use is opt-in and constrained by host-policy validation.
 - No analytics or telemetry SDKs are bundled.
 - Sensitive backend usage should stay behind explicit user configuration.
+- Bug reports can be sent directly from the settings drawer to `pratik.saptarshi@outlook.com`.
 
 ## Related docs
 - [Contributing](./contributing.md)
 - [Security policy](./security-policy.md)
 - [Release notes](./release.md)
 - [Changelog](./changelog.md)
+- [Shared axioms](./shared-axioms.md)

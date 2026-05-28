@@ -289,12 +289,33 @@ function assertScanSnapshotInput(input: unknown): ScanSnapshot {
     throw new Error('scan snapshot.url must be a valid URL');
   }
 
+  const snapshotUrlOrigin = new URL(input.url).origin;
+  if (input.origin === 'null') {
+    assert(snapshotUrlOrigin === 'null', 'scan snapshot.origin must match scan snapshot.url origin');
+  } else {
+    try {
+      new URL(input.origin);
+    } catch {
+      throw new Error('scan snapshot.origin must be a valid URL');
+    }
+
+    assert(snapshotUrlOrigin === new URL(input.origin).origin, 'scan snapshot.origin must match scan snapshot.url origin');
+  }
+
   assert(Array.isArray(input.issues), 'scan snapshot.issues must be an array');
   const issues = input.issues.map(assertIssue);
   assert(isRecord(input.summary), 'scan snapshot.summary must be an object');
   assert(isNonNegativeNumber(input.summary.total), 'scan snapshot.summary.total must be a non-negative number');
   const bySeverity = assertIssueCountsBySeverity(input.summary.bySeverity, 'scan snapshot.summary.bySeverity');
   const byDomain = assertIssueCountsByDomain(input.summary.byDomain, 'scan snapshot.summary.byDomain');
+  assertSummaryMatchesIssues(
+    {
+      total: input.summary.total,
+      bySeverity,
+      byDomain
+    },
+    issues
+  );
 
   return {
     id: input.id,
@@ -324,6 +345,42 @@ function assertDiffResultInput(input: unknown): DiffResult {
     regressions: input.regressions.map(assertIssue),
     improvements: input.improvements.map(assertIssue)
   };
+}
+
+function assertSummaryMatchesIssues(
+  summary: {
+    total: number;
+    bySeverity: Record<Severity, number>;
+    byDomain: Record<string, number>;
+  },
+  issues: Issue[]
+) {
+  const expected = summarizeIssues(issues);
+  assert(summary.total === expected.total, `scan snapshot.summary.total must equal the issue count (${expected.total})`);
+
+  for (const severity of SEVERITIES) {
+    assert(
+      summary.bySeverity[severity] === expected.bySeverity[severity],
+      `scan snapshot.summary.bySeverity.${severity} must equal ${expected.bySeverity[severity]}`
+    );
+  }
+
+  const expectedByDomain = expected.byDomain as Record<string, number>;
+
+  for (const domain of Object.keys(expectedByDomain)) {
+    const actualCount = summary.byDomain[domain] ?? 0;
+    assert(
+      actualCount === expectedByDomain[domain],
+      `scan snapshot.summary.byDomain.${domain} must equal ${expectedByDomain[domain]}`
+    );
+  }
+
+  for (const [domain, count] of Object.entries(summary.byDomain) as Array<[string, number]>) {
+    assert(
+      expectedByDomain[domain] !== undefined || count === 0,
+      `scan snapshot.summary.byDomain.${domain} must equal 0 when the domain is not present in the issue list`
+    );
+  }
 }
 
 function assertScanResultInput(input: unknown): ScanResult {

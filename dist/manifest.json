@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stealth Lightbeacon (Addon Lite)",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Browser-only DOM audit + limited same-origin crawl scanner",
   "icons": {
     "16": "extension_icon16.png",

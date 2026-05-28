@@ -7,12 +7,18 @@ export interface LinkSignal {
   text: string;
   rel: string;
   target: string;
+  ariaLabel: string | null;
+  title: string | null;
   isInternal: boolean;
 }
 
 export interface FormInputSignal {
   required: boolean;
   labelText: string | null;
+  placeholder: string | null;
+  ariaLabel: string | null;
+  ariaLabelledBy: string | null;
+  title: string | null;
   type: string;
 }
 
@@ -58,6 +64,10 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
     h2: documentRef.querySelectorAll('h2').length,
     h3: documentRef.querySelectorAll('h3').length
   };
+  const headingSequence = [...documentRef.querySelectorAll('h1, h2, h3, h4, h5, h6')].map((heading) => ({
+    level: Number(heading.tagName.slice(1)),
+    text: (heading.textContent ?? '').trim()
+  }));
 
   const links: LinkSignal[] = [...documentRef.querySelectorAll('a[href]')]
     .slice(0, MAX_LINKS)
@@ -68,6 +78,8 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
         text: (link.textContent ?? '').trim().slice(0, 120),
         rel: (link.getAttribute('rel') ?? '').toLowerCase(),
         target: (link.getAttribute('target') ?? '').toLowerCase(),
+        ariaLabel: link.getAttribute('aria-label')?.trim() ?? null,
+        title: link.getAttribute('title')?.trim() ?? null,
         isInternal: isInternalUrl(href, requestUrl)
       };
     })
@@ -86,6 +98,10 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
     .map((input) => ({
       required: input.required,
       labelText: getLabelText(input, labelById),
+      placeholder: input.getAttribute('placeholder')?.trim() ?? null,
+      ariaLabel: input.getAttribute('aria-label')?.trim() ?? null,
+      ariaLabelledBy: input.getAttribute('aria-labelledby')?.trim() ?? null,
+      title: input.getAttribute('title')?.trim() ?? null,
       type: (input.getAttribute('type') ?? 'text').toLowerCase()
     }));
 
@@ -96,6 +112,7 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
     canonical,
     metaDescription,
     headings,
+    headingSequence,
     images,
     links,
     buttons,
@@ -105,7 +122,12 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
 
 function normalizeUrl(href: string, baseUrl: string): string {
   try {
-    return new URL(href, baseUrl).toString();
+    const url = new URL(href, baseUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return '';
+    }
+
+    return url.toString();
   } catch {
     return '';
   }
