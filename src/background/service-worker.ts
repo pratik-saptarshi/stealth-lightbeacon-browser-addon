@@ -99,6 +99,7 @@ type RuntimeContext = {
       addListener: (callback: (...args: any[]) => void) => void;
     };
   };
+  fetch?: typeof fetch;
   __STEALTH_LIGHTBEACON_STDIN_EXECUTOR__?: unknown;
 };
 
@@ -154,7 +155,9 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
         );
 
         const orchestrator = new ScanOrchestrator({
-          backendClient
+          backendClient,
+          fetcher: globalRuntime.fetch,
+          securityHeaderFetcher: globalRuntime.fetch
         });
 
         const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : undefined;

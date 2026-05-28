@@ -65,7 +65,10 @@ const VALIDATION_COVERAGE_AREAS: ValidationCoverageArea[] = [
       'alt text',
       'lang attribute',
       'button labels',
-      'required form labels'
+      'required form labels',
+      'heading structure',
+      'link text',
+      'form labels'
     ],
     majorGaps: [
       'contrast',

@@ -7,7 +7,8 @@ import type {
   ScanRequest,
   ScanResult,
   ScanSnapshot,
-  BackendEngine
+  BackendEngine,
+  SecurityHeaderSignals
 } from '../shared/types';
 import type { RuleContext } from '../shared/rule-engine';
 import { diffSnapshots, runRules } from '../shared/rule-engine';
@@ -20,6 +21,7 @@ type FailureType = CrawlNode['errorType'];
 
 export interface OrchestratorDeps {
   fetcher?: typeof fetch;
+  securityHeaderFetcher?: typeof fetch;
   clock?: () => number;
   crawlMaxDepth?: number;
   crawlMaxUrls?: number;
@@ -30,11 +32,13 @@ export interface OrchestratorDeps {
 
 export class ScanOrchestrator {
   private readonly fetcher: typeof fetch | undefined;
+  private readonly securityHeaderFetcher: typeof fetch | undefined;
   private readonly clock: () => number;
   private readonly backendClient?: BackendAdapter;
 
   constructor(private readonly deps: OrchestratorDeps = {}) {
     this.fetcher = deps.fetcher;
+    this.securityHeaderFetcher = deps.securityHeaderFetcher;
     this.clock = deps.clock ?? (() => Date.now());
     this.backendClient = deps.backendClient;
   }
@@ -49,7 +53,8 @@ export class ScanOrchestrator {
     const recommendation = recommendEngine(validated, pageContext);
     const effectiveRequest: ScanRequest = this.enrichBackendRequest(validated, recommendation);
     const rules = this.selectRules(effectiveRequest, rulesetCatalog);
-    const localResult = runRules(rules, pageContext);
+    const enrichedContext = await this.enrichSecurityHeaderContext(pageContext, validated.url);
+    const localResult = runRules(rules, enrichedContext);
 
     let snapshot = localResult.snapshot;
     let crawlNodes: CrawlNode[] | undefined;
@@ -116,6 +121,61 @@ export class ScanOrchestrator {
     }
 
     return request.backend.enabled !== false;
+  }
+
+  private async enrichSecurityHeaderContext(pageContext: RuleContext, requestUrl: string): Promise<RuleContext> {
+    if (pageContext.securityHeaders?.observed) {
+      return pageContext;
+    }
+
+    const securityHeaders = await this.probeSecurityHeaders(requestUrl);
+    if (!securityHeaders) {
+      return pageContext;
+    }
+
+    return {
+      ...pageContext,
+      securityHeaders
+    };
+  }
+
+  private async probeSecurityHeaders(requestUrl: string): Promise<SecurityHeaderSignals | undefined> {
+    if (!this.securityHeaderFetcher) {
+      return undefined;
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(requestUrl);
+    } catch {
+      return undefined;
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return undefined;
+    }
+
+    try {
+      const response = await this.securityHeaderFetcher(parsedUrl.toString(), {
+        method: 'HEAD',
+        redirect: 'follow',
+        cache: 'no-store'
+      });
+
+      return {
+        observed: true,
+        contentSecurityPolicy: response.headers.get('content-security-policy'),
+        strictTransportSecurity: response.headers.get('strict-transport-security'),
+        referrerPolicy: response.headers.get('referrer-policy')
+      };
+    } catch {
+      return {
+        observed: false,
+        contentSecurityPolicy: null,
+        strictTransportSecurity: null,
+        referrerPolicy: null
+      };
+    }
   }
 
   private async runBackendScan(

@@ -36,7 +36,9 @@ describe('adversarial validation suite', () => {
         text: 'Safe',
         rel: '',
         target: '',
-        isInternal: true
+        isInternal: true,
+        ariaLabel: null,
+        title: null
       }
     ]);
   });

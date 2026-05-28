@@ -2,7 +2,7 @@
 
 Stealth Lightbeacon Browser Addon is the browser-only companion to the Stealth Lightbeacon audit workflow. It performs local DOM auditing in the active tab, groups issues by domain and severity, supports manual rescan flows, and can optionally talk to a local or remote backend when you opt in.
 
-Current release: `0.1.5`
+Current release: `0.1.6`
 
 ## What it does
 - Audits the active tab from a popup and side-panel UI.

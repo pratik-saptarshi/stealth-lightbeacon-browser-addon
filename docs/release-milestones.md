@@ -7,12 +7,11 @@ the budget gate, with line coverage currently above 80%.
 
 ## Current Validation Snapshot
 
-- Line coverage: `83.71%`
-- Statement coverage: `83.73%`
-- Function coverage: `89.26%`
-- Branch coverage: `66.81%`
+- Unit coverage: statements `88.41%`, lines `88.34%`, functions `94.36%`, branches `71.99%`
+- Integration coverage: statements `90.69%`, lines `90.61%`, functions `95.49%`, branches `75.67%`
+- Browser smoke: the build loads, but the current macOS smoke runner did not detect a service worker within the timeout
 
-Branch coverage is still the lowest residual metric in the latest summary.
+Branch coverage remains the lowest residual metric in the latest summary.
 Treat it as a follow-up hardening target if your release policy requires every
 coverage dimension to stay above 80%.
 
@@ -57,6 +56,6 @@ Major-release gate:
 
 ## Current Planning Status
 
-- Minor release planning: not yet ready, because the P0/P1 slices are still
-  open.
-- Major release planning: later, after the P2 slices are complete.
+- Public release `0.1.6` has been published from the current repository state.
+- Minor release planning now tracks the remaining P0/P1 slices for the next cut.
+- Major release planning remains later, after the P2 slices are complete.

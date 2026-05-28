@@ -69,6 +69,8 @@ describe('content extractor', () => {
         text: 'Internal link',
         rel: '',
         target: '',
+        ariaLabel: null,
+        title: null,
         isInternal: true
       },
       {
@@ -76,6 +78,8 @@ describe('content extractor', () => {
         text: 'External link',
         rel: ' nofollow ',
         target: '_blank',
+        ariaLabel: null,
+        title: null,
         isInternal: false
       }
     ]);
@@ -91,29 +95,82 @@ describe('content extractor', () => {
       {
         required: true,
         labelText: 'Email address',
+        placeholder: null,
+        ariaLabel: null,
+        ariaLabelledBy: null,
+        title: null,
         type: 'email'
       },
       {
         required: true,
         labelText: 'Inline label',
+        placeholder: null,
+        ariaLabel: null,
+        ariaLabelledBy: null,
+        title: null,
         type: 'text'
       },
       {
         required: false,
         labelText: 'Category chooser',
+        placeholder: null,
+        ariaLabel: 'Category chooser',
+        ariaLabelledBy: null,
+        title: null,
         type: 'text'
       },
       {
         required: false,
         labelText: 'Search box',
+        placeholder: null,
+        ariaLabel: 'Search box',
+        ariaLabelledBy: null,
+        title: null,
         type: 'text'
       },
       {
         required: false,
         labelText: null,
+        placeholder: null,
+        ariaLabel: null,
+        ariaLabelledBy: null,
+        title: null,
         type: 'text'
       }
     ]);
+  });
+
+  it('captures heading order and accessible-name hints for links and forms', () => {
+    document.documentElement.setAttribute('lang', 'en');
+    document.head.innerHTML = `
+      <title>Accessibility sample</title>
+    `;
+    document.body.innerHTML = `
+      <h1>Intro</h1>
+      <h2>Overview</h2>
+      <h4>Skipped heading</h4>
+      <a href="/aria" aria-label="Aria link" title="Aria title"></a>
+      <input id="nickname" placeholder="Nickname" aria-label="Nickname field" title="Nickname title" />
+    `;
+
+    const context = extractPageContext(document, 'https://example.com/base/page');
+
+    expect(context.headingSequence).toEqual([
+      { level: 1, text: 'Intro' },
+      { level: 2, text: 'Overview' },
+      { level: 4, text: 'Skipped heading' }
+    ]);
+    expect(context.links[0]).toMatchObject({
+      href: 'https://example.com/aria',
+      text: '',
+      ariaLabel: 'Aria link',
+      title: 'Aria title'
+    });
+    expect(context.formInputs[0]).toMatchObject({
+      placeholder: 'Nickname',
+      ariaLabel: 'Nickname field',
+      title: 'Nickname title'
+    });
   });
 
   it('drops invalid links and caps link extraction at 200 entries', () => {

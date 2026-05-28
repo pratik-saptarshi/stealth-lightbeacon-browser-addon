@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createIssue, diffSnapshots, runRules } from '../../src/shared/rule-engine';
+import { buildZeroDomainCounts, countIssuesByDomain, createIssue, diffSnapshots, runRules } from '../../src/shared/rule-engine';
 import { domRules } from '../../src/shared/rules/dom';
 import type { RuleContext } from '../../src/shared/rule-engine';
 import type { ScanSnapshot } from '../../src/shared/types';
@@ -72,6 +72,63 @@ describe('rule-engine', () => {
     expect(diff.regressions).toHaveLength(0);
   });
 
+  it('normalizes duplicate issues before summarizing a scan', () => {
+    const duplicateRule = [
+      {
+        id: 'dup-rule',
+        title: 'Duplicate rule',
+        severity: 'low' as const,
+        domain: 'seo' as const,
+        evaluate: () => [
+          createIssue({ id: 'dup-rule', title: 'Duplicate rule', severity: 'low', domain: 'seo' }, 'same', 'same', 'selector'),
+          createIssue({ id: 'dup-rule', title: 'Duplicate rule', severity: 'low', domain: 'seo' }, 'same', 'same', 'selector'),
+          createIssue({ id: 'dup-rule', title: 'Duplicate rule', severity: 'low', domain: 'seo' }, 'same', 'same', 'Selector')
+        ]
+      }
+    ];
+
+    const result = runRules(duplicateRule, baseContext);
+    expect(result.issues).toHaveLength(1);
+    expect(result.snapshot.summary.total).toBe(1);
+    expect(result.snapshot.summary.byDomain.seo).toBe(1);
+  });
+
+  it('marks severity regressions and improvements when identities stay the same', () => {
+    const current = {
+      ...currentBase,
+      issues: [
+        createIssue({ id: 'seo-title-missing', title: 'Title tag missing', severity: 'critical', domain: 'seo' }, 'missing title', 'no title'),
+        createIssue({ id: 'seo-title-short', title: 'Short title', severity: 'low', domain: 'seo' }, 'short', 'len')
+      ]
+    } as ScanSnapshot;
+
+    const previous = {
+      ...previousBase
+    };
+
+    const diff = diffSnapshots(current, previous);
+    expect(diff.regressions).toHaveLength(1);
+    expect(diff.improvements).toHaveLength(1);
+    expect(diff.newIssues).toHaveLength(0);
+  });
+
+  it('treats scans without a previous snapshot as all new issues', () => {
+    const diff = diffSnapshots(currentBase);
+    expect(diff.newIssues).toHaveLength(1);
+    expect(diff.resolvedIssues).toHaveLength(0);
+    expect(diff.regressions).toHaveLength(0);
+    expect(diff.improvements).toHaveLength(0);
+  });
+
+  it('throws for invalid request URLs', () => {
+    expect(() =>
+      runRules(domRules, {
+        ...baseContext,
+        requestUrl: 'not-a-url'
+      })
+    ).toThrow(/requestUrl/);
+  });
+
   it('generates deterministic issue ids from rule context', () => {
     const first = createIssue(
       {
@@ -96,6 +153,23 @@ describe('rule-engine', () => {
     );
 
     expect(second.id).toBe(first.id);
+  });
+
+  it('builds zeroed domain counts and tallies issue counts by domain', () => {
+    expect(buildZeroDomainCounts(['seo', 'ux'])).toEqual({
+      seo: 0,
+      ux: 0
+    });
+
+    expect(
+      countIssuesByDomain([
+        createIssue({ id: 'seo-title-missing', title: 'Title tag missing', severity: 'high', domain: 'seo' }, 'missing', 'title'),
+        createIssue({ id: 'ux-contrast', title: 'Contrast issue', severity: 'medium', domain: 'ux' }, 'contrast', 'low')
+      ])
+    ).toEqual({
+      seo: 1,
+      ux: 1
+    });
   });
 
   it('diffs unchanged issue shapes by stable identity even when ids differ', () => {

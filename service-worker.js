@@ -235,12 +235,31 @@ function assertScanSnapshotInput(input) {
   } catch {
     throw new Error("scan snapshot.url must be a valid URL");
   }
+  const snapshotUrlOrigin = new URL(input.url).origin;
+  if (input.origin === "null") {
+    assert(snapshotUrlOrigin === "null", "scan snapshot.origin must match scan snapshot.url origin");
+  } else {
+    try {
+      new URL(input.origin);
+    } catch {
+      throw new Error("scan snapshot.origin must be a valid URL");
+    }
+    assert(snapshotUrlOrigin === new URL(input.origin).origin, "scan snapshot.origin must match scan snapshot.url origin");
+  }
   assert(Array.isArray(input.issues), "scan snapshot.issues must be an array");
   const issues = input.issues.map(assertIssue);
   assert(isRecord(input.summary), "scan snapshot.summary must be an object");
   assert(isNonNegativeNumber(input.summary.total), "scan snapshot.summary.total must be a non-negative number");
   const bySeverity = assertIssueCountsBySeverity(input.summary.bySeverity, "scan snapshot.summary.bySeverity");
   const byDomain = assertIssueCountsByDomain(input.summary.byDomain, "scan snapshot.summary.byDomain");
+  assertSummaryMatchesIssues(
+    {
+      total: input.summary.total,
+      bySeverity,
+      byDomain
+    },
+    issues
+  );
   return {
     id: input.id,
     origin: input.origin,
@@ -267,6 +286,30 @@ function assertDiffResultInput(input) {
     regressions: input.regressions.map(assertIssue),
     improvements: input.improvements.map(assertIssue)
   };
+}
+function assertSummaryMatchesIssues(summary, issues) {
+  const expected = summarizeIssues(issues);
+  assert(summary.total === expected.total, `scan snapshot.summary.total must equal the issue count (${expected.total})`);
+  for (const severity of SEVERITIES) {
+    assert(
+      summary.bySeverity[severity] === expected.bySeverity[severity],
+      `scan snapshot.summary.bySeverity.${severity} must equal ${expected.bySeverity[severity]}`
+    );
+  }
+  const expectedByDomain = expected.byDomain;
+  for (const domain of Object.keys(expectedByDomain)) {
+    const actualCount = summary.byDomain[domain] ?? 0;
+    assert(
+      actualCount === expectedByDomain[domain],
+      `scan snapshot.summary.byDomain.${domain} must equal ${expectedByDomain[domain]}`
+    );
+  }
+  for (const [domain, count] of Object.entries(summary.byDomain)) {
+    assert(
+      expectedByDomain[domain] !== void 0 || count === 0,
+      `scan snapshot.summary.byDomain.${domain} must equal 0 when the domain is not present in the issue list`
+    );
+  }
 }
 function assertScanResultInput(input) {
   assert(isRecord(input), "scan result must be an object");
@@ -603,6 +646,99 @@ function severityWorse(current, previous) {
   return rank[current] > rank[previous];
 }
 
+// src/shared/rules/accessibility-structure.ts
+function buildEvidence(payload) {
+  return JSON.stringify(payload);
+}
+function requiresAccessibleLabel(type) {
+  return !["hidden", "button", "submit", "reset", "image"].includes(type.toLowerCase());
+}
+var wcag21HeadingStructure = {
+  id: "wcag21-heading-structure",
+  title: "Heading hierarchy should remain structural",
+  severity: "medium",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    const issues = [];
+    if (context.headings.h2 > 0 && context.headings.h1 === 0) {
+      issues.push(
+        createIssue(
+          wcag21HeadingStructure,
+          "Subordinate headings appear without a top-level heading",
+          buildEvidence({
+            finding: "missing-h1-before-h2",
+            h1: context.headings.h1,
+            h2: context.headings.h2,
+            h3: context.headings.h3
+          })
+        )
+      );
+    }
+    if (context.headings.h3 > 0 && context.headings.h2 === 0) {
+      issues.push(
+        createIssue(
+          wcag21HeadingStructure,
+          "H3 headings appear without an H2 structure",
+          buildEvidence({
+            finding: "missing-h2-before-h3",
+            h1: context.headings.h1,
+            h2: context.headings.h2,
+            h3: context.headings.h3
+          })
+        )
+      );
+    }
+    return issues;
+  }
+};
+var wcag21LinkName = {
+  id: "wcag21-link-name",
+  title: "Links need discernible text",
+  severity: "medium",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    return context.links.map((link, index) => ({ link, index })).filter(({ link }) => !link.text.trim()).map(
+      ({ link, index }) => createIssue(
+        wcag21LinkName,
+        "Link has no discernible text",
+        buildEvidence({
+          finding: "missing-link-name",
+          href: link.href,
+          index,
+          internal: link.isInternal,
+          text: link.text
+        })
+      )
+    );
+  }
+};
+var wcag21FormLabel = {
+  id: "wcag21-form-label",
+  title: "Form controls need accessible labels",
+  severity: "high",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    return context.formInputs.map((field, index) => ({ field, index })).filter(({ field }) => requiresAccessibleLabel(field.type) && !field.labelText?.trim()).map(
+      ({ field, index }) => createIssue(
+        wcag21FormLabel,
+        "Form control lacks a programmatic label",
+        buildEvidence({
+          finding: "missing-form-label",
+          index,
+          required: field.required,
+          type: field.type,
+          labelText: field.labelText
+        })
+      )
+    );
+  }
+};
+var wcagStructuralRules = [
+  wcag21HeadingStructure,
+  wcag21LinkName,
+  wcag21FormLabel
+];
+
 // src/shared/rules/dom.ts
 var seoTitleMissing = {
   id: "seo-title-missing",
@@ -737,6 +873,180 @@ var a11yLangAttribute = {
     ];
   }
 };
+function getHeadingSequence(context) {
+  return context.headingSequence ?? [];
+}
+function normalizeLinkLabel(text) {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}
+function hasAccessibleLinkLabel(link) {
+  return Boolean(link.text.trim() || link.ariaLabel?.trim() || link.title?.trim());
+}
+function hasAccessibleFormLabel(field) {
+  return Boolean(field.labelText?.trim() || field.ariaLabel?.trim() || field.ariaLabelledBy?.trim() || field.title?.trim());
+}
+var a11yHeadingMissingH1 = {
+  id: "wcag21-heading-structure",
+  title: "Page should contain one H1",
+  severity: "high",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    const headings = getHeadingSequence(context);
+    if (!headings.length || headings.some((heading) => heading.level === 1)) {
+      return [];
+    }
+    return [
+      createIssue(
+        a11yHeadingMissingH1,
+        "Page does not contain an H1 heading",
+        "No heading in the extracted heading sequence uses level 1"
+      )
+    ];
+  }
+};
+var a11yHeadingMultipleH1 = {
+  id: "wcag21-heading-multiple-h1",
+  title: "Page should not contain multiple H1s",
+  severity: "medium",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    const headings = getHeadingSequence(context);
+    const h1Count = headings.filter((heading) => heading.level === 1).length;
+    if (h1Count <= 1) {
+      return [];
+    }
+    return [
+      createIssue(
+        a11yHeadingMultipleH1,
+        `Page contains ${h1Count} H1 headings`,
+        `Heading sequence contains ${h1Count} level-one headings`
+      )
+    ];
+  }
+};
+var a11yHeadingEmptyText = {
+  id: "wcag21-heading-empty",
+  title: "Heading text should not be empty",
+  severity: "medium",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    const headings = getHeadingSequence(context);
+    return headings.filter((heading) => !heading.text.trim()).map(
+      (heading, index) => createIssue(
+        a11yHeadingEmptyText,
+        `Heading ${index + 1} is empty`,
+        `Extracted ${headingLabel(heading.level)} with no text content`
+      )
+    );
+  }
+};
+var a11yHeadingSkippedLevels = {
+  id: "wcag21-heading-skipped-levels",
+  title: "Heading levels should not skip levels",
+  severity: "medium",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    const headings = getHeadingSequence(context).filter((heading) => heading.text.trim());
+    if (headings.length < 2) {
+      return [];
+    }
+    const issues = [];
+    let previous = headings[0];
+    for (let index = 1; index < headings.length; index += 1) {
+      const current = headings[index];
+      if (current.level - previous.level > 1) {
+        issues.push(
+          createIssue(
+            a11yHeadingSkippedLevels,
+            `Heading level skips from ${headingLabel(previous.level)} to ${headingLabel(current.level)}`,
+            `Sequence jumped from ${headingLabel(previous.level)} to ${headingLabel(current.level)}`
+          )
+        );
+      }
+      previous = current;
+    }
+    return issues;
+  }
+};
+var a11yLinkMissingLabel = {
+  id: "wcag21-link-name",
+  title: "Link needs accessible text",
+  severity: "high",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    return context.links.filter((link) => !hasAccessibleLinkLabel(link)).map(
+      (link) => createIssue(
+        a11yLinkMissingLabel,
+        "Link has no accessible text",
+        `Link target ${link.href} has no visible text, aria-label, or title`
+      )
+    );
+  }
+};
+var a11yLinkVagueText = {
+  id: "wcag21-link-vague-text",
+  title: "Link text should be descriptive",
+  severity: "low",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    const vagueLabels = /* @__PURE__ */ new Set(["click here", "read more", "here", "more", "link", "learn more"]);
+    return context.links.filter((link) => {
+      const text = normalizeLinkLabel(link.text);
+      return text.length > 0 && vagueLabels.has(text) && !link.ariaLabel?.trim() && !link.title?.trim();
+    }).map(
+      (link) => createIssue(
+        a11yLinkVagueText,
+        "Link text is vague or non-descriptive",
+        `Link text "${link.text}" does not describe its destination`
+      )
+    );
+  }
+};
+var a11yLinkNonFunctional = {
+  id: "wcag21-link-non-functional",
+  title: "Link should point somewhere useful",
+  severity: "medium",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    return context.links.filter((link) => link.href.endsWith("#")).map(
+      (link) => createIssue(
+        a11yLinkNonFunctional,
+        "Link points to a non-functional fragment target",
+        `Link href ${link.href} ends with a fragment-only target`
+      )
+    );
+  }
+};
+var a11yFormMissingLabel = {
+  id: "wcag21-form-label",
+  title: "Form controls need labels",
+  severity: "high",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    return context.formInputs.filter((field) => !field.placeholder && !hasAccessibleFormLabel(field)).map(
+      (field) => createIssue(
+        a11yFormMissingLabel,
+        "Form control has no accessible label",
+        `Input type ${field.type} has no label, aria-label, aria-labelledby, or title`
+      )
+    );
+  }
+};
+var a11yFormPlaceholderOnly = {
+  id: "wcag21-form-placeholder-only",
+  title: "Placeholder-only inputs need labels",
+  severity: "medium",
+  domain: "WCAG2.1AA",
+  evaluate: (context) => {
+    return context.formInputs.filter((field) => Boolean(field.placeholder?.trim()) && !hasAccessibleFormLabel(field)).map(
+      (field) => createIssue(
+        a11yFormPlaceholderOnly,
+        "Form control relies on placeholder text only",
+        `Input type ${field.type} uses placeholder "${field.placeholder}" instead of a real label`
+      )
+    );
+  }
+};
 var uxButtonLabel = {
   id: "ux-button-label",
   title: "Buttons need accessible labels",
@@ -810,14 +1120,194 @@ var domRules = [
   seoCanonicalConsistency,
   a11yImagesAlt,
   a11yLangAttribute,
+  a11yHeadingMissingH1,
+  a11yHeadingMultipleH1,
+  a11yHeadingEmptyText,
+  a11yHeadingSkippedLevels,
+  a11yLinkMissingLabel,
+  a11yLinkVagueText,
+  a11yLinkNonFunctional,
+  a11yFormMissingLabel,
+  a11yFormPlaceholderOnly,
   uxButtonLabel,
   uxFormsRequiredLabel,
   aeoAnswerSummary,
-  aeoCanonicalLink
+  aeoCanonicalLink,
+  ...wcagStructuralRules
+];
+function headingLabel(level) {
+  return `h${level}`;
+}
+
+// src/shared/rules/security-headers.ts
+function getObservedSecurityHeaders(context) {
+  const headers = context.securityHeaders;
+  if (!headers?.observed) {
+    return void 0;
+  }
+  return headers;
+}
+function buildEvidence2(headerName, details) {
+  return `${headerName}: ${JSON.stringify(details)}`;
+}
+function hasUnsafeContentSecurityPolicy(policy) {
+  return /'unsafe-inline'|'unsafe-eval'/i.test(policy);
+}
+function isUnsafeReferrerPolicy(policy) {
+  const normalized = policy.trim().toLowerCase();
+  return normalized === "unsafe-url" || normalized === "no-referrer-when-downgrade";
+}
+var securityHeaderCspMissing = {
+  id: "security-header-csp-missing",
+  title: "Content Security Policy missing",
+  severity: "high",
+  domain: "security-headers",
+  evaluate: (context) => {
+    const headers = getObservedSecurityHeaders(context);
+    if (!headers) {
+      return [];
+    }
+    if ((headers.contentSecurityPolicy ?? "").trim()) {
+      return [];
+    }
+    return [
+      createIssue(
+        securityHeaderCspMissing,
+        "No enforced Content-Security-Policy header was observed",
+        buildEvidence2("Content-Security-Policy", {
+          observed: headers.observed,
+          value: headers.contentSecurityPolicy,
+          requestUrl: context.requestUrl
+        })
+      )
+    ];
+  }
+};
+var securityHeaderCspUnsafeInline = {
+  id: "security-header-csp-unsafe-inline",
+  title: "Content Security Policy allows unsafe inline script execution",
+  severity: "medium",
+  domain: "security-headers",
+  evaluate: (context) => {
+    const headers = getObservedSecurityHeaders(context);
+    if (!headers) {
+      return [];
+    }
+    const policy = headers?.contentSecurityPolicy?.trim();
+    if (!policy) {
+      return [];
+    }
+    if (!hasUnsafeContentSecurityPolicy(policy)) {
+      return [];
+    }
+    return [
+      createIssue(
+        securityHeaderCspUnsafeInline,
+        "CSP allows unsafe inline or eval execution",
+        buildEvidence2("Content-Security-Policy", {
+          observed: headers.observed,
+          value: policy,
+          finding: "unsafe-inline-or-eval"
+        })
+      )
+    ];
+  }
+};
+var securityHeaderHstsMissing = {
+  id: "security-header-hsts-missing",
+  title: "Strict-Transport-Security missing",
+  severity: "high",
+  domain: "security-headers",
+  evaluate: (context) => {
+    const headers = getObservedSecurityHeaders(context);
+    if (!headers) {
+      return [];
+    }
+    if (new URL(context.requestUrl).protocol !== "https:") {
+      return [];
+    }
+    if ((headers.strictTransportSecurity ?? "").trim()) {
+      return [];
+    }
+    return [
+      createIssue(
+        securityHeaderHstsMissing,
+        "No Strict-Transport-Security header was observed on an HTTPS page",
+        buildEvidence2("Strict-Transport-Security", {
+          observed: headers.observed,
+          value: headers.strictTransportSecurity,
+          requestUrl: context.requestUrl
+        })
+      )
+    ];
+  }
+};
+var securityHeaderReferrerPolicyMissing = {
+  id: "security-header-referrer-policy-missing",
+  title: "Referrer policy missing",
+  severity: "low",
+  domain: "security-headers",
+  evaluate: (context) => {
+    const headers = getObservedSecurityHeaders(context);
+    if (!headers) {
+      return [];
+    }
+    if ((headers.referrerPolicy ?? "").trim()) {
+      return [];
+    }
+    return [
+      createIssue(
+        securityHeaderReferrerPolicyMissing,
+        "No Referrer-Policy header was observed",
+        buildEvidence2("Referrer-Policy", {
+          observed: headers.observed,
+          value: headers.referrerPolicy,
+          requestUrl: context.requestUrl
+        })
+      )
+    ];
+  }
+};
+var securityHeaderReferrerPolicyUnsafe = {
+  id: "security-header-referrer-policy-unsafe",
+  title: "Referrer policy allows too much leakage",
+  severity: "medium",
+  domain: "security-headers",
+  evaluate: (context) => {
+    const headers = getObservedSecurityHeaders(context);
+    if (!headers) {
+      return [];
+    }
+    const policy = headers?.referrerPolicy?.trim();
+    if (!policy) {
+      return [];
+    }
+    if (!isUnsafeReferrerPolicy(policy)) {
+      return [];
+    }
+    return [
+      createIssue(
+        securityHeaderReferrerPolicyUnsafe,
+        "Referrer policy allows cross-site leakage",
+        buildEvidence2("Referrer-Policy", {
+          observed: headers.observed,
+          value: policy,
+          finding: "unsafe-referrer-policy"
+        })
+      )
+    ];
+  }
+};
+var securityHeaderRules = [
+  securityHeaderCspMissing,
+  securityHeaderCspUnsafeInline,
+  securityHeaderHstsMissing,
+  securityHeaderReferrerPolicyMissing,
+  securityHeaderReferrerPolicyUnsafe
 ];
 
 // src/shared/rules/registry.ts
-var allRules = [...domRules];
+var allRules = [...domRules, ...securityHeaderRules];
 
 // src/shared/rulesets/default-rulesets.json
 var default_rulesets_default = {
@@ -892,25 +1382,43 @@ var default_rulesets_default = {
     },
     {
       category: "security-headers",
-      enabled: false,
+      enabled: true,
       rules: [
         {
-          id: "sec-hsts-missing",
-          title: "Strict-Transport-Security header not enforced",
+          id: "security-header-csp-missing",
+          title: "Content Security Policy missing",
           severity: "high",
-          enabled: false
+          enabled: true
         },
         {
-          id: "sec-csp-missing",
-          title: "Content-Security-Policy header missing",
+          id: "security-header-csp-unsafe-inline",
+          title: "Content Security Policy allows unsafe inline script execution",
           severity: "medium",
-          enabled: false
+          enabled: true
+        },
+        {
+          id: "security-header-hsts-missing",
+          title: "Strict-Transport-Security missing",
+          severity: "high",
+          enabled: true
+        },
+        {
+          id: "security-header-referrer-policy-missing",
+          title: "Referrer policy missing",
+          severity: "low",
+          enabled: true
+        },
+        {
+          id: "security-header-referrer-policy-unsafe",
+          title: "Referrer policy allows too much leakage",
+          severity: "medium",
+          enabled: true
         }
       ]
     },
     {
       category: "WCAG2.1AA",
-      enabled: false,
+      enabled: true,
       rules: [
         {
           id: "wcag21-contrast-ratio",
@@ -923,6 +1431,60 @@ var default_rulesets_default = {
           title: "Focusable elements should be visibly focusable",
           severity: "low",
           enabled: false
+        },
+        {
+          id: "wcag21-heading-structure",
+          title: "Heading hierarchy should remain structural",
+          severity: "medium",
+          enabled: true
+        },
+        {
+          id: "wcag21-heading-multiple-h1",
+          title: "Page should not contain multiple H1s",
+          severity: "medium",
+          enabled: true
+        },
+        {
+          id: "wcag21-heading-empty",
+          title: "Heading text should not be empty",
+          severity: "medium",
+          enabled: true
+        },
+        {
+          id: "wcag21-heading-skipped-levels",
+          title: "Heading levels should not skip levels",
+          severity: "medium",
+          enabled: true
+        },
+        {
+          id: "wcag21-link-name",
+          title: "Links need discernible text",
+          severity: "medium",
+          enabled: true
+        },
+        {
+          id: "wcag21-link-vague-text",
+          title: "Link text should be descriptive",
+          severity: "low",
+          enabled: true
+        },
+        {
+          id: "wcag21-link-non-functional",
+          title: "Link should point somewhere useful",
+          severity: "medium",
+          enabled: true
+        },
+        {
+          id: "wcag21-form-label",
+          title: "Form controls need accessible labels",
+          severity: "high",
+          enabled: true
+        },
+        {
+          id: "wcag21-form-placeholder-only",
+          title: "Placeholder-only inputs need labels",
+          severity: "medium",
+          enabled: true
         }
       ]
     },
@@ -986,10 +1548,12 @@ var ScanOrchestrator = class {
   constructor(deps = {}) {
     this.deps = deps;
     this.fetcher = deps.fetcher;
+    this.securityHeaderFetcher = deps.securityHeaderFetcher;
     this.clock = deps.clock ?? (() => Date.now());
     this.backendClient = deps.backendClient;
   }
   fetcher;
+  securityHeaderFetcher;
   clock;
   backendClient;
   async runScan(request, pageContext, previousSnapshot, rulesetCatalog) {
@@ -997,7 +1561,8 @@ var ScanOrchestrator = class {
     const recommendation = recommendEngine(validated, pageContext);
     const effectiveRequest = this.enrichBackendRequest(validated, recommendation);
     const rules = this.selectRules(effectiveRequest, rulesetCatalog);
-    const localResult = runRules(rules, pageContext);
+    const enrichedContext = await this.enrichSecurityHeaderContext(pageContext, validated.url);
+    const localResult = runRules(rules, enrichedContext);
     let snapshot = localResult.snapshot;
     let crawlNodes;
     if (this.shouldUseBackend(effectiveRequest)) {
@@ -1052,6 +1617,53 @@ var ScanOrchestrator = class {
       return false;
     }
     return request.backend.enabled !== false;
+  }
+  async enrichSecurityHeaderContext(pageContext, requestUrl) {
+    if (pageContext.securityHeaders?.observed) {
+      return pageContext;
+    }
+    const securityHeaders = await this.probeSecurityHeaders(requestUrl);
+    if (!securityHeaders) {
+      return pageContext;
+    }
+    return {
+      ...pageContext,
+      securityHeaders
+    };
+  }
+  async probeSecurityHeaders(requestUrl) {
+    if (!this.securityHeaderFetcher) {
+      return void 0;
+    }
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(requestUrl);
+    } catch {
+      return void 0;
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return void 0;
+    }
+    try {
+      const response = await this.securityHeaderFetcher(parsedUrl.toString(), {
+        method: "HEAD",
+        redirect: "follow",
+        cache: "no-store"
+      });
+      return {
+        observed: true,
+        contentSecurityPolicy: response.headers.get("content-security-policy"),
+        strictTransportSecurity: response.headers.get("strict-transport-security"),
+        referrerPolicy: response.headers.get("referrer-policy")
+      };
+    } catch {
+      return {
+        observed: false,
+        contentSecurityPolicy: null,
+        strictTransportSecurity: null,
+        referrerPolicy: null
+      };
+    }
   }
   async runBackendScan(request, pageContext, rulesetCatalog) {
     if (!this.backendClient) {
@@ -1599,7 +2211,10 @@ function isPrivateOrRestrictedHost2(hostname) {
   if (LOOPBACK_HOSTS.has(normalized) || normalized.endsWith(".localhost")) {
     return true;
   }
-  if (normalized.startsWith("fe80") || normalized.startsWith("fc") || normalized.startsWith("fd")) {
+  if (normalized.includes(":") && /^fe[89ab]/.test(normalized)) {
+    return true;
+  }
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
     return true;
   }
   const ipv4 = normalized.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
@@ -1633,8 +2248,16 @@ function assertBackendEndpointAllowed(input) {
     };
   }
   const allowedHostset = new Set((allowedHosts ?? []).filter(Boolean).map((entry) => normalizeHost(entry)));
+  let pageHost;
   if (!allowedHostset.size && pageUrl) {
-    const pageHost = normalizeHost(new URL(pageUrl).hostname);
+    try {
+      pageHost = normalizeHost(new URL(pageUrl).hostname);
+    } catch {
+      return {
+        ok: false,
+        reason: "Page URL must be a valid absolute URL."
+      };
+    }
     if (host !== pageHost && !(isLoopbackHost(host) && pageHost.startsWith("127."))) {
       return {
         ok: false,
@@ -1842,7 +2465,13 @@ var RulesetCatalogManager = class {
       await this.storage.save(this.catalog);
       return this.catalog;
     }
-    return normalizeRuleSetIds(stored);
+    try {
+      const normalized = normalizeRuleSetIds(stored);
+      return normalized;
+    } catch {
+      await this.storage.save(this.catalog);
+      return this.catalog;
+    }
   }
 };
 var MemoryRulesetCatalogStorage = class {
@@ -2024,7 +2653,13 @@ var KnowledgeBaseManager = class {
       await this.storage.save(embedded);
       return embedded;
     }
-    return normalizeKnowledgeBaseCatalog(stored);
+    try {
+      return normalizeKnowledgeBaseCatalog(stored);
+    } catch {
+      const embedded = normalizeKnowledgeBaseCatalog(loadEmbeddedKnowledgeBase());
+      await this.storage.save(embedded);
+      return embedded;
+    }
   }
 };
 var MemoryKnowledgeBaseStorage = class {
@@ -2377,7 +3012,9 @@ async function handleMessage(message) {
           message.request.backend?.mode === "stdin" ? resolveBackendStdioExecutor(globalRuntime) : void 0
         );
         const orchestrator = new ScanOrchestrator({
-          backendClient
+          backendClient,
+          fetcher: globalRuntime.fetch,
+          securityHeaderFetcher: globalRuntime.fetch
         });
         const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : void 0;
         const catalog = await rulesetManager.getCatalog();

@@ -79,6 +79,16 @@ describe('popup startup', () => {
         };
       }
 
+      if (message.type === 'history:list') {
+        expect(message.origin).toBe('https://example.com');
+        return {
+          ok: true,
+          payload: {
+            snapshots: [snapshot]
+          }
+        };
+      }
+
       if (message.type === 'scan:start') {
         throw new Error('popup startup should not auto-scan');
       }

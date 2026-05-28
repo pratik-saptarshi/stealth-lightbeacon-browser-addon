@@ -5,6 +5,7 @@
 - Source validation against the live repo docs is complete.
 - Beads child issue decomposition is complete.
 - Playwright browser automation is now captured in `docs/roadmap/playwright-test-plan.md`.
+- Popup shell uplift tracking is captured in `docs/roadmap/popup-shell-uplift.md`.
 - Implementation of the roadmap items remains open.
 
 ## Validated Sources

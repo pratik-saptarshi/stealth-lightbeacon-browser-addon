@@ -212,7 +212,7 @@ describe('popup interactions', () => {
     }));
     const storageSet = vi.fn(async () => undefined);
     const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/page' }]);
-    const sendMessage = vi.fn(async (message: { type: string }) => {
+    const sendMessage = vi.fn(async (message: { type: string; format?: string }) => {
       if (message.type === 'history:compare') {
         return {
           ok: true,
@@ -225,6 +225,15 @@ describe('popup interactions', () => {
               regressions: [],
               improvements: []
             }
+          }
+        };
+      }
+
+      if (message.type === 'history:list') {
+        return {
+          ok: true,
+          payload: {
+            snapshots: [scannedSnapshot, cachedSnapshot]
           }
         };
       }
@@ -245,6 +254,21 @@ describe('popup interactions', () => {
               confidence: 0.4,
               reason: 'Fallback recommendation'
             }
+          }
+        };
+      }
+
+      if (message.type === 'report:build') {
+        return {
+          ok: true,
+          payload: {
+            report:
+              message.format === 'html'
+                ? '<!doctype html><html><body><h1>Scan Report</h1></body></html>'
+                : message.format === 'json'
+                  ? '{"scanId":"scan-live"}'
+                  : '# Scan Export',
+            format: message.format ?? 'markdown'
           }
         };
       }
@@ -434,6 +458,15 @@ describe('popup interactions', () => {
               regressions: [],
               improvements: []
             }
+          }
+        };
+      }
+
+      if (message.type === 'history:list') {
+        return {
+          ok: true,
+          payload: {
+            snapshots: [cachedSnapshot]
           }
         };
       }

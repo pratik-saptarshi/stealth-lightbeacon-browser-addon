@@ -98,14 +98,80 @@ describe('popup panel state', () => {
     });
   });
 
+  it('builds a panel model without delta data and clamps unchanged counts to zero', () => {
+    const model = buildPopupIssuePanelModel(snapshot, undefined, 'fallback');
+
+    expect(model.scanStatus).toBe('fallback');
+    expect(model.delta).toBeUndefined();
+
+    const zeroed = buildPopupIssuePanelModel(
+      {
+        ...snapshot,
+        summary: {
+          ...snapshot.summary,
+          total: 1
+        }
+      },
+      {
+        newIssues: [issues[0]],
+        resolvedIssues: [issues[1], issues[2]],
+        regressions: [],
+        improvements: [issues[3]]
+      }
+    );
+
+    expect(zeroed.delta).toEqual({
+      newCount: 1,
+      fixedCount: 3,
+      unchangedCount: 0
+    });
+  });
+
+  it('keeps sort order stable for same-domain, same-severity entries', () => {
+    const tieIssues: Issue[] = [
+      {
+        ...issues[1],
+        id: 'z',
+        ruleId: 'seo-100',
+        title: 'Duplicate title'
+      },
+      {
+        ...issues[1],
+        id: 'a',
+        ruleId: 'seo-001',
+        title: 'Duplicate title'
+      },
+      {
+        ...issues[1],
+        id: 'm',
+        ruleId: 'seo-050',
+        title: 'Duplicate title'
+      }
+    ];
+
+    const sorted = sortIssuesForPanel(tieIssues);
+    expect(sorted.map((issue) => issue.id)).toEqual(['a', 'm', 'z']);
+  });
+
   it('serializes selected issues for export', () => {
     expect(buildIssueExportJson([issues[0]], { scanId: 'scan-123', origin: snapshot.origin, url: snapshot.url, generatedAt: '2024-01-01T00:00:00.000Z' })).toContain(
       '"scanId": "scan-123"'
     );
+    expect(
+      buildIssueExportMarkdown(
+        [
+          {
+            ...issues[3],
+            selector: undefined
+          }
+        ],
+        { scanId: 'scan-123', origin: snapshot.origin, url: snapshot.url, generatedAt: '2024-01-01T00:00:00.000Z' }
+      )
+    ).not.toContain('Selector:');
     expect(buildIssueExportMarkdown([issues[0]], { scanId: 'scan-123', origin: snapshot.origin, url: snapshot.url, generatedAt: '2024-01-01T00:00:00.000Z' })).toContain(
       '## Issues'
     );
-    expect(collectSelectors(issues)).toEqual([
+    expect(collectSelectors([...issues, { ...issues[0], id: '5', selector: '  button.icon-only  ' }])).toEqual([
       'main > section:nth-child(2)',
       'button.icon-only',
       'head > meta[name="description"]'

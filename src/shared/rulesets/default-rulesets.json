@@ -70,25 +70,43 @@
     },
     {
       "category": "security-headers",
-      "enabled": false,
+      "enabled": true,
       "rules": [
         {
-          "id": "sec-hsts-missing",
-          "title": "Strict-Transport-Security header not enforced",
+          "id": "security-header-csp-missing",
+          "title": "Content Security Policy missing",
           "severity": "high",
-          "enabled": false
+          "enabled": true
         },
         {
-          "id": "sec-csp-missing",
-          "title": "Content-Security-Policy header missing",
+          "id": "security-header-csp-unsafe-inline",
+          "title": "Content Security Policy allows unsafe inline script execution",
           "severity": "medium",
-          "enabled": false
+          "enabled": true
+        },
+        {
+          "id": "security-header-hsts-missing",
+          "title": "Strict-Transport-Security missing",
+          "severity": "high",
+          "enabled": true
+        },
+        {
+          "id": "security-header-referrer-policy-missing",
+          "title": "Referrer policy missing",
+          "severity": "low",
+          "enabled": true
+        },
+        {
+          "id": "security-header-referrer-policy-unsafe",
+          "title": "Referrer policy allows too much leakage",
+          "severity": "medium",
+          "enabled": true
         }
       ]
     },
     {
       "category": "WCAG2.1AA",
-      "enabled": false,
+      "enabled": true,
       "rules": [
         {
           "id": "wcag21-contrast-ratio",
@@ -101,6 +119,60 @@
           "title": "Focusable elements should be visibly focusable",
           "severity": "low",
           "enabled": false
+        },
+        {
+          "id": "wcag21-heading-structure",
+          "title": "Heading hierarchy should remain structural",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-heading-multiple-h1",
+          "title": "Page should not contain multiple H1s",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-heading-empty",
+          "title": "Heading text should not be empty",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-heading-skipped-levels",
+          "title": "Heading levels should not skip levels",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-link-name",
+          "title": "Links need discernible text",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-link-vague-text",
+          "title": "Link text should be descriptive",
+          "severity": "low",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-link-non-functional",
+          "title": "Link should point somewhere useful",
+          "severity": "medium",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-form-label",
+          "title": "Form controls need accessible labels",
+          "severity": "high",
+          "enabled": true
+        },
+        {
+          "id": "wcag21-form-placeholder-only",
+          "title": "Placeholder-only inputs need labels",
+          "severity": "medium",
+          "enabled": true
         }
       ]
     },

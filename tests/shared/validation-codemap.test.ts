@@ -48,6 +48,9 @@ describe('validation codemap', () => {
     expect(markdown).toContain('contrast');
     expect(markdown).toContain('ARIA');
     expect(markdown).toContain('keyboard');
+    expect(markdown).toContain('heading structure');
+    expect(markdown).toContain('link text');
+    expect(markdown).toContain('form labels');
     expect(markdown).toContain('security headers');
   });
 });
