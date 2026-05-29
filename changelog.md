@@ -3,6 +3,14 @@
 ## Unreleased
 - Ongoing roadmap and validation follow-ups remain tracked in `docs/roadmap/`.
 
+## 0.1.8 — 2026-05-29
+- Fixed validation reliability in constrained environments by adding explicit Chromium path discovery (`/usr/local/bin/chromium`) across Playwright config and launch scripts.
+- Hardened extension smoke validation to gracefully fall back to jsdom axe checks when Playwright browser launch is unavailable.
+- Filtered known jsdom-only axe false positives (`aria-allowed-role`) in fallback mode while preserving strict browser-mode checks.
+- Corrected popup tab-shell test expectations after restored history rendering so unit/integration coverage suites pass.
+- Added `pnpm-workspace.yaml` with `allowBuilds.esbuild=true` to unblock pnpm install/build-script execution in modern pnpm policy mode.
+- Bumped release metadata to `0.1.8` in `package.json` and `manifest.json`.
+
 ## 0.1.7 — 2026-05-28
 - Restored popup actions for HTML export, collapse/expand controls, and run-history rendering.
 - Reconnected runtime report generation (`report:build`) for HTML export from the popup.

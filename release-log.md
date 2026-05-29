@@ -1,3 +1,17 @@
+## 0.1.8 — 2026-05-29
+- Prepared a stability-focused public release that fixes environmental blockers for local validation.
+- Synchronized version metadata to `0.1.8` in `package.json` and `manifest.json`.
+- Added Chromium path discovery (`/usr/local/bin/chromium`) in Playwright and launcher config for installed-browser execution paths.
+- Added resilient smoke fallback: Playwright launch failures now degrade to jsdom + axe validation instead of hard-failing.
+- Filtered jsdom-only accessibility false positives (`aria-allowed-role`) in fallback mode.
+- Added `pnpm-workspace.yaml` with `allowBuilds.esbuild=true` for pnpm build-script approval compatibility.
+- Fixed popup tab-shell history-entry expectation to align with restored history rendering behavior.
+- Validation snapshot:
+  - `PLAYWRIGHT_CHROME_EXECUTABLE_PATH=/usr/local/bin/chromium CHROME_BIN=/usr/local/bin/chromium pnpm run test:unit --coverage` ✅
+  - `PLAYWRIGHT_CHROME_EXECUTABLE_PATH=/usr/local/bin/chromium CHROME_BIN=/usr/local/bin/chromium pnpm run test:integration --coverage` ✅
+  - `pnpm run build` ✅
+  - `PLAYWRIGHT_CHROME_EXECUTABLE_PATH=/usr/local/bin/chromium CHROME_BIN=/usr/local/bin/chromium pnpm run test:ui-load` ✅ (fallback mode)
+
 ## 0.1.7 — 2026-05-28
 - Prepared a versioned public release aligned with the popup behavior-restoration hotfix.
 - Synchronized version metadata to `0.1.7` in `package.json`, `package-lock.json`, and `manifest.json`.
