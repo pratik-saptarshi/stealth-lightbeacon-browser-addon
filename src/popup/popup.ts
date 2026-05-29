@@ -9,6 +9,7 @@ import {
   type PopupUiState,
   type PopupScanStatus
 } from './popup-state';
+import { buildReport } from '../ui/export';
 import {
   BACKEND_SETTINGS_STORAGE_KEY,
   buildBackendRequestFromSettings,
@@ -26,7 +27,9 @@ import {
 } from '../shared/panel-settings';
 import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-trace';
 import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
-import type { HistoryCompareReply, ScanStartReply } from '../shared/message-contracts';
+import type { HistoryCompareReply, HistoryListReply, ReportBuildReply, ScanStartReply } from '../shared/message-contracts';
+
+type PopupTab = 'overview' | 'connection' | 'results' | 'settings';
 
 type PopupRuntime = {
   chrome?: {
@@ -66,16 +69,19 @@ type PopupRuntime = {
 type PopupState = {
   status: PopupScanStatus;
   scanId: string;
+  activeTab: PopupTab;
   tabId?: number;
   tabUrl?: string;
   snapshot?: ScanSnapshot;
   diff?: DiffResult;
+  historySnapshots: ScanSnapshot[];
   selectedIssueIds: Set<string>;
   error?: string;
   note?: string;
   backendSettings: BackendSettingsForm;
   panelSettings: PanelSettingsForm;
   settingsOpen: boolean;
+  resultsExpanded: boolean;
   settingsFocusTarget: 'toggle' | 'close' | null;
 };
 
@@ -84,10 +90,13 @@ const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unk
 const state: PopupState = {
   status: 'idle',
   scanId: '',
+  activeTab: 'overview',
+  historySnapshots: [],
   selectedIssueIds: new Set(),
   backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
   settingsOpen: false,
+  resultsExpanded: true,
   settingsFocusTarget: null
 };
 
@@ -105,11 +114,18 @@ const dom = {
   controlsSection: null as HTMLElement | null,
   footer: null as HTMLElement | null,
   issuesPanel: null as HTMLElement | null,
+  overviewPanel: null as HTMLElement | null,
+  connectionPanel: null as HTMLElement | null,
+  resultsPanel: null as HTMLElement | null,
+  historyPanel: null as HTMLElement | null,
   rescanButton: null as HTMLButtonElement | null,
   exportJsonButton: null as HTMLButtonElement | null,
   exportMarkdownButton: null as HTMLButtonElement | null,
+  exportHtmlButton: null as HTMLButtonElement | null,
   exportPdfButton: null as HTMLButtonElement | null,
   copySelectorsButton: null as HTMLButtonElement | null,
+  collapseResultsButton: null as HTMLButtonElement | null,
+  expandResultsButton: null as HTMLButtonElement | null,
   settingsToggleButton: null as HTMLButtonElement | null,
   settingsCloseButton: null as HTMLButtonElement | null,
   settingsPanel: null as HTMLElement | null,
@@ -125,7 +141,8 @@ const dom = {
   backendRequired: null as HTMLInputElement | null,
   openApiSpecLink: null as HTMLAnchorElement | null,
   themeInputs: [] as HTMLInputElement[],
-  visibilityInputs: [] as HTMLInputElement[]
+  visibilityInputs: [] as HTMLInputElement[],
+  tabButtons: [] as HTMLButtonElement[]
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -140,6 +157,10 @@ function bindDom(): void {
   dom.statusLine = document.getElementById('status-line');
   dom.settingsToggleButton = document.getElementById('settings-toggle-button') as HTMLButtonElement | null;
   dom.settingsCloseButton = document.getElementById('settings-close-button') as HTMLButtonElement | null;
+  dom.overviewPanel = document.getElementById('overview-panel');
+  dom.connectionPanel = document.getElementById('connection-panel');
+  dom.resultsPanel = document.getElementById('results-panel');
+  dom.historyPanel = document.getElementById('history-panel');
   dom.settingsPanel = document.getElementById('settings-panel');
   dom.backendSettingsSection = document.getElementById('backend-settings-section');
   dom.bugReportLink = document.getElementById('bug-report-link') as HTMLAnchorElement | null;
@@ -153,8 +174,11 @@ function bindDom(): void {
   dom.rescanButton = document.getElementById('rescan-button') as HTMLButtonElement | null;
   dom.exportJsonButton = document.getElementById('export-json-button') as HTMLButtonElement | null;
   dom.exportMarkdownButton = document.getElementById('export-markdown-button') as HTMLButtonElement | null;
+  dom.exportHtmlButton = document.getElementById('export-html-button') as HTMLButtonElement | null;
   dom.exportPdfButton = document.getElementById('export-pdf-button') as HTMLButtonElement | null;
   dom.copySelectorsButton = document.getElementById('copy-selectors-button') as HTMLButtonElement | null;
+  dom.collapseResultsButton = document.getElementById('collapse-results-button') as HTMLButtonElement | null;
+  dom.expandResultsButton = document.getElementById('expand-results-button') as HTMLButtonElement | null;
   dom.backendEnabled = document.getElementById('backend-enabled') as HTMLInputElement | null;
   dom.backendMode = document.getElementById('backend-mode') as HTMLSelectElement | null;
   dom.backendEndpoint = document.getElementById('backend-endpoint') as HTMLInputElement | null;
@@ -166,6 +190,7 @@ function bindDom(): void {
   dom.openApiSpecLink = document.getElementById('openapi-spec-link') as HTMLAnchorElement | null;
   dom.themeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-theme-setting]'));
   dom.visibilityInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-visibility-setting]'));
+  dom.tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-popup-tab]'));
 }
 
 function bindActions(): void {
@@ -179,6 +204,7 @@ function bindActions(): void {
 
   dom.settingsCloseButton?.addEventListener('click', () => {
     state.settingsOpen = false;
+    state.activeTab = 'overview';
     popupUiSettingsTouched = true;
     state.settingsFocusTarget = 'toggle';
     render();
@@ -209,6 +235,10 @@ function bindActions(): void {
     void exportCurrentSelection('markdown');
   });
 
+  dom.exportHtmlButton?.addEventListener('click', () => {
+    void downloadCurrentReport('html');
+  });
+
   dom.exportPdfButton?.addEventListener('click', () => {
     void exportCurrentSelection('pdf');
   });
@@ -217,7 +247,34 @@ function bindActions(): void {
     void copySelectedSelectors();
   });
 
+  dom.collapseResultsButton?.addEventListener('click', () => {
+    state.resultsExpanded = false;
+    render();
+  });
+
+  dom.expandResultsButton?.addEventListener('click', () => {
+    state.resultsExpanded = true;
+    render();
+  });
+
+  for (const button of dom.tabButtons) {
+    button.addEventListener('click', () => {
+      const tab = button.dataset.popupTab as PopupTab | undefined;
+      if (!tab) {
+        return;
+      }
+
+      setActiveTab(tab);
+    });
+  }
+
   bindSettingsInputs();
+}
+
+function setActiveTab(tab: PopupTab): void {
+  state.activeTab = tab;
+  state.settingsOpen = tab === 'settings';
+  render();
 }
 
 export async function initialize(): Promise<void> {
@@ -303,15 +360,20 @@ async function startScan(manual: boolean): Promise<void> {
         throw new Error(reply.error);
       }
 
-    state.snapshot = reply.payload.snapshot;
-    state.diff = reply.payload.diff;
-    state.selectedIssueIds.clear();
-    state.status = inferStatus(reply.payload);
-    state.note = reply.payload.recommendation
-      ? `Backend recommendation: ${reply.payload.recommendation.engine}`
-      : 'Scan complete';
-    void persistPopupUiState();
-    render();
+      state.snapshot = reply.payload.snapshot;
+      state.diff = reply.payload.diff;
+      state.historySnapshots = [
+        reply.payload.snapshot,
+        ...state.historySnapshots.filter((snapshot) => snapshot.id !== reply.payload.snapshot.id)
+      ];
+      state.selectedIssueIds.clear();
+      state.status = inferStatus(reply.payload);
+      state.note = reply.payload.recommendation
+        ? `Backend recommendation: ${reply.payload.recommendation.engine}`
+        : 'Scan complete';
+      state.activeTab = 'results';
+      void persistPopupUiState();
+      render();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       state.error = message;
@@ -324,16 +386,17 @@ async function startScan(manual: boolean): Promise<void> {
 
 async function hydrateStartupState(): Promise<void> {
   try {
-    const [backendSettings, panelSettings, popupUiState, loadedCachedScan] = await Promise.all([
+    const [backendSettings, panelSettings, popupUiState, loadedCachedScan, historySnapshots] = await Promise.all([
       loadBackendSettings(),
       loadPanelSettings(),
       loadPopupUiState(),
-      loadCachedScanFromHistory()
+      loadCachedScanFromHistory(),
+      loadHistoryFromHistory()
     ]);
 
     state.backendSettings = backendSettings;
     state.panelSettings = panelSettings;
-    applyPopupUiState(popupUiState);
+    state.historySnapshots = historySnapshots;
 
     if (!loadedCachedScan) {
       state.snapshot = undefined;
@@ -341,8 +404,12 @@ async function hydrateStartupState(): Promise<void> {
       state.selectedIssueIds.clear();
       state.status = 'idle';
       state.note = 'No cached scan found. Click Rescan to scan the active tab.';
+      state.activeTab = 'overview';
+    } else {
+      state.activeTab = 'results';
     }
 
+    applyPopupUiState(popupUiState);
     render();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -391,6 +458,9 @@ function render(options?: { offline?: boolean; statusLine?: string; lightweight?
       dom.rescanButton.disabled = state.status === 'loading' || !hasExtensionRuntime();
     }
 
+    renderTabNavigation();
+    renderTabPanels();
+
     if (options?.lightweight) {
       return;
     }
@@ -403,11 +473,22 @@ function render(options?: { offline?: boolean; statusLine?: string; lightweight?
       dom.exportMarkdownButton.disabled = !state.snapshot;
     }
 
+    if (dom.exportHtmlButton) {
+      dom.exportHtmlButton.disabled = !state.snapshot;
+    }
+
+    if (dom.exportPdfButton) {
+      dom.exportPdfButton.disabled = !state.snapshot;
+    }
+
     if (dom.copySelectorsButton) {
       dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
     }
 
     renderPanelSettings();
+    renderOverviewPanel();
+    renderConnectionPanel();
+    renderHistoryPanel();
 
     renderSummary();
     renderDelta();
@@ -416,6 +497,178 @@ function render(options?: { offline?: boolean; statusLine?: string; lightweight?
   } finally {
     trace.end(state.snapshot ? `issues=${state.snapshot.summary.total}` : 'empty');
   }
+}
+
+function renderTabNavigation(): void {
+  for (const button of dom.tabButtons) {
+    const tab = button.dataset.popupTab as PopupTab | undefined;
+    const selected = tab === state.activeTab;
+    button.setAttribute('aria-selected', String(selected));
+    button.classList.toggle('is-active', selected);
+  }
+
+  if (dom.settingsToggleButton) {
+    dom.settingsToggleButton.setAttribute('aria-expanded', String(state.activeTab === 'settings'));
+  }
+}
+
+function renderTabPanels(): void {
+  const setPanelHidden = (panel: HTMLElement | null | undefined, hidden: boolean) => {
+    if (!panel) {
+      return;
+    }
+
+    panel.classList.toggle('hidden', hidden);
+  };
+
+  setPanelHidden(dom.overviewPanel, state.activeTab !== 'overview');
+  setPanelHidden(dom.connectionPanel, state.activeTab !== 'connection');
+  setPanelHidden(dom.resultsPanel, state.activeTab !== 'results');
+  setPanelHidden(dom.settingsPanel, state.activeTab !== 'settings');
+}
+
+function renderOverviewPanel(): void {
+  if (!dom.overviewPanel) {
+    return;
+  }
+
+  const snapshot = state.snapshot;
+  const issueCount = snapshot?.summary.total ?? 0;
+  const historyCount = state.historySnapshots.length;
+  const backendMode = state.backendSettings.enabled
+    ? state.backendSettings.mode === 'stdin'
+      ? 'Standalone stdin mode'
+      : 'Remote HTTP backend'
+    : 'Local-only audit mode';
+
+  dom.overviewPanel.innerHTML = `
+    <section class="overview-grid" aria-label="Popup overview">
+      <article class="info-card">
+        <p class="eyebrow">Connection</p>
+        <h2>Standalone audit</h2>
+        <p>${escapeHtml(
+          state.backendSettings.enabled && state.backendSettings.mode === 'stdin'
+            ? 'Run locally with the packaged stdin adapter and bundled rules.'
+            : 'Run locally without an external dependency, or switch to HTTP when needed.'
+        )}</p>
+        <button type="button" data-popup-tab="connection">Open Connection</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Results</p>
+        <h2>Recent runs and reports</h2>
+        <p>${escapeHtml(`Review ${historyCount} saved runs, collapse issue groups, and download standard reports.`)}</p>
+        <button type="button" data-popup-tab="results">Open Results</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Settings</p>
+        <h2>Theme grid and visibility</h2>
+        <p>Adjust colors, toggle optional sections, and keep the popup compact on smaller screens.</p>
+        <button type="button" data-popup-tab="settings">Open Settings</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Current state</p>
+        <h2>${escapeHtml(snapshot ? snapshot.url : 'No scan yet')}</h2>
+        <p>${escapeHtml(snapshot ? `${issueCount} issues · ${snapshot.engine}` : state.note ?? 'Waiting for a scan')}</p>
+        <p>${escapeHtml(`Mode: ${backendMode}`)}</p>
+      </article>
+    </section>
+  `;
+
+  dom.overviewPanel.querySelectorAll<HTMLButtonElement>('button[data-popup-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const tab = button.dataset.popupTab as PopupTab | undefined;
+      if (tab) {
+        setActiveTab(tab);
+      }
+    });
+  });
+}
+
+function renderConnectionPanel(): void {
+  if (!dom.connectionPanel) {
+    return;
+  }
+
+  if (dom.connectionPanel.classList.contains('hidden')) {
+    return;
+  }
+
+  const standalone = !state.backendSettings.enabled || state.backendSettings.mode === 'stdin';
+  const modeLabel = state.backendSettings.enabled
+    ? state.backendSettings.mode === 'stdin'
+      ? 'Standalone stdin engine'
+      : 'Remote HTTP backend'
+    : 'Standalone local-only audit mode';
+  const summary =
+    standalone && state.backendSettings.enabled
+      ? 'Standalone execution is enabled. The service worker can run the audit locally through the packaged stdin adapter, parse testrun output, and keep reporting offline.'
+      : state.backendSettings.enabled
+        ? 'Backend settings are configured for a remote HTTP endpoint, but the popup still retains local audit and report generation capabilities.'
+        : 'Standalone execution is available without an external dependency. The popup can run an audit locally and still produce standard reports.';
+
+  const summaryHost = dom.connectionPanel.querySelector<HTMLElement>('#connection-summary');
+  if (summaryHost) {
+    summaryHost.innerHTML = `
+      <article class="connection-callout">
+        <p class="eyebrow">Connection state</p>
+        <h2>${escapeHtml(modeLabel)}</h2>
+        <p>${escapeHtml(summary)}</p>
+        <ul>
+          <li>Bundled rules remain available in the popup and service worker.</li>
+          <li>History lookups and report generation use the background message bridge.</li>
+          <li>Markdown, HTML, JSON, and PDF outputs stay available for saved runs.</li>
+        </ul>
+      </article>
+    `;
+  }
+}
+
+function renderHistoryPanel(): void {
+  if (!dom.historyPanel) {
+    return;
+  }
+
+  if (!state.historySnapshots.length) {
+    dom.historyPanel.innerHTML = `<section class="history-empty" data-testid="history-empty">No saved runs yet.</section>`;
+    return;
+  }
+
+  dom.historyPanel.innerHTML = state.historySnapshots
+    .map((snapshot, index) => {
+      const isLatest = index === 0;
+      return `
+        <details class="history-entry" data-testid="history-entry" ${state.resultsExpanded ? 'open' : ''}>
+          <summary>
+            <div>
+              <span class="history-title">${escapeHtml(snapshot.url)}</span>
+              <span class="history-meta">${new Date(snapshot.timestamp).toLocaleString()} · ${snapshot.summary.total} issues · ${escapeHtml(snapshot.engine)}</span>
+            </div>
+            <div class="history-actions" aria-label="Report downloads">
+              <button type="button" data-history-report="json" data-history-index="${index}">JSON</button>
+              <button type="button" data-history-report="markdown" data-history-index="${index}">Markdown</button>
+              <button type="button" data-history-report="html" data-history-index="${index}">HTML</button>
+              <button type="button" data-history-report="pdf" data-history-index="${index}">PDF</button>
+              ${isLatest ? '<span class="history-badge">Latest</span>' : ''}
+            </div>
+          </summary>
+        </details>
+      `;
+    })
+    .join('');
+
+  dom.historyPanel.querySelectorAll<HTMLButtonElement>('button[data-history-report]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const index = Number(button.dataset.historyIndex ?? '0');
+      const snapshot = state.historySnapshots[index];
+      const format = button.dataset.historyReport as 'json' | 'markdown' | 'html' | 'pdf' | undefined;
+      if (!snapshot || !format) {
+        return;
+      }
+
+      void downloadReportForSnapshot(snapshot, format);
+    });
+  });
 }
 
 function renderSummary(): void {
@@ -497,8 +750,8 @@ function renderIssues(): void {
 
   dom.issuesPanel.innerHTML = model.domains
     .map(
-      (domain, index) => `
-        <details class="domain-card" ${index === 0 ? 'open' : ''} data-testid="issue-domain">
+      (domain) => `
+        <details class="domain-card" ${state.resultsExpanded ? 'open' : ''} data-testid="issue-domain">
           <summary>
             <div>
               <span class="domain-name">${escapeHtml(domain.domain)}</span>
@@ -728,6 +981,35 @@ async function loadCachedScanFromHistory(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function loadHistoryFromHistory(): Promise<ScanSnapshot[]> {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+    return [];
+  }
+
+  try {
+    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+    const activeTab = activeTabs[0];
+    if (!activeTab?.url) {
+      return [];
+    }
+
+    const origin = new URL(activeTab.url).origin;
+    const reply = (await runtime.runtime.sendMessage({
+      type: 'history:list',
+      origin
+    })) as HistoryListReply;
+
+    if (!reply.ok) {
+      return [];
+    }
+
+    return [...(reply.payload.snapshots ?? [])].sort((left, right) => right.timestamp - left.timestamp);
+  } catch {
+    return [];
   }
 }
 
@@ -1002,6 +1284,83 @@ async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Prom
 
   const extension = format === 'json' ? 'json' : 'md';
   downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
+}
+
+async function downloadCurrentReport(format: 'json' | 'markdown' | 'html' | 'pdf'): Promise<void> {
+  if (!state.snapshot) {
+    return;
+  }
+
+  await downloadReportForSnapshot(state.snapshot, format, state.diff);
+}
+
+async function downloadReportForSnapshot(
+  snapshot: ScanSnapshot,
+  format: 'json' | 'markdown' | 'html' | 'pdf',
+  diff?: DiffResult
+): Promise<void> {
+  const generatedAt = new Date(snapshot.timestamp).toISOString();
+  const runtime = getRuntime();
+
+  if (format === 'pdf') {
+    const { buildReportPdfBlob } = await import('../ui/pdf');
+    const blob = buildReportPdfBlob({
+      generatedAt,
+      snapshot,
+      diff
+    });
+    downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.pdf`);
+    return;
+  }
+
+  const report =
+    runtime?.runtime?.sendMessage
+      ? await buildReportFromRuntime(snapshot, format, diff, runtime.runtime.sendMessage)
+      : buildReport(
+          {
+            generatedAt,
+            snapshot,
+            diff
+          },
+          format
+        );
+
+  const extension = format === 'html' ? 'html' : format === 'json' ? 'json' : 'md';
+  const blob = new Blob([report], {
+    type: format === 'html' ? 'text/html;charset=utf-8' : 'text/plain;charset=utf-8'
+  });
+  downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.${extension}`);
+}
+
+async function buildReportFromRuntime(
+  snapshot: ScanSnapshot,
+  format: 'json' | 'markdown' | 'html',
+  diff: DiffResult | undefined,
+  sendMessage: (message: unknown) => Promise<unknown>
+): Promise<string> {
+  try {
+    const reply = (await sendMessage({
+      type: 'report:build',
+      snapshot,
+      diff,
+      format
+    })) as ReportBuildReply;
+
+    if (reply.ok) {
+      return reply.payload.report;
+    }
+  } catch {
+    // Fall back to the local renderer below.
+  }
+
+  return buildReport(
+    {
+      generatedAt: new Date(snapshot.timestamp).toISOString(),
+      snapshot,
+      diff
+    },
+    format
+  );
 }
 
 async function copySelectedSelectors(): Promise<void> {
