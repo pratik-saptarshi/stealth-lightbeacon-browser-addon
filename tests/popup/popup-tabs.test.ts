@@ -507,7 +507,7 @@ describe('popup tab shell', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.waitFor(() => {
-      expect(document.querySelectorAll('[data-testid="history-entry"]').length).toBe(0);
+      expect(document.querySelectorAll('[data-testid="history-entry"]').length).toBe(2);
       expect(document.querySelectorAll('[data-testid="issue-domain"]').length).toBeGreaterThan(0);
     });
 

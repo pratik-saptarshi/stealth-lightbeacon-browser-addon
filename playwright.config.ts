@@ -4,6 +4,7 @@ import { defineConfig } from '@playwright/test';
 const chromeExecutablePath = [
   process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH,
   process.env.CHROME_BIN,
+  '/usr/local/bin/chromium',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Chromium.app/Contents/MacOS/Chromium'
 ].find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));

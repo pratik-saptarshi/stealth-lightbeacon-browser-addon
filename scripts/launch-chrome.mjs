@@ -8,6 +8,7 @@ const extensionDir = resolve(projectRoot, 'dist');
 const chromeCandidates = [
   process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH,
   process.env.CHROME_BIN,
+  '/usr/local/bin/chromium',
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Chromium.app/Contents/MacOS/Chromium'
 ].filter(Boolean);

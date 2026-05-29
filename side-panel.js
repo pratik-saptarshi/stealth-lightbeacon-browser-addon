@@ -373,6 +373,138 @@ function toIterableArray(input) {
   return [];
 }
 
+// src/ui/export.ts
+function toJsonExport(bundle) {
+  return JSON.stringify(bundle, null, 2);
+}
+function toHtmlExport(bundle) {
+  const lines = [
+    "<!doctype html>",
+    '<html lang="en">',
+    '<head><meta charset="utf-8" /><title>Scan Report</title></head>',
+    "<body>",
+    `<h1>Scan Report</h1>`,
+    `<p><strong>URL:</strong> ${bundle.snapshot.url}</p>`,
+    `<p><strong>Origin:</strong> ${bundle.snapshot.origin}</p>`,
+    `<p><strong>Engine:</strong> ${bundle.snapshot.engine}</p>`,
+    `<p><strong>Timestamp:</strong> ${new Date(bundle.snapshot.timestamp).toISOString()}</p>`,
+    `<h2>Summary</h2>`,
+    `<ul>`,
+    `<li>Total issues: ${bundle.snapshot.summary.total}</li>`,
+    `<li>Critical: ${bundle.snapshot.summary.bySeverity.critical}</li>`,
+    `<li>High: ${bundle.snapshot.summary.bySeverity.high}</li>`,
+    `<li>Medium: ${bundle.snapshot.summary.bySeverity.medium}</li>`,
+    `<li>Low: ${bundle.snapshot.summary.bySeverity.low}</li>`,
+    `</ul>`,
+    "<h2>Issues</h2>"
+  ];
+  for (const issue of bundle.snapshot.issues) {
+    lines.push(`<h3>[${issue.severity}] ${issue.title}</h3>`);
+    lines.push(`<p><strong>Rule:</strong> ${issue.ruleId}</p>`);
+    lines.push(`<p>${issue.summary}</p>`);
+    lines.push(`<p><small>${issue.domain}</small> ${issue.evidence}</p>`);
+  }
+  if (bundle.diff) {
+    lines.push("<h2>Diff</h2>");
+    lines.push(`<p>New: ${bundle.diff.newIssues.length}</p>`);
+    lines.push(`<p>Resolved: ${bundle.diff.resolvedIssues.length}</p>`);
+    lines.push(`<p>Regressions: ${bundle.diff.regressions.length}</p>`);
+    lines.push(`<p>Improvements: ${bundle.diff.improvements.length}</p>`);
+  }
+  lines.push("</body></html>");
+  return lines.join("\n");
+}
+function toLlmMarkdownExport(bundle) {
+  const lines = [
+    "# Audit Findings",
+    `URL: ${bundle.snapshot.url}`,
+    `Generated: ${new Date(bundle.snapshot.timestamp).toISOString()}`,
+    "",
+    "## Prioritized Issue List",
+    ...bundle.snapshot.issues.map((issue) => `- (${issue.severity}) ${issue.title} \u2014 ${issue.summary}`),
+    ""
+  ];
+  if (bundle.diff) {
+    lines.push("## Delta");
+    lines.push(`new: ${bundle.diff.newIssues.length}`);
+    lines.push(`resolved: ${bundle.diff.resolvedIssues.length}`);
+    lines.push(`regressions: ${bundle.diff.regressions.length}`);
+    lines.push(`improvements: ${bundle.diff.improvements.length}`);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+function toGeoXmlExport(bundle) {
+  const issues = bundle.snapshot.issues.map(
+    (issue) => `    <issue id="${issue.id}" ruleId="${issue.ruleId}" severity="${issue.severity}" domain="${issue.domain}">
+      <summary>${xmlEscape(issue.summary)}</summary>
+      <evidence>${xmlEscape(issue.evidence)}</evidence>
+    </issue>`
+  ).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<geoReport>
+  <scan url="${xmlEscape(bundle.snapshot.url)}" engine="${bundle.snapshot.engine}" timestamp="${new Date(bundle.snapshot.timestamp).toISOString()}">
+    <summary total="${bundle.snapshot.summary.total}" critical="${bundle.snapshot.summary.bySeverity.critical}" high="${bundle.snapshot.summary.bySeverity.high}" medium="${bundle.snapshot.summary.bySeverity.medium}" low="${bundle.snapshot.summary.bySeverity.low}" />
+  </scan>
+  <issues>
+${issues}
+  </issues>
+</geoReport>`;
+}
+function xmlEscape(input) {
+  return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+function buildReport(bundle, format) {
+  switch (format) {
+    case "json":
+      return toJsonExport(bundle);
+    case "html":
+      return toHtmlExport(bundle);
+    case "llm-markdown":
+      return toLlmMarkdownExport(bundle);
+    case "geo-xml":
+      return toGeoXmlExport(bundle);
+    default:
+      return toMarkdownExport(bundle);
+  }
+}
+function toMarkdownExport(bundle) {
+  const lines = [
+    `# Scan Export`,
+    `- URL: ${bundle.snapshot.url}`,
+    `- Origin: ${bundle.snapshot.origin}`,
+    `- Engine: ${bundle.snapshot.engine}`,
+    `- Timestamp: ${new Date(bundle.snapshot.timestamp).toISOString()}`,
+    "",
+    `## Summary`,
+    `- Total issues: ${bundle.snapshot.summary.total}`,
+    `- Critical: ${bundle.snapshot.summary.bySeverity.critical}`,
+    `- High: ${bundle.snapshot.summary.bySeverity.high}`,
+    `- Medium: ${bundle.snapshot.summary.bySeverity.medium}`,
+    `- Low: ${bundle.snapshot.summary.bySeverity.low}`,
+    ""
+  ];
+  const byDomain = /* @__PURE__ */ new Map();
+  for (const issue of bundle.snapshot.issues) {
+    const bucket = byDomain.get(issue.domain) ?? [];
+    bucket.push(`- [${issue.severity}] **${issue.title}**: ${issue.summary}`);
+    byDomain.set(issue.domain, bucket);
+  }
+  for (const [domain, bulletPoints] of byDomain.entries()) {
+    lines.push(`## ${domain}`);
+    lines.push(...bulletPoints);
+    lines.push("");
+  }
+  if (bundle.diff) {
+    lines.push("## Diff");
+    lines.push(`- New: ${bundle.diff.newIssues.length}`);
+    lines.push(`- Resolved: ${bundle.diff.resolvedIssues.length}`);
+    lines.push(`- Regressions: ${bundle.diff.regressions.length}`);
+    lines.push(`- Improvements: ${bundle.diff.improvements.length}`);
+  }
+  return lines.join("\n");
+}
+
 // src/shared/backend-settings.ts
 var BACKEND_SETTINGS_STORAGE_KEY = "addon_backend_settings";
 var DEFAULT_BACKEND_SETTINGS = {
@@ -592,10 +724,13 @@ var runtimeHost = typeof globalThis === "undefined" ? {} : globalThis;
 var state = {
   status: "idle",
   scanId: "",
+  activeTab: "overview",
+  historySnapshots: [],
   selectedIssueIds: /* @__PURE__ */ new Set(),
   backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
   settingsOpen: false,
+  resultsExpanded: true,
   settingsFocusTarget: null
 };
 var startupHydration;
@@ -611,11 +746,18 @@ var dom = {
   controlsSection: null,
   footer: null,
   issuesPanel: null,
+  overviewPanel: null,
+  connectionPanel: null,
+  resultsPanel: null,
+  historyPanel: null,
   rescanButton: null,
   exportJsonButton: null,
   exportMarkdownButton: null,
+  exportHtmlButton: null,
   exportPdfButton: null,
   copySelectorsButton: null,
+  collapseResultsButton: null,
+  expandResultsButton: null,
   settingsToggleButton: null,
   settingsCloseButton: null,
   settingsPanel: null,
@@ -631,7 +773,8 @@ var dom = {
   backendRequired: null,
   openApiSpecLink: null,
   themeInputs: [],
-  visibilityInputs: []
+  visibilityInputs: [],
+  tabButtons: []
 };
 document.addEventListener("DOMContentLoaded", () => {
   bindDom();
@@ -644,6 +787,10 @@ function bindDom() {
   dom.statusLine = document.getElementById("status-line");
   dom.settingsToggleButton = document.getElementById("settings-toggle-button");
   dom.settingsCloseButton = document.getElementById("settings-close-button");
+  dom.overviewPanel = document.getElementById("overview-panel");
+  dom.connectionPanel = document.getElementById("connection-panel");
+  dom.resultsPanel = document.getElementById("results-panel");
+  dom.historyPanel = document.getElementById("history-panel");
   dom.settingsPanel = document.getElementById("settings-panel");
   dom.backendSettingsSection = document.getElementById("backend-settings-section");
   dom.bugReportLink = document.getElementById("bug-report-link");
@@ -657,8 +804,11 @@ function bindDom() {
   dom.rescanButton = document.getElementById("rescan-button");
   dom.exportJsonButton = document.getElementById("export-json-button");
   dom.exportMarkdownButton = document.getElementById("export-markdown-button");
+  dom.exportHtmlButton = document.getElementById("export-html-button");
   dom.exportPdfButton = document.getElementById("export-pdf-button");
   dom.copySelectorsButton = document.getElementById("copy-selectors-button");
+  dom.collapseResultsButton = document.getElementById("collapse-results-button");
+  dom.expandResultsButton = document.getElementById("expand-results-button");
   dom.backendEnabled = document.getElementById("backend-enabled");
   dom.backendMode = document.getElementById("backend-mode");
   dom.backendEndpoint = document.getElementById("backend-endpoint");
@@ -670,6 +820,7 @@ function bindDom() {
   dom.openApiSpecLink = document.getElementById("openapi-spec-link");
   dom.themeInputs = Array.from(document.querySelectorAll("input[data-theme-setting]"));
   dom.visibilityInputs = Array.from(document.querySelectorAll("input[data-visibility-setting]"));
+  dom.tabButtons = Array.from(document.querySelectorAll("[data-popup-tab]"));
 }
 function bindActions() {
   dom.settingsToggleButton?.addEventListener("click", () => {
@@ -681,6 +832,7 @@ function bindActions() {
   });
   dom.settingsCloseButton?.addEventListener("click", () => {
     state.settingsOpen = false;
+    state.activeTab = "overview";
     popupUiSettingsTouched = true;
     state.settingsFocusTarget = "toggle";
     render();
@@ -705,13 +857,38 @@ function bindActions() {
   dom.exportMarkdownButton?.addEventListener("click", () => {
     void exportCurrentSelection("markdown");
   });
+  dom.exportHtmlButton?.addEventListener("click", () => {
+    void downloadCurrentReport("html");
+  });
   dom.exportPdfButton?.addEventListener("click", () => {
     void exportCurrentSelection("pdf");
   });
   dom.copySelectorsButton?.addEventListener("click", () => {
     void copySelectedSelectors();
   });
+  dom.collapseResultsButton?.addEventListener("click", () => {
+    state.resultsExpanded = false;
+    render();
+  });
+  dom.expandResultsButton?.addEventListener("click", () => {
+    state.resultsExpanded = true;
+    render();
+  });
+  for (const button of dom.tabButtons) {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.popupTab;
+      if (!tab) {
+        return;
+      }
+      setActiveTab(tab);
+    });
+  }
   bindSettingsInputs();
+}
+function setActiveTab(tab) {
+  state.activeTab = tab;
+  state.settingsOpen = tab === "settings";
+  render();
 }
 async function initialize() {
   await withEventLoopTrace("popup.initialize", async () => {
@@ -784,9 +961,14 @@ async function startScan(manual) {
       }
       state.snapshot = reply.payload.snapshot;
       state.diff = reply.payload.diff;
+      state.historySnapshots = [
+        reply.payload.snapshot,
+        ...state.historySnapshots.filter((snapshot) => snapshot.id !== reply.payload.snapshot.id)
+      ];
       state.selectedIssueIds.clear();
       state.status = inferStatus(reply.payload);
       state.note = reply.payload.recommendation ? `Backend recommendation: ${reply.payload.recommendation.engine}` : "Scan complete";
+      state.activeTab = "results";
       void persistPopupUiState();
       render();
     } catch (error) {
@@ -800,22 +982,27 @@ async function startScan(manual) {
 }
 async function hydrateStartupState() {
   try {
-    const [backendSettings, panelSettings, popupUiState, loadedCachedScan] = await Promise.all([
+    const [backendSettings, panelSettings, popupUiState, loadedCachedScan, historySnapshots] = await Promise.all([
       loadBackendSettings(),
       loadPanelSettings(),
       loadPopupUiState(),
-      loadCachedScanFromHistory()
+      loadCachedScanFromHistory(),
+      loadHistoryFromHistory()
     ]);
     state.backendSettings = backendSettings;
     state.panelSettings = panelSettings;
-    applyPopupUiState(popupUiState);
+    state.historySnapshots = historySnapshots;
     if (!loadedCachedScan) {
       state.snapshot = void 0;
       state.diff = void 0;
       state.selectedIssueIds.clear();
       state.status = "idle";
       state.note = "No cached scan found. Click Rescan to scan the active tab.";
+      state.activeTab = "overview";
+    } else {
+      state.activeTab = "results";
     }
+    applyPopupUiState(popupUiState);
     render();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -855,6 +1042,8 @@ function render(options) {
     if (dom.rescanButton) {
       dom.rescanButton.disabled = state.status === "loading" || !hasExtensionRuntime();
     }
+    renderTabNavigation();
+    renderTabPanels();
     if (options?.lightweight) {
       return;
     }
@@ -864,10 +1053,19 @@ function render(options) {
     if (dom.exportMarkdownButton) {
       dom.exportMarkdownButton.disabled = !state.snapshot;
     }
+    if (dom.exportHtmlButton) {
+      dom.exportHtmlButton.disabled = !state.snapshot;
+    }
+    if (dom.exportPdfButton) {
+      dom.exportPdfButton.disabled = !state.snapshot;
+    }
     if (dom.copySelectorsButton) {
       dom.copySelectorsButton.disabled = !state.snapshot || collectSelectors(getSelectedIssues()).length === 0;
     }
     renderPanelSettings();
+    renderOverviewPanel();
+    renderConnectionPanel();
+    renderHistoryPanel();
     renderSummary();
     renderDelta();
     renderIssues();
@@ -875,6 +1073,143 @@ function render(options) {
   } finally {
     trace.end(state.snapshot ? `issues=${state.snapshot.summary.total}` : "empty");
   }
+}
+function renderTabNavigation() {
+  for (const button of dom.tabButtons) {
+    const tab = button.dataset.popupTab;
+    const selected = tab === state.activeTab;
+    button.setAttribute("aria-selected", String(selected));
+    button.classList.toggle("is-active", selected);
+  }
+  if (dom.settingsToggleButton) {
+    dom.settingsToggleButton.setAttribute("aria-expanded", String(state.activeTab === "settings"));
+  }
+}
+function renderTabPanels() {
+  const setPanelHidden = (panel, hidden) => {
+    if (!panel) {
+      return;
+    }
+    panel.classList.toggle("hidden", hidden);
+  };
+  setPanelHidden(dom.overviewPanel, state.activeTab !== "overview");
+  setPanelHidden(dom.connectionPanel, state.activeTab !== "connection");
+  setPanelHidden(dom.resultsPanel, state.activeTab !== "results");
+  setPanelHidden(dom.settingsPanel, state.activeTab !== "settings");
+}
+function renderOverviewPanel() {
+  if (!dom.overviewPanel) {
+    return;
+  }
+  const snapshot = state.snapshot;
+  const issueCount = snapshot?.summary.total ?? 0;
+  const historyCount = state.historySnapshots.length;
+  const backendMode = state.backendSettings.enabled ? state.backendSettings.mode === "stdin" ? "Standalone stdin mode" : "Remote HTTP backend" : "Local-only audit mode";
+  dom.overviewPanel.innerHTML = `
+    <section class="overview-grid" aria-label="Popup overview">
+      <article class="info-card">
+        <p class="eyebrow">Connection</p>
+        <h2>Standalone audit</h2>
+        <p>${escapeHtml(
+    state.backendSettings.enabled && state.backendSettings.mode === "stdin" ? "Run locally with the packaged stdin adapter and bundled rules." : "Run locally without an external dependency, or switch to HTTP when needed."
+  )}</p>
+        <button type="button" data-popup-tab="connection">Open Connection</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Results</p>
+        <h2>Recent runs and reports</h2>
+        <p>${escapeHtml(`Review ${historyCount} saved runs, collapse issue groups, and download standard reports.`)}</p>
+        <button type="button" data-popup-tab="results">Open Results</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Settings</p>
+        <h2>Theme grid and visibility</h2>
+        <p>Adjust colors, toggle optional sections, and keep the popup compact on smaller screens.</p>
+        <button type="button" data-popup-tab="settings">Open Settings</button>
+      </article>
+      <article class="info-card">
+        <p class="eyebrow">Current state</p>
+        <h2>${escapeHtml(snapshot ? snapshot.url : "No scan yet")}</h2>
+        <p>${escapeHtml(snapshot ? `${issueCount} issues \xB7 ${snapshot.engine}` : state.note ?? "Waiting for a scan")}</p>
+        <p>${escapeHtml(`Mode: ${backendMode}`)}</p>
+      </article>
+    </section>
+  `;
+  dom.overviewPanel.querySelectorAll("button[data-popup-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.popupTab;
+      if (tab) {
+        setActiveTab(tab);
+      }
+    });
+  });
+}
+function renderConnectionPanel() {
+  if (!dom.connectionPanel) {
+    return;
+  }
+  if (dom.connectionPanel.classList.contains("hidden")) {
+    return;
+  }
+  const standalone = !state.backendSettings.enabled || state.backendSettings.mode === "stdin";
+  const modeLabel = state.backendSettings.enabled ? state.backendSettings.mode === "stdin" ? "Standalone stdin engine" : "Remote HTTP backend" : "Standalone local-only audit mode";
+  const summary = standalone && state.backendSettings.enabled ? "Standalone execution is enabled. The service worker can run the audit locally through the packaged stdin adapter, parse testrun output, and keep reporting offline." : state.backendSettings.enabled ? "Backend settings are configured for a remote HTTP endpoint, but the popup still retains local audit and report generation capabilities." : "Standalone execution is available without an external dependency. The popup can run an audit locally and still produce standard reports.";
+  const summaryHost = dom.connectionPanel.querySelector("#connection-summary");
+  if (summaryHost) {
+    summaryHost.innerHTML = `
+      <article class="connection-callout">
+        <p class="eyebrow">Connection state</p>
+        <h2>${escapeHtml(modeLabel)}</h2>
+        <p>${escapeHtml(summary)}</p>
+        <ul>
+          <li>Bundled rules remain available in the popup and service worker.</li>
+          <li>History lookups and report generation use the background message bridge.</li>
+          <li>Markdown, HTML, JSON, and PDF outputs stay available for saved runs.</li>
+        </ul>
+      </article>
+    `;
+  }
+}
+function renderHistoryPanel() {
+  if (!dom.historyPanel) {
+    return;
+  }
+  if (!state.historySnapshots.length) {
+    dom.historyPanel.innerHTML = `<section class="history-empty" data-testid="history-empty">No saved runs yet.</section>`;
+    return;
+  }
+  dom.historyPanel.innerHTML = state.historySnapshots.map((snapshot, index) => {
+    const isLatest = index === 0;
+    return `
+        <details class="history-entry" data-testid="history-entry" ${state.resultsExpanded ? "open" : ""}>
+          <summary>
+            <div>
+              <span class="history-title">${escapeHtml(snapshot.url)}</span>
+              <span class="history-meta">${new Date(snapshot.timestamp).toLocaleString()} \xB7 ${snapshot.summary.total} issues \xB7 ${escapeHtml(snapshot.engine)}</span>
+            </div>
+            <div class="history-actions" aria-label="Report downloads">
+              <button type="button" data-history-report="json" data-history-index="${index}">JSON</button>
+              <button type="button" data-history-report="markdown" data-history-index="${index}">Markdown</button>
+              <button type="button" data-history-report="html" data-history-index="${index}">HTML</button>
+              <button type="button" data-history-report="pdf" data-history-index="${index}">PDF</button>
+              ${isLatest ? '<span class="history-badge">Latest</span>' : ""}
+            </div>
+          </summary>
+        </details>
+      `;
+  }).join("");
+  dom.historyPanel.querySelectorAll("button[data-history-report]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const index = Number(button.dataset.historyIndex ?? "0");
+      const snapshot = state.historySnapshots[index];
+      const format = button.dataset.historyReport;
+      if (!snapshot || !format) {
+        return;
+      }
+      void downloadReportForSnapshot(snapshot, format);
+    });
+  });
 }
 function renderSummary() {
   if (!dom.summaryGrid) {
@@ -940,8 +1275,8 @@ function renderIssues() {
     return;
   }
   dom.issuesPanel.innerHTML = model.domains.map(
-    (domain, index) => `
-        <details class="domain-card" ${index === 0 ? "open" : ""} data-testid="issue-domain">
+    (domain) => `
+        <details class="domain-card" ${state.resultsExpanded ? "open" : ""} data-testid="issue-domain">
           <summary>
             <div>
               <span class="domain-name">${escapeHtml(domain.domain)}</span>
@@ -1137,6 +1472,30 @@ async function loadCachedScanFromHistory() {
     return true;
   } catch {
     return false;
+  }
+}
+async function loadHistoryFromHistory() {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage || !runtime.tabs?.query) {
+    return [];
+  }
+  try {
+    const activeTabs = await runtime.tabs.query({ active: true, currentWindow: true });
+    const activeTab = activeTabs[0];
+    if (!activeTab?.url) {
+      return [];
+    }
+    const origin = new URL(activeTab.url).origin;
+    const reply = await runtime.runtime.sendMessage({
+      type: "history:list",
+      origin
+    });
+    if (!reply.ok) {
+      return [];
+    }
+    return [...reply.payload.snapshots ?? []].sort((left, right) => right.timestamp - left.timestamp);
+  } catch {
+    return [];
   }
 }
 async function persistBackendSettings() {
@@ -1362,6 +1721,61 @@ async function exportCurrentSelection(format) {
   const payload = format === "json" ? buildIssueExportJson(selectedIssues, metadata) : buildIssueExportMarkdown(selectedIssues, metadata);
   const extension = format === "json" ? "json" : "md";
   downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
+}
+async function downloadCurrentReport(format) {
+  if (!state.snapshot) {
+    return;
+  }
+  await downloadReportForSnapshot(state.snapshot, format, state.diff);
+}
+async function downloadReportForSnapshot(snapshot, format, diff) {
+  const generatedAt = new Date(snapshot.timestamp).toISOString();
+  const runtime = getRuntime();
+  if (format === "pdf") {
+    const { buildReportPdfBlob: buildReportPdfBlob2 } = await Promise.resolve().then(() => (init_pdf(), pdf_exports));
+    const blob2 = buildReportPdfBlob2({
+      generatedAt,
+      snapshot,
+      diff
+    });
+    downloadBlob(blob2, `stealth-lightbeacon-${snapshot.id}.pdf`);
+    return;
+  }
+  const report = runtime?.runtime?.sendMessage ? await buildReportFromRuntime(snapshot, format, diff, runtime.runtime.sendMessage) : buildReport(
+    {
+      generatedAt,
+      snapshot,
+      diff
+    },
+    format
+  );
+  const extension = format === "html" ? "html" : format === "json" ? "json" : "md";
+  const blob = new Blob([report], {
+    type: format === "html" ? "text/html;charset=utf-8" : "text/plain;charset=utf-8"
+  });
+  downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.${extension}`);
+}
+async function buildReportFromRuntime(snapshot, format, diff, sendMessage) {
+  try {
+    const reply = await sendMessage({
+      type: "report:build",
+      snapshot,
+      diff,
+      format
+    });
+    if (reply.ok) {
+      return reply.payload.report;
+    }
+  } catch {
+  }
+  return buildReport(
+    {
+      generatedAt: new Date(snapshot.timestamp).toISOString(),
+      snapshot,
+      diff
+    },
+    format
+  );
 }
 async function copySelectedSelectors() {
   await copySelectorsForIssues(Array.from(state.selectedIssueIds));
