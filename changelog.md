@@ -3,6 +3,13 @@
 ## Unreleased
 - Ongoing roadmap and validation follow-ups remain tracked in `docs/roadmap/`.
 
+## 0.1.7 — 2026-05-28
+- Restored popup actions for HTML export, collapse/expand controls, and run-history rendering.
+- Reconnected runtime report generation (`report:build`) for HTML export from the popup.
+- Restored history loading via `history:list` and history-card format downloads.
+- Fixed popup startup hydration ordering so persisted UI state reapplies after cached-scan hydration.
+- Synchronized release metadata to `0.1.7` in `package.json`, `package-lock.json`, and `manifest.json`.
+
 ## 0.1.6 — 2026-05-27
 - Published the public release with refreshed markdown release notes and synchronized version metadata.
 - Added coverage reporting by test type, category, and technology to the release documentation.
