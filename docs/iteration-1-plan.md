@@ -46,7 +46,7 @@ Tasks:
 - Keep the no-network assertion explicit in the smoke gate.
 
 Validation:
-- `npm run test:ui-load`
+- `pnpm run test:ui-load`
 - Browser smoke is stable against local assets only.
 
 ### 3. Release-line regression gate
@@ -56,14 +56,14 @@ Owner outcome:
 
 Tasks:
 - Run the documented unit and integration suites.
-- Keep the `npm run test:ui-load` gate as the browser smoke baseline.
+- Keep the `pnpm run test:ui-load` gate as the browser smoke baseline.
 - Document any residual coverage dimension gaps that remain below policy.
 
 Validation:
-- `npm run test:unit`
-- `npm run test:integration`
-- `npm run test:ui-load`
-- `npm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0`
+- `pnpm run test:unit`
+- `pnpm run test:integration`
+- `pnpm run test:ui-load`
+- `pnpm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0`
 
 ## Exit Criteria
 

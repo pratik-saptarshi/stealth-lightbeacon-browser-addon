@@ -17,7 +17,7 @@ if (!wsEndpoint) {
 
 console.log(`[popup-playwright] Connecting Playwright to ${wsEndpoint}`);
 
-const child = spawn('npx', ['playwright', 'test', 'tests/popup/popup.playwright.spec.ts'], {
+const child = spawn('pnpm', ['exec', 'playwright', 'test', 'tests/popup/popup.playwright.spec.ts'], {
   stdio: 'inherit',
   env: {
     ...process.env,

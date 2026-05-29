@@ -1,21 +1,21 @@
 # Browser Addon CLI Reference (Local Dev)
 
 ## Commands
-- `npm run build`
+- `pnpm run build`
   - Runs TypeScript type-check/build.
-- `npm test -- --run`
+- `pnpm test -- --run`
   - Runs all tests.
-- `npm run test:unit`
+- `pnpm run test:unit`
   - Runs unit suites (contracts, rules, orchestrator, history, exports).
-- `npm run test:integration`
+- `pnpm run test:integration`
   - Runs integration smoke + backend-failure contract tests.
-- `npm run test:ci:backend-fallback`
+- `pnpm run test:ci:backend-fallback`
   - CI slice for fallback behavior.
-- `npm run test:ci:issues:policy`
+- `pnpm run test:ci:issues:policy`
   - CI slice for issue policy (`dom-only` and filtering assertions).
-- `npm run test:ci:required-backend-hard-fail`
+- `pnpm run test:ci:required-backend-hard-fail`
   - CI slice for mandatory backend failures.
-- `npm run audit:budget -- --path <jsonFile> --fail-on-critical --max-critical 0`
+- `pnpm run audit:budget -- --path <jsonFile> --fail-on-critical --max-critical 0`
   - Enforces critical budget (and optional high budget) on a snapshot payload.
   - Exits with code `2` when budget is exceeded.
 

@@ -8,10 +8,10 @@
 - Refreshed release documentation to report coverage by test type, category, and technology.
 
 ## Validation
-- `npm run build`
-- `npm run test:unit -- --coverage`
-- `npm run test:integration -- --coverage`
-- `npm run test:ui-load`
+- `pnpm run build`
+- `pnpm run test:unit -- --coverage`
+- `pnpm run test:integration -- --coverage`
+- `pnpm run test:ui-load`
 
 ## Coverage by Test Type
 

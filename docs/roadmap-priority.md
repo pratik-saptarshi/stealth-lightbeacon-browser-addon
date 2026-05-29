@@ -6,7 +6,7 @@
    - Validate how `stealth-lightbeacon` Python runner is invoked by CLI/stdio shim.
    - Add adapter entrypoint and docs for runner integration.
    - Effort: 1 day.
-   - Validation: `npm test -- --run`, contract demo with local runner.
+   - Validation: `pnpm test -- --run`, contract demo with local runner.
 
 2. Add policy-aware backend error contracts
    - Distinguish transport failures vs validation failures and preserve fallback semantics.

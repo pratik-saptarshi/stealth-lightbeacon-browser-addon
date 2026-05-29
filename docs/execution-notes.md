@@ -8,7 +8,7 @@
 - Completed: deterministic issue IDs and stable diff identity matching.
 - Completed: budget gate script (`audit:budget`) with exit-code-2 policy.
 - Completed: dedicated CI matrix slices for `backend-fallback`, `issues:policy`, `required-backend-hard-fail`.
-- Planned: Playwright browser automation mapped to `docs/roadmap/playwright-test-plan.md` and Beads child issues `.6.2.1` through `.6.9.2`; current smoke baseline remains `npm run test:ui-load`.
+- Planned: Playwright browser automation mapped to `docs/roadmap/playwright-test-plan.md` and Beads child issues `.6.2.1` through `.6.9.2`; current smoke baseline remains `pnpm run test:ui-load`.
 - Phased execution: see `docs/phase-iterations.md` for the four backlog iterations and their exit criteria.
 - Iteration 1 implementation plan: see `docs/iteration-1-plan.md`.
 - Iteration 2 implementation plan: see `docs/iteration-2-plan.md`; browser-shell
@@ -40,17 +40,17 @@
 
 ## Phase PR-11 — Runtime Bootstrap Reliability (Latest)
 - BEAD-0020 ✅ Done: bundle service-worker/content-script at extension root for unpacked loading.
-- Validation: `npm run build`, `npm test -- --run`, `npm run test:ui-load`.
+- Validation: `pnpm run build`, `pnpm test -- --run`, `pnpm run test:ui-load`.
 
 ## Validation Log
-- `npm run build`: success.
-- `npm run test:unit`: success.
-- `npm run test:integration`: success.
-- `npm run test:ci:backend-fallback`: success.
-- `npm run test:ci:issues:policy`: success.
-- `npm run test:ci:required-backend-hard-fail`: success.
-- `npm test -- --run`: success (53 tests, all green).
-- `npm run test:ui-load`: success.
+- `pnpm run build`: success.
+- `pnpm run test:unit`: success.
+- `pnpm run test:integration`: success.
+- `pnpm run test:ci:backend-fallback`: success.
+- `pnpm run test:ci:issues:policy`: success.
+- `pnpm run test:ci:required-backend-hard-fail`: success.
+- `pnpm test -- --run`: success (53 tests, all green).
+- `pnpm run test:ui-load`: success.
 - Current coverage summary: lines `83.71%`, statements `83.73%`, functions `89.26%`, branches `66.81%`.
 - Browser-extension E2E smoke: jsdom accessibility and axe smoke passed; Playwright E2E remains planned.
 

@@ -2,7 +2,7 @@
 
 This doc turns the offline-eval backlog into concrete release-planning points.
 It uses the repo's documented validation gates as the primary release signal:
-`npm run test:unit`, `npm run test:integration`, `npm run test:ui-load`, and
+`pnpm run test:unit`, `pnpm run test:integration`, `pnpm run test:ui-load`, and
 the budget gate, with line coverage currently above 80%.
 
 ## Current Validation Snapshot
@@ -37,7 +37,7 @@ Minor-release gate:
 - Offline-only validation harness exists and is stable.
 - Playwright harness for popup, side-panel, security headers, SEO/AEO/GEO,
   accessibility, performance, and governance is present.
-- `npm run build`, `npm test -- --run`, and `npm run test:ui-load` pass.
+- `pnpm run build`, `pnpm test -- --run`, and `pnpm run test:ui-load` pass.
 - Coverage remains above the documented line-coverage threshold.
 
 ## Major Release Planning

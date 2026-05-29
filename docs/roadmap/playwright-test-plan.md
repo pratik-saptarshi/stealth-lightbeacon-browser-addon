@@ -31,4 +31,4 @@ are explicit in Beads and ordered by user value.
 ## Validation Gate
 
 - No row is complete until the offline-only checks and the Playwright checks both pass.
-- The current smoke baseline remains `npm run test:ui-load` until the P0 Playwright slice is added to CI.
+- The current smoke baseline remains `pnpm run test:ui-load` until the P0 Playwright slice is added to CI.

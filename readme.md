@@ -24,11 +24,11 @@ Current release: `0.1.6`
 1. Clone the repository.
 2. Install dependencies.
    ```bash
-   npm install
+   pnpm install
    ```
 3. Build the extension bundle.
    ```bash
-   npm run build
+   pnpm run build
    ```
 4. Load the built `dist/` folder as an unpacked extension.
 
@@ -53,10 +53,10 @@ Current release: `0.1.6`
 Run the local checks before publishing changes:
 
 ```bash
-npm run test:unit
-npm run test:integration
-npm run test:ui-load
-npm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0
+pnpm run test:unit
+pnpm run test:integration
+pnpm run test:ui-load
+pnpm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0
 ```
 
 When the environment supports it, validate the extension in a real browser session with Playwright or the browser automation toolchain already available on the machine.

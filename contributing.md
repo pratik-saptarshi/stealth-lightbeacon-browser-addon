@@ -15,14 +15,14 @@ This repository is maintained as a release-oriented browser extension. Keep chan
 - Keep runtime validation in TypeScript source; do not ship library-only validation code into the compiled bundles.
 - Keep the service worker and UI entrypoints modular.
 - Prefer explicit, typed message contracts over ad hoc payloads.
-- Keep release metadata aligned across `package.json`, `package-lock.json`, and `manifest.json`.
+- Keep release metadata aligned across `package.json`, `pnpm-lock.yaml`, and `manifest.json`.
 - Do not merge changes that fail the extension-load smoke test.
 
 ## Recommended validation
-- `npm run test:unit`
-- `npm run test:integration`
-- `npm run test:ui-load`
-- `npm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0`
+- `pnpm run test:unit`
+- `pnpm run test:integration`
+- `pnpm run test:ui-load`
+- `pnpm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0`
 - If a browser automation environment is available, run a real extension UI smoke as well.
 
 ## Pull request checklist

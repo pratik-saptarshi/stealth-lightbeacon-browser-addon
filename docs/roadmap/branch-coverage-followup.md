@@ -6,7 +6,7 @@ Raise branch coverage from `78.34%` to `85%+` without regressing statements/line
 
 ## Baseline
 
-- Command: `npm run test:integration -- --coverage`
+- Command: `pnpm run test:integration -- --coverage`
 - Current branch coverage: `78.34%`
 
 ## Hotspots
@@ -46,8 +46,8 @@ Raise branch coverage from `78.34%` to `85%+` without regressing statements/line
 Run:
 
 ```bash
-npm run test:unit
-npm run test:integration -- --coverage
+pnpm run test:unit
+pnpm run test:integration -- --coverage
 ```
 
 Pass criteria:

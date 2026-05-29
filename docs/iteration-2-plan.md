@@ -43,7 +43,7 @@ Tasks:
   reachable in the browser runtime.
 
 Validation:
-- `npm run test:ui-load`
+- `pnpm run test:ui-load`
 - Browser smoke reports the Playwright path when Chromium is available.
 
 ### 2. Accessibility parity smoke
@@ -57,7 +57,7 @@ Tasks:
 - Keep focus and aria-state checks stable against the rendered shell.
 
 Validation:
-- `npm run test:ui-load`
+- `pnpm run test:ui-load`
 - Popup accessibility assertions pass in Playwright and fallback cleanly to jsdom.
 
 ### 3. Security-header evaluator prep
