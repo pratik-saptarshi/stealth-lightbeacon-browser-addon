@@ -1,87 +1,90 @@
 # Stealth Lightbeacon Browser Addon
 
-Stealth Lightbeacon Browser Addon is the browser-only companion to the Stealth Lightbeacon audit workflow. It performs local DOM auditing in the active tab, groups issues by domain and severity, supports manual rescan flows, and can optionally talk to a local or remote backend when you opt in.
+Stealth Lightbeacon is a side-panel-first browser extension for fast, local website quality audits.
 
-Current release: `0.1.6`
+It scans the active page, groups issues by severity and category, tracks history, and exports reports without requiring a remote service by default.
 
-## What it does
-- Audits the active tab from a popup and side-panel UI.
-- Groups findings by domain and severity.
-- Exports issue data locally as JSON, Markdown, or PDF.
-- Supports limited same-origin crawl discovery from the active origin.
-- Keeps the default posture local-first with no broad host permissions.
-- Supports optional backend-assisted recommendations over HTTP or stdio.
-- Uses machine-readable rulesets for SEO, accessibility, AEO/GEO, UX, Drupal, and security-header checks.
-- Surfaces the backend OpenAPI contract directly from the extension UI.
-- Includes a settings drawer for panel color tuning, section visibility, and bug reporting.
+Current package version: `0.1.8`
 
-## Supported browsers
-- Google Chrome
-- Microsoft Edge
-- Mozilla Firefox (unpacked/developer load)
+## Key Features
+- Side-panel-first workflow with action and context-menu open flows.
+- Local DOM-first auditing with deterministic rule evaluation.
+- Optional backend integration (`http` or `stdin`) with host-policy guardrails.
+- Issue grouping, history compare, and diff summaries (`new`, `fixed`, `unchanged`).
+- Issue highlight / clear-highlight actions in-page.
+- Export support for JSON, Markdown, HTML, PDF, LLM Markdown, and GEO XML.
+- Ruleset and knowledge-base catalogs with local update overlays.
 
-## Install for development
-1. Clone the repository.
-2. Install dependencies.
-   ```bash
-   pnpm install
-   ```
-3. Build the extension bundle.
-   ```bash
-   pnpm run build
-   ```
-4. Load the built `dist/` folder as an unpacked extension.
+## Security and Privacy
+- Local-first default behavior.
+- No broad `<all_urls>` permission posture.
+- Backend access is opt-in and validated against runtime host policy.
+- No telemetry SDK bundled.
 
-### Chrome
-- Open `chrome://extensions`
-- Enable **Developer mode**
-- Click **Load unpacked**
-- Select the `dist/` folder
+## Browser Support
+- Chrome (primary)
+- Edge
+- Firefox (developer/unpacked flow)
 
-### Microsoft Edge
-- Open `edge://extensions`
-- Enable **Developer mode**
-- Click **Load unpacked**
-- Select the `dist/` folder
+## Quick Start (Development)
+1. Install dependencies:
+```bash
+pnpm install
+```
+2. Build extension assets:
+```bash
+pnpm run build
+```
+3. Load `dist/` as unpacked extension.
 
-### Firefox
-- Open `about:debugging#/runtime/this-firefox`
-- Click **Load Temporary Add-on**
-- Select `dist/manifest.json`
+### Load in Chrome
+1. Open `chrome://extensions`
+2. Enable `Developer mode`
+3. Click `Load unpacked`
+4. Select the repo `dist/` directory
 
-## Validation
-Run the local checks before publishing changes:
+### Load in Edge
+1. Open `edge://extensions`
+2. Enable `Developer mode`
+3. Click `Load unpacked`
+4. Select the repo `dist/` directory
+
+### Load in Firefox
+1. Open `about:debugging#/runtime/this-firefox`
+2. Click `Load Temporary Add-on`
+3. Select `dist/manifest.json`
+
+## Validation Commands
+Run these before release:
 
 ```bash
+pnpm run build
 pnpm run test:unit
 pnpm run test:integration
-pnpm run test:ui-load
-pnpm run audit:budget -- --path <snapshot.json> --fail-on-critical --max-critical 0
+pnpm exec vitest --run --coverage --exclude tests/popup/popup.playwright.spec.ts
+pnpm run test:e2e
+pnpm run test:ui-load:strict
 ```
 
-When the environment supports it, validate the extension in a real browser session with Playwright or the browser automation toolchain already available on the machine.
-The UI-load smoke also loads `axe.min.js` and runs an automated accessibility scan when Playwright is available.
+Note: Browser-runtime tests (`test:e2e`, `test:ui-load:strict`) require a launchable Chrome/Chromium runtime in the host environment.
 
-## Repository layout
-- `src/background/` - orchestration, history, ruleset catalog, host policy, service worker
-- `src/content/` - active-tab DOM extraction
-- `src/popup/` - popup/side-panel state and UI logic
-- `src/shared/` - contracts, rule engine, shared message types, and ruleset data
-- `src/ui/` - export and grouping helpers
-- `api/openapi.yaml` - backend interface contract
-- `docs/` - planning, architecture, and analysis notes
+## Architecture Overview
+- `src/background/`: service worker orchestration, storage/history, backend bridge, host policy
+- `src/content/`: page extraction and in-page highlight behavior
+- `src/popup/`: side panel UI, state model, actions, exports
+- `src/shared/`: contracts, schemas, rule engine, catalog data
+- `src/ui/`: report/export rendering utilities
+- `api/openapi.yaml`: backend contract
 
-## Security and privacy
-- Default mode is local-only.
-- No broad host permissions are declared.
-- Backend use is opt-in and constrained by host-policy validation.
-- No analytics or telemetry SDKs are bundled.
-- Sensitive backend usage should stay behind explicit user configuration.
-- Bug reports can be sent directly from the settings drawer to `pratik.saptarshi@outlook.com`.
+## Repository Quality Bar
+- Conventional commits.
+- Strict test-first workflow for behavior changes.
+- Deterministic contracts across background/content/popup boundaries.
+- CI matrix gates for unit, integration, backend fallback policy, and release-readiness contracts.
 
-## Related docs
+## Related Documentation
 - [Contributing](./contributing.md)
-- [Security policy](./security-policy.md)
-- [Release notes](./release.md)
+- [Security Policy](./security-policy.md)
+- [Release Notes](./release.md)
 - [Changelog](./changelog.md)
-- [Shared axioms](./shared-axioms.md)
+- [Implementation Plan](./docs/implementation-plan.md)
