@@ -541,4 +541,76 @@ describe('popup tab shell', () => {
       expect(clipboardWrite).toHaveBeenCalledWith('button.icon-only');
     });
   });
+
+  it('keeps history side panel populated when compare payload is unavailable', async () => {
+    buildShell();
+
+    const storageGet = vi.fn(async () => ({
+      [BACKEND_SETTINGS_STORAGE_KEY]: {
+        enabled: false,
+        mode: 'http',
+        endpoint: 'https://backend.example.com',
+        port: '5000',
+        requestSigningSecret: '',
+        authUsername: '',
+        authPassword: '',
+        required: false
+      },
+      [PANEL_SETTINGS_STORAGE_KEY]: {
+        theme: {
+          backgroundStart: '#102030',
+          backgroundEnd: '#304050',
+          panel: '#ffffff',
+          panelStrong: '#f8f8f8',
+          border: '#aaaaaa',
+          text: '#111111',
+          muted: '#444444',
+          mutedStrong: '#222222',
+          accent: '#0055aa',
+          accentWeak: '#dbeafe',
+          alert: '#d49a17',
+          alertWeak: '#fff3cd',
+          danger: '#990000',
+          dangerWeak: '#ffe1e1'
+        },
+        visibility: {
+          showControls: true,
+          showBackendSettings: true,
+          showSummary: true,
+          showDelta: true,
+          showStatusLine: true,
+          showOfflineBanner: true,
+          showFooter: true
+        }
+      }
+    }));
+    const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/page' }]);
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'history:compare') {
+        return { ok: false, error: 'compare unavailable' };
+      }
+      if (message.type === 'history:list') {
+        return { ok: true, payload: { snapshots: [latestSnapshot, olderSnapshot] } };
+      }
+      throw new Error(`unexpected message: ${message.type}`);
+    });
+
+    (globalThis as typeof globalThis & { chrome?: unknown }).chrome = {
+      runtime: {
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        getManifest: () => ({ version: '1.0.0' })
+      },
+      storage: { local: { get: storageGet, set: vi.fn(async () => undefined) } },
+      tabs: { query }
+    };
+
+    await import('../../src/popup/popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll('[data-testid="history-entry"]').length).toBe(2);
+      expect(document.getElementById('status-pill')?.textContent).toBe('Idle');
+    });
+  });
 });

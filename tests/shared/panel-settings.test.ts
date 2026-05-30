@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUG_REPORT_EMAIL,
+  buildAccessibilityProfileSummary,
   DEFAULT_PANEL_SETTINGS,
   buildBugReportMailto,
   normalizePanelSettings
@@ -46,6 +47,10 @@ describe('panel settings helpers', () => {
         showStatusLine: true,
         showOfflineBanner: true,
         showFooter: true
+      },
+      accessibility: {
+        wcagLevel: 'AA',
+        includeBestPractices: true
       }
     });
   });
@@ -63,5 +68,46 @@ describe('panel settings helpers', () => {
     expect(href).toContain('Stealth+Lightbeacon+bug+report');
     expect(href).toContain('Extension+version%3A+0.1.5');
     expect(href).toContain('Page+URL%3A+https%3A%2F%2Fexample.com%2Fpage');
+  });
+
+  it('normalizes accessibility profile settings', () => {
+    expect(
+      normalizePanelSettings({
+        accessibility: {
+          wcagLevel: 'AAA',
+          includeBestPractices: false
+        }
+      })
+    ).toEqual({
+      ...DEFAULT_PANEL_SETTINGS,
+      accessibility: {
+        wcagLevel: 'AAA',
+        includeBestPractices: false
+      }
+    });
+
+    expect(
+      normalizePanelSettings({
+        accessibility: {
+          wcagLevel: 'INVALID',
+          includeBestPractices: 'yes'
+        }
+      })
+    ).toEqual(DEFAULT_PANEL_SETTINGS);
+  });
+
+  it('builds accessibility profile explainability text', () => {
+    expect(
+      buildAccessibilityProfileSummary({
+        wcagLevel: 'AAA',
+        includeBestPractices: false
+      })
+    ).toContain('WCAG AAA');
+    expect(
+      buildAccessibilityProfileSummary({
+        wcagLevel: 'A',
+        includeBestPractices: true
+      })
+    ).toContain('best-practice');
   });
 });

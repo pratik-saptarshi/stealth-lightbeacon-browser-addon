@@ -4,6 +4,7 @@ import { createIssue } from '../shared/rule-engine';
 import type {
   CrawlNode,
   DiffResult,
+  RuleDomain,
   ScanRequest,
   ScanResult,
   ScanSnapshot,
@@ -98,21 +99,47 @@ export class ScanOrchestrator {
   }
 
   private enrichBackendRequest(request: ScanRequest, recommendation: { engine: BackendEngine }): ScanRequest {
-    if (!request.backend || request.backend.enabled === false) {
-      return request;
+    const requestWithCategories = this.enrichRuleCategoriesFromAccessibilityProfile(request);
+
+    if (!requestWithCategories.backend || requestWithCategories.backend.enabled === false) {
+      return requestWithCategories;
     }
 
-    if (request.backend.mode === 'stdin' || request.backend.mode === undefined) {
+    if (requestWithCategories.backend.mode === 'stdin' || requestWithCategories.backend.mode === undefined) {
       return {
-        ...request,
+        ...requestWithCategories,
         backend: {
-          ...request.backend,
-          engine: request.backend.engine ?? recommendation.engine
+          ...requestWithCategories.backend,
+          engine: requestWithCategories.backend.engine ?? recommendation.engine
         }
       };
     }
 
-    return request;
+    return requestWithCategories;
+  }
+
+  private enrichRuleCategoriesFromAccessibilityProfile(request: ScanRequest): ScanRequest {
+    if (request.ruleCategories?.length || !request.accessibilityProfile) {
+      return request;
+    }
+
+    const categories: RuleDomain[] = ['accessibility'];
+    const profile = request.accessibilityProfile;
+
+    if (profile.wcagLevel === 'AA' || profile.wcagLevel === 'AAA') {
+      categories.push('WCAG2.1AA');
+    }
+    if (profile.wcagLevel === 'AAA') {
+      categories.push('WCAG2.2AA');
+    }
+    if (profile.includeBestPractices) {
+      categories.push('ux');
+    }
+
+    return {
+      ...request,
+      ruleCategories: categories
+    };
   }
 
   private shouldUseBackend(request: ScanRequest): boolean {

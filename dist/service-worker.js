@@ -183,6 +183,12 @@ function assertScanRequestInput(input) {
     assert(Array.isArray(input.ruleCategories) && input.ruleCategories.length > 0, "scan request.ruleCategories must be a non-empty array when present");
     assert(input.ruleCategories.every((entry) => isEnumValue(entry, DOMAINS)), "scan request.ruleCategories contains unsupported domain values");
   }
+  if ("accessibilityProfile" in input && input.accessibilityProfile !== void 0) {
+    assert(isRecord(input.accessibilityProfile), "scan request.accessibilityProfile must be an object when present");
+    const profile = input.accessibilityProfile;
+    assert(isEnumValue(profile.wcagLevel, ["A", "AA", "AAA"]), "scan request.accessibilityProfile.wcagLevel must be A, AA, or AAA");
+    assert(typeof profile.includeBestPractices === "boolean", "scan request.accessibilityProfile.includeBestPractices must be a boolean");
+  }
   if ("backend" in input && input.backend !== void 0) {
     assert(isRecord(input.backend), "scan request.backend must be an object when present");
     const backend = input.backend;
@@ -1611,19 +1617,40 @@ var ScanOrchestrator = class {
     };
   }
   enrichBackendRequest(request, recommendation) {
-    if (!request.backend || request.backend.enabled === false) {
-      return request;
+    const requestWithCategories = this.enrichRuleCategoriesFromAccessibilityProfile(request);
+    if (!requestWithCategories.backend || requestWithCategories.backend.enabled === false) {
+      return requestWithCategories;
     }
-    if (request.backend.mode === "stdin" || request.backend.mode === void 0) {
+    if (requestWithCategories.backend.mode === "stdin" || requestWithCategories.backend.mode === void 0) {
       return {
-        ...request,
+        ...requestWithCategories,
         backend: {
-          ...request.backend,
-          engine: request.backend.engine ?? recommendation.engine
+          ...requestWithCategories.backend,
+          engine: requestWithCategories.backend.engine ?? recommendation.engine
         }
       };
     }
-    return request;
+    return requestWithCategories;
+  }
+  enrichRuleCategoriesFromAccessibilityProfile(request) {
+    if (request.ruleCategories?.length || !request.accessibilityProfile) {
+      return request;
+    }
+    const categories = ["accessibility"];
+    const profile = request.accessibilityProfile;
+    if (profile.wcagLevel === "AA" || profile.wcagLevel === "AAA") {
+      categories.push("WCAG2.1AA");
+    }
+    if (profile.wcagLevel === "AAA") {
+      categories.push("WCAG2.2AA");
+    }
+    if (profile.includeBestPractices) {
+      categories.push("ux");
+    }
+    return {
+      ...request,
+      ruleCategories: categories
+    };
   }
   shouldUseBackend(request) {
     if (!request.backend) {
@@ -2980,6 +3007,7 @@ async function applyToolbarState(context, tabId, snapshot) {
 
 // src/background/service-worker.ts
 var globalRuntime = typeof globalThis === "undefined" ? {} : globalThis;
+var SIDE_PANEL_CONTEXT_MENU_ID = "stealth-lightbeacon-open-side-panel";
 var chromeStorage = createChromeHistoryStorage(resolveHistoryStorage(globalRuntime));
 var storage = chromeStorage ?? new MemoryHistoryStorage();
 var historyManager = new ScanHistoryManager(storage);
@@ -3128,6 +3156,35 @@ function startRuntimeListeners() {
     return true;
   });
 }
+function registerShellEntrypoints(context) {
+  const host = context.chrome ?? context.browser;
+  if (!host) {
+    return;
+  }
+  host.action?.onClicked?.addListener(async (tab) => {
+    const tabId = tab.id;
+    if (typeof tabId === "number") {
+      await host.sidePanel?.open?.({ tabId });
+      return;
+    }
+    if (typeof tab.windowId === "number") {
+      await host.sidePanel?.open?.({ windowId: tab.windowId });
+    }
+  });
+  host.contextMenus?.create?.({
+    id: SIDE_PANEL_CONTEXT_MENU_ID,
+    title: "Open Stealth Lightbeacon",
+    contexts: ["page"]
+  });
+  host.contextMenus?.onClicked?.addListener(async (info, tab) => {
+    if (info.menuItemId !== SIDE_PANEL_CONTEXT_MENU_ID) {
+      return;
+    }
+    if (typeof tab?.id === "number") {
+      await host.sidePanel?.open?.({ tabId: tab.id });
+    }
+  });
+}
 function isKnownMessageType(type) {
   return type === "scan:start" || type === "history:list" || type === "history:latest" || type === "history:compare" || type === "ruleset:get" || type === "ruleset:update" || type === "knowledge-base:get" || type === "knowledge-base:update" || type === "issues:list" || type === "report:build";
 }
@@ -3239,6 +3296,7 @@ function isRuntimeMessageResponse(input) {
 }
 function registerRuntime() {
   startRuntimeListeners();
+  registerShellEntrypoints(globalRuntime);
 }
 registerRuntime();
 export {

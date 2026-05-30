@@ -47,6 +47,32 @@ function makeBackendAdapter(snapshot: ScanSnapshot): BackendAdapter {
 }
 
 describe('orchestrator backend integration', () => {
+  it('maps accessibility profile into backend selected categories when ruleCategories are omitted', async () => {
+    const request: ScanRequest = {
+      ...baseRequest,
+      requestId: 'backend-profile-1',
+      accessibilityProfile: {
+        wcagLevel: 'AAA',
+        includeBestPractices: false
+      },
+      backend: { endpoint: 'http://localhost:5000', enabled: true, required: false }
+    };
+
+    let selectedCategories: string[] | undefined;
+    const orchestrator = new ScanOrchestrator({
+      backendClient: {
+        async runScan(payload) {
+          selectedCategories = payload.selectedCategories as string[] | undefined;
+          return { snapshot: localSnapshotFor('https://example.com/backend') };
+        }
+      }
+    });
+
+    await orchestrator.runScan(request, context);
+
+    expect(selectedCategories).toEqual(['accessibility', 'WCAG2.1AA', 'WCAG2.2AA']);
+  });
+
   it('uses backend result when backend returns successfully', async () => {
     const request: ScanRequest = {
       ...baseRequest,

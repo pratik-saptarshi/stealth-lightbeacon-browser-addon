@@ -233,6 +233,12 @@ function assertScanRequestInput(input: unknown): ScanRequest {
     assert(Array.isArray(input.ruleCategories) && input.ruleCategories.length > 0, 'scan request.ruleCategories must be a non-empty array when present');
     assert(input.ruleCategories.every((entry: unknown) => isEnumValue(entry, DOMAINS)), 'scan request.ruleCategories contains unsupported domain values');
   }
+  if ('accessibilityProfile' in input && input.accessibilityProfile !== undefined) {
+    assert(isRecord(input.accessibilityProfile), 'scan request.accessibilityProfile must be an object when present');
+    const profile = input.accessibilityProfile;
+    assert(isEnumValue(profile.wcagLevel, ['A', 'AA', 'AAA'] as const), 'scan request.accessibilityProfile.wcagLevel must be A, AA, or AAA');
+    assert(typeof profile.includeBestPractices === 'boolean', 'scan request.accessibilityProfile.includeBestPractices must be a boolean');
+  }
   if ('backend' in input && input.backend !== undefined) {
     assert(isRecord(input.backend), 'scan request.backend must be an object when present');
     const backend = input.backend;

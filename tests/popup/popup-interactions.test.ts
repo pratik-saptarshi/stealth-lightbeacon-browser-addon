@@ -114,6 +114,11 @@ function buildShell(): void {
             <h2>Report a bug</h2>
             <a id="bug-report-link" class="bug-report-link" href="mailto:pratik.saptarshi@outlook.com">Report a bug by email</a>
           </section>
+          <section class="settings-group" aria-label="Accessibility profile">
+            <label><span>WCAG level</span><select id="accessibility-wcag-level"><option value="A">A</option><option value="AA">AA</option><option value="AAA">AAA</option></select></label>
+            <label class="checkbox-row"><input id="accessibility-best-practices" type="checkbox" /><span>Include best practices</span></label>
+            <p id="accessibility-profile-summary"></p>
+          </section>
           <section class="settings-group backend-settings" id="backend-settings-section" aria-label="Backend settings">
             <label><span>Backend enabled</span><input id="backend-enabled" type="checkbox" /></label>
             <label><span>Mode</span><select id="backend-mode"><option value="http">HTTP</option><option value="stdin">Stdin</option></select></label>
@@ -208,6 +213,10 @@ describe('popup interactions', () => {
           showStatusLine: true,
           showOfflineBanner: true,
           showFooter: true
+        },
+        accessibility: {
+          wcagLevel: 'AA',
+          includeBestPractices: true
         }
       }
     }));
@@ -272,6 +281,10 @@ describe('popup interactions', () => {
             format: message.format ?? 'markdown'
           }
         };
+      }
+
+      if (message.type === 'issue:highlight' || message.type === 'issue:clear-highlight') {
+        return { ok: true, payload: { tabId: 7 } };
       }
 
       throw new Error(`unexpected message: ${message.type}`);
@@ -347,6 +360,14 @@ describe('popup interactions', () => {
     const showSummary = document.getElementById('show-summary') as HTMLInputElement;
     showSummary.checked = false;
     showSummary.dispatchEvent(new Event('change', { bubbles: true }));
+    const wcagLevel = document.getElementById('accessibility-wcag-level') as HTMLSelectElement;
+    const bestPractices = document.getElementById('accessibility-best-practices') as HTMLInputElement;
+    expect(document.getElementById('accessibility-profile-summary')?.textContent).toContain('WCAG AA');
+    wcagLevel.value = 'AAA';
+    wcagLevel.dispatchEvent(new Event('change', { bubbles: true }));
+    bestPractices.checked = false;
+    bestPractices.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(document.getElementById('accessibility-profile-summary')?.textContent).toContain('WCAG AAA');
     expect(document.getElementById('summary-grid')?.classList.contains('hidden')).toBe(true);
     expect(storageSet).toHaveBeenCalled();
 
@@ -354,13 +375,41 @@ describe('popup interactions', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'scan:start'
+          type: 'scan:start',
+          request: expect.objectContaining({
+            accessibilityProfile: {
+              wcagLevel: 'AAA',
+              includeBestPractices: false
+            },
+            ruleCategories: ['accessibility', 'WCAG2.1AA', 'WCAG2.2AA']
+          })
         })
       );
     });
 
     expect(document.getElementById('status-pill')?.dataset.status).toBe('fallback');
     expect(document.getElementById('issues-panel')?.querySelectorAll('[data-testid="issue-card"]').length).toBeGreaterThan(0);
+
+    const highlightButton = document.querySelector<HTMLButtonElement>('button[data-highlight-selector="button.icon-only"]');
+    expect(highlightButton).toBeTruthy();
+    highlightButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'issue:highlight',
+        tabId: 7,
+        selector: 'button.icon-only'
+      });
+    });
+
+    const clearHighlightButton = document.querySelector<HTMLButtonElement>('button[data-clear-highlight="true"]');
+    expect(clearHighlightButton).toBeTruthy();
+    clearHighlightButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'issue:clear-highlight',
+        tabId: 7
+      });
+    });
 
     const issueCheckbox = document.querySelector<HTMLInputElement>('input[data-issue-id="issue-1"]');
     expect(issueCheckbox).toBeTruthy();

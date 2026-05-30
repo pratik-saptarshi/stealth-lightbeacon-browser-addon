@@ -54,13 +54,19 @@ describe('content extractor', () => {
         src: 'https://cdn.example.com/current-hero.png',
         alt: 'Hero',
         ariaLabel: 'Featured',
-        role: 'presentation'
+        role: 'presentation',
+        formatHint: 'png',
+        hasQuery: false,
+        hasFragment: false
       },
       {
         src: 'http://localhost:3000/secondary.png',
         alt: 'Secondary',
         ariaLabel: null,
-        role: null
+        role: null,
+        formatHint: 'png',
+        hasQuery: false,
+        hasFragment: false
       }
     ]);
     expect(context.links).toEqual([
@@ -171,6 +177,74 @@ describe('content extractor', () => {
       ariaLabel: 'Nickname field',
       title: 'Nickname title'
     });
+  });
+
+  it('emits Stage C depth signals for heading hierarchy, canonical consistency, and URL quality', () => {
+    document.head.innerHTML = `
+      <title>Depth sample</title>
+      <link rel="canonical" href="/canonical-target/">
+    `;
+    document.body.innerHTML = `
+      <h1>Intro</h1>
+      <h3>Skipped level</h3>
+      <h2>Backfill</h2>
+      <img src="/img.png?x=1#fragment" alt="Hero image">
+      <a href="/local/path/?utm_source=newsletter&fbclid=abc">Tracked internal</a>
+      <a href="https://external.example/path/#frag">External fragment</a>
+      <a href="mailto:test@example.com">Mail</a>
+    `;
+
+    const context = extractPageContext(document, 'https://example.com/base/page?ref=1#top');
+
+    expect(context.headingHierarchy).toEqual({
+      skips: [{ fromLevel: 1, toLevel: 3, text: 'Skipped level', index: 1 }],
+      regressions: [{ fromLevel: 3, toLevel: 2, text: 'Backfill', index: 2 }]
+    });
+    expect(context.canonicalSignal).toEqual({
+      raw: '/canonical-target/',
+      normalized: 'https://example.com/canonical-target/',
+      requestNormalized: 'https://example.com/base/page',
+      sameOrigin: true,
+      matchesRequest: false
+    });
+    expect(context.images[0]).toMatchObject({
+      src: 'http://localhost:3000/img.png?x=1#fragment',
+      formatHint: 'png',
+      hasQuery: true,
+      hasFragment: true
+    });
+    expect(context.links).toEqual([
+      {
+        href: 'https://example.com/local/path/?utm_source=newsletter&fbclid=abc',
+        text: 'Tracked internal',
+        rel: '',
+        target: '',
+        ariaLabel: null,
+        title: null,
+        isInternal: true,
+        quality: {
+          hasQuery: true,
+          hasFragment: false,
+          hasTrackingParams: true,
+          isCleanPath: false
+        }
+      },
+      {
+        href: 'https://external.example/path/#frag',
+        text: 'External fragment',
+        rel: '',
+        target: '',
+        ariaLabel: null,
+        title: null,
+        isInternal: false,
+        quality: {
+          hasQuery: false,
+          hasFragment: true,
+          hasTrackingParams: false,
+          isCleanPath: false
+        }
+      }
+    ]);
   });
 
   it('drops invalid links and caps link extraction at 200 entries', () => {

@@ -641,10 +641,15 @@ var DEFAULT_PANEL_VISIBILITY = {
 };
 var DEFAULT_PANEL_SETTINGS = {
   theme: { ...DEFAULT_PANEL_THEME },
-  visibility: { ...DEFAULT_PANEL_VISIBILITY }
+  visibility: { ...DEFAULT_PANEL_VISIBILITY },
+  accessibility: {
+    wcagLevel: "AA",
+    includeBestPractices: true
+  }
 };
 var THEME_KEYS = Object.keys(DEFAULT_PANEL_THEME);
 var VISIBILITY_KEYS = Object.keys(DEFAULT_PANEL_VISIBILITY);
+var ACCESSIBILITY_LEVELS = ["A", "AA", "AAA"];
 var HEX_COLOR_RE = /^#?[0-9a-fA-F]{6}$/;
 function normalizePanelSettings(input) {
   if (!isRecord3(input)) {
@@ -652,7 +657,8 @@ function normalizePanelSettings(input) {
   }
   return {
     theme: normalizeTheme(input.theme),
-    visibility: normalizeVisibility(input.visibility)
+    visibility: normalizeVisibility(input.visibility),
+    accessibility: normalizeAccessibility(input.accessibility)
   };
 }
 function buildBugReportMailto(input = {}) {
@@ -667,6 +673,13 @@ function buildBugReportMailto(input = {}) {
   ];
   params.set("body", bodyLines.join("\n"));
   return `mailto:${BUG_REPORT_EMAIL}?${params.toString()}`;
+}
+function buildAccessibilityProfileSummary(input) {
+  const wcagLabel = `WCAG ${input.wcagLevel}`;
+  if (input.includeBestPractices) {
+    return `${wcagLabel} plus best-practice checks for UX-oriented accessibility guardrails.`;
+  }
+  return `${wcagLabel} only, without best-practice checks.`;
 }
 function normalizeTheme(input) {
   const source = isRecord3(input) ? input : {};
@@ -684,6 +697,15 @@ function normalizeVisibility(input) {
   }
   return visibility;
 }
+function normalizeAccessibility(input) {
+  const source = isRecord3(input) ? input : {};
+  const wcagLevel = typeof source.wcagLevel === "string" && ACCESSIBILITY_LEVELS.includes(source.wcagLevel) ? source.wcagLevel : DEFAULT_PANEL_SETTINGS.accessibility.wcagLevel;
+  const includeBestPractices = typeof source.includeBestPractices === "boolean" ? source.includeBestPractices : DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices;
+  return {
+    wcagLevel,
+    includeBestPractices
+  };
+}
 function normalizeHexColor(value, fallback) {
   if (typeof value !== "string") {
     return fallback;
@@ -700,7 +722,11 @@ function normalizeBoolean(value, fallback) {
 function cloneDefaultPanelSettings() {
   return {
     theme: cloneDefaultTheme(),
-    visibility: cloneDefaultVisibility()
+    visibility: cloneDefaultVisibility(),
+    accessibility: {
+      wcagLevel: DEFAULT_PANEL_SETTINGS.accessibility.wcagLevel,
+      includeBestPractices: DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices
+    }
   };
 }
 function cloneDefaultTheme() {
@@ -796,6 +822,9 @@ var dom = {
   backendAuthPassword: null,
   backendRequired: null,
   openApiSpecLink: null,
+  accessibilityWcagLevel: null,
+  accessibilityBestPractices: null,
+  accessibilityProfileSummary: null,
   themeInputs: [],
   visibilityInputs: [],
   tabButtons: []
@@ -842,6 +871,9 @@ function bindDom() {
   dom.backendAuthPassword = document.getElementById("backend-auth-password");
   dom.backendRequired = document.getElementById("backend-required");
   dom.openApiSpecLink = document.getElementById("openapi-spec-link");
+  dom.accessibilityWcagLevel = document.getElementById("accessibility-wcag-level");
+  dom.accessibilityBestPractices = document.getElementById("accessibility-best-practices");
+  dom.accessibilityProfileSummary = document.getElementById("accessibility-profile-summary");
   dom.themeInputs = Array.from(document.querySelectorAll("input[data-theme-setting]"));
   dom.visibilityInputs = Array.from(document.querySelectorAll("input[data-visibility-setting]"));
   dom.tabButtons = Array.from(document.querySelectorAll("[data-popup-tab]"));
@@ -976,6 +1008,8 @@ async function startScan(manual) {
           tabId: activeTab.id,
           url: activeTab.url,
           engine: "dom-lite",
+          ruleCategories: buildRuleCategoriesFromAccessibilityProfile(),
+          accessibilityProfile: { ...state.panelSettings.accessibility },
           backend
         },
         persistHistory: true
@@ -1436,6 +1470,8 @@ function bindSettingsInputs() {
   dom.backendAuthUsername?.addEventListener("change", updateBackend);
   dom.backendAuthPassword?.addEventListener("change", updateBackend);
   dom.backendRequired?.addEventListener("change", updateBackend);
+  dom.accessibilityWcagLevel?.addEventListener("change", updatePanel);
+  dom.accessibilityBestPractices?.addEventListener("change", updatePanel);
   for (const input of dom.themeInputs) {
     input.addEventListener("change", updatePanel);
   }
@@ -1563,7 +1599,11 @@ function readBackendSettingsFromDom() {
 function readPanelSettingsFromDom() {
   return normalizePanelSettings({
     theme: readThemeSettingsFromDom(),
-    visibility: readVisibilitySettingsFromDom()
+    visibility: readVisibilitySettingsFromDom(),
+    accessibility: {
+      wcagLevel: dom.accessibilityWcagLevel?.value,
+      includeBestPractices: dom.accessibilityBestPractices?.checked
+    }
   });
 }
 function readThemeSettingsFromDom() {
@@ -1587,6 +1627,20 @@ function readVisibilitySettingsFromDom() {
     visibility[key] = input.checked;
   }
   return visibility;
+}
+function buildRuleCategoriesFromAccessibilityProfile() {
+  const categories = ["accessibility"];
+  const profile = state.panelSettings.accessibility;
+  if (profile.wcagLevel === "AA" || profile.wcagLevel === "AAA") {
+    categories.push("WCAG2.1AA");
+  }
+  if (profile.wcagLevel === "AAA") {
+    categories.push("WCAG2.2AA");
+  }
+  if (profile.includeBestPractices) {
+    categories.push("ux");
+  }
+  return categories;
 }
 function renderPanelSettings() {
   applyPanelTheme();
@@ -1650,6 +1704,15 @@ function renderSettingsForm() {
     const specUrl = getRuntime()?.runtime?.getURL?.("api/openapi.yaml") ?? "api/openapi.yaml";
     dom.openApiSpecLink.href = specUrl;
     dom.openApiSpecLink.title = specUrl;
+  }
+  if (dom.accessibilityWcagLevel) {
+    dom.accessibilityWcagLevel.value = state.panelSettings.accessibility.wcagLevel;
+  }
+  if (dom.accessibilityBestPractices) {
+    dom.accessibilityBestPractices.checked = state.panelSettings.accessibility.includeBestPractices;
+  }
+  if (dom.accessibilityProfileSummary) {
+    dom.accessibilityProfileSummary.textContent = buildAccessibilityProfileSummary(state.panelSettings.accessibility);
   }
 }
 function renderBugReportLink() {

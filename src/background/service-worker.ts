@@ -36,6 +36,9 @@ type RuntimeContext = {
       }) => Promise<unknown>;
     };
     action?: {
+      onClicked?: {
+        addListener: (callback: (tab: { id?: number; windowId?: number }) => void | Promise<void>) => void;
+      };
       setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
       setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
       setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
@@ -45,6 +48,15 @@ type RuntimeContext = {
         setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
         setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
         setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      };
+    };
+    sidePanel?: {
+      open?: (details: { tabId?: number; windowId?: number }) => Promise<void> | void;
+    };
+    contextMenus?: {
+      create?: (details: { id: string; title: string; contexts: string[] }) => void;
+      onClicked?: {
+        addListener: (callback: (info: { menuItemId?: string }, tab?: { id?: number; windowId?: number }) => void | Promise<void>) => void;
       };
     };
     browserAction?: {
@@ -76,6 +88,9 @@ type RuntimeContext = {
       }) => Promise<unknown>;
     };
     action?: {
+      onClicked?: {
+        addListener: (callback: (tab: { id?: number; windowId?: number }) => void | Promise<void>) => void;
+      };
       setIcon?: (params: { path: Record<string, string>; tabId?: number }) => Promise<void> | void;
       setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
       setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
@@ -85,6 +100,15 @@ type RuntimeContext = {
         setBadgeText?: (params: { text: string; tabId?: number }) => Promise<void> | void;
         setBadgeBackgroundColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
         setBadgeTextColor?: (params: { color: string; tabId?: number }) => Promise<void> | void;
+      };
+    };
+    sidePanel?: {
+      open?: (details: { tabId?: number; windowId?: number }) => Promise<void> | void;
+    };
+    contextMenus?: {
+      create?: (details: { id: string; title: string; contexts: string[] }) => void;
+      onClicked?: {
+        addListener: (callback: (info: { menuItemId?: string }, tab?: { id?: number; windowId?: number }) => void | Promise<void>) => void;
       };
     };
     browserAction?: {
@@ -114,6 +138,7 @@ type RuntimeMessageResponse = {
 };
 
 const globalRuntime = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as RuntimeContext)) as RuntimeContext;
+const SIDE_PANEL_CONTEXT_MENU_ID = 'stealth-lightbeacon-open-side-panel';
 const chromeStorage = createChromeHistoryStorage(resolveHistoryStorage(globalRuntime));
 const storage = chromeStorage ?? new MemoryHistoryStorage();
 const historyManager = new ScanHistoryManager(storage);
@@ -243,6 +268,33 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
       return { ok: true, payload: compare };
     }
 
+    if (message.type === 'issue:highlight') {
+      const tabId = message.tabId ?? (await resolveActiveTabId(globalRuntime));
+      if (typeof tabId !== 'number') {
+        return { ok: false, error: createFailure('No tab available for highlight action') };
+      }
+
+      const tabsApi = globalRuntime.chrome?.tabs ?? globalRuntime.browser?.tabs;
+      await tabsApi?.sendMessage?.(tabId, {
+        type: 'issue:highlight',
+        selector: message.selector
+      });
+      return { ok: true, payload: { tabId } };
+    }
+
+    if (message.type === 'issue:clear-highlight') {
+      const tabId = message.tabId ?? (await resolveActiveTabId(globalRuntime));
+      if (typeof tabId !== 'number') {
+        return { ok: false, error: createFailure('No tab available for clear highlight action') };
+      }
+
+      const tabsApi = globalRuntime.chrome?.tabs ?? globalRuntime.browser?.tabs;
+      await tabsApi?.sendMessage?.(tabId, {
+        type: 'issue:clear-highlight'
+      });
+      return { ok: true, payload: { tabId } };
+    }
+
     if (message.type === 'ruleset:get') {
       const catalog = await rulesetManager.getCatalog();
       return { ok: true, payload: { catalog } };
@@ -294,12 +346,49 @@ export function startRuntimeListeners(): void {
   });
 }
 
+function registerShellEntrypoints(context: RuntimeContext): void {
+  const host = context.chrome ?? context.browser;
+  if (!host) {
+    return;
+  }
+
+  host.action?.onClicked?.addListener(async (tab) => {
+    const tabId = tab.id;
+    if (typeof tabId === 'number') {
+      await host.sidePanel?.open?.({ tabId });
+      return;
+    }
+
+    if (typeof tab.windowId === 'number') {
+      await host.sidePanel?.open?.({ windowId: tab.windowId });
+    }
+  });
+
+  host.contextMenus?.create?.({
+    id: SIDE_PANEL_CONTEXT_MENU_ID,
+    title: 'Open Stealth Lightbeacon',
+    contexts: ['page']
+  });
+
+  host.contextMenus?.onClicked?.addListener(async (info, tab) => {
+    if (info.menuItemId !== SIDE_PANEL_CONTEXT_MENU_ID) {
+      return;
+    }
+
+    if (typeof tab?.id === 'number') {
+      await host.sidePanel?.open?.({ tabId: tab.id });
+    }
+  });
+}
+
 function isKnownMessageType(type: unknown): type is ClientMessage['type'] {
   return (
     type === 'scan:start' ||
     type === 'history:list' ||
     type === 'history:latest' ||
     type === 'history:compare' ||
+    type === 'issue:highlight' ||
+    type === 'issue:clear-highlight' ||
     type === 'ruleset:get' ||
     type === 'ruleset:update' ||
     type === 'knowledge-base:get' ||
@@ -466,6 +555,7 @@ function isRuntimeMessageResponse(input: unknown): input is RuntimeMessageRespon
 
 export function registerRuntime(): void {
   startRuntimeListeners();
+  registerShellEntrypoints(globalRuntime);
 }
 
 registerRuntime();

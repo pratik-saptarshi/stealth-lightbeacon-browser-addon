@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { handleMessage } from '../../src/background/service-worker';
+import { registerRuntime } from '../../src/background/service-worker';
 import type { ScanStartReply } from '../../src/shared/message-contracts';
 import type { AddonRulesCatalog } from '../../src/shared/rulesets/catalog';
 import type { AddonKnowledgeBaseCatalog } from '../../src/shared/knowledge-base/catalog';
@@ -29,10 +30,22 @@ type ChromeLikeRuntime = {
     executeScript: ReturnType<typeof vi.fn>;
   };
   action?: {
+    onClicked?: {
+      addListener: ReturnType<typeof vi.fn>;
+    };
     setIcon: ReturnType<typeof vi.fn>;
     setBadgeText: ReturnType<typeof vi.fn>;
     setBadgeBackgroundColor: ReturnType<typeof vi.fn>;
     setBadgeTextColor: ReturnType<typeof vi.fn>;
+  };
+  contextMenus?: {
+    create: ReturnType<typeof vi.fn>;
+    onClicked?: {
+      addListener: ReturnType<typeof vi.fn>;
+    };
+  };
+  sidePanel?: {
+    open: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -81,15 +94,52 @@ beforeEach(() => {
       executeScript: vi.fn(async () => undefined)
     },
     action: {
+      onClicked: {
+        addListener: vi.fn()
+      },
       setIcon: vi.fn(async () => undefined),
       setBadgeText: vi.fn(async () => undefined),
       setBadgeBackgroundColor: vi.fn(async () => undefined),
       setBadgeTextColor: vi.fn(async () => undefined)
+    },
+    contextMenus: {
+      create: vi.fn(),
+      onClicked: {
+        addListener: vi.fn()
+      }
+    },
+    sidePanel: {
+      open: vi.fn(async () => undefined)
     }
   };
 
   currentWindowRuntime.chrome = runtime;
   delete currentWindowRuntime.browser;
+});
+
+it('registers side panel shell listeners and handles action/context-menu opens', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+
+  registerRuntime();
+
+  expect(chrome.action?.onClicked?.addListener).toHaveBeenCalledTimes(1);
+  expect(chrome.contextMenus?.onClicked?.addListener).toHaveBeenCalledTimes(1);
+
+  const actionHandler = chrome.action?.onClicked?.addListener.mock.calls[0]?.[0] as
+    | ((tab: { id?: number; windowId?: number }) => Promise<void>)
+    | undefined;
+  expect(actionHandler).toBeTypeOf('function');
+
+  await actionHandler?.({ id: 77, windowId: 9 });
+  expect(chrome.sidePanel?.open).toHaveBeenCalledWith({ tabId: 77 });
+
+  const contextMenuHandler = chrome.contextMenus?.onClicked?.addListener.mock.calls[0]?.[0] as
+    | ((info: { menuItemId?: string }, tab?: { id?: number }) => Promise<void>)
+    | undefined;
+  expect(contextMenuHandler).toBeTypeOf('function');
+
+  await contextMenuHandler?.({ menuItemId: 'stealth-lightbeacon-open-side-panel' }, { id: 77 });
+  expect(chrome.sidePanel?.open).toHaveBeenCalledWith({ tabId: 77 });
 });
 
 afterEach(() => {
@@ -315,6 +365,26 @@ it('handles issue listing, report building, history lookups, and unknown message
   } as const);
 
   expect(historyCompareReply.ok).toBe(true);
+
+  const highlightReply = await handleMessage({
+    type: 'issue:highlight',
+    tabId: 77,
+    selector: 'button.icon-only'
+  } as never);
+  expect(highlightReply.ok).toBe(true);
+  expect((currentWindowRuntime.chrome as ChromeLikeRuntime).tabs?.sendMessage).toHaveBeenCalledWith(77, {
+    type: 'issue:highlight',
+    selector: 'button.icon-only'
+  });
+
+  const clearHighlightReply = await handleMessage({
+    type: 'issue:clear-highlight',
+    tabId: 77
+  } as never);
+  expect(clearHighlightReply.ok).toBe(true);
+  expect((currentWindowRuntime.chrome as ChromeLikeRuntime).tabs?.sendMessage).toHaveBeenCalledWith(77, {
+    type: 'issue:clear-highlight'
+  });
 
   const unknownReply = await handleMessage({ type: 'unexpected:message' } as never);
   expect(unknownReply.ok).toBe(false);

@@ -30,6 +30,10 @@ describe('addon manifest', () => {
     });
     expect(manifest.action?.default_popup).toBe('popup.html');
     expect(() => readFileSync(resolve(process.cwd(), manifest.action?.default_popup), 'utf8')).not.toThrow();
+    expect(manifest.side_panel?.default_path).toBe('popup.html');
+    expect(() => readFileSync(resolve(process.cwd(), manifest.side_panel?.default_path), 'utf8')).not.toThrow();
+    expect(manifest.permissions).toContain('sidePanel');
+    expect(manifest.permissions).toContain('contextMenus');
     expect((manifest.host_permissions ?? [])).toEqual([]);
     expect(manifest.content_scripts).toBeUndefined();
     expect(manifest.content_security_policy?.extension_pages).toContain("script-src 'self'");

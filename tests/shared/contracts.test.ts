@@ -145,6 +145,10 @@ describe('contracts', () => {
       crawlDepth: 2,
       crawlMaxUrls: 50,
       ruleCategories: ['seo', 'aeo'],
+      accessibilityProfile: {
+        wcagLevel: 'AA',
+        includeBestPractices: true
+      },
       backend: {
         enabled: true,
         mode: 'stdin',
@@ -257,6 +261,18 @@ describe('contracts', () => {
         }
       })
     ).toThrow(/auth\.username/);
+
+    expect(() =>
+      assertScanRequest({
+        requestId: 'r-invalid-3',
+        url: 'https://example.com/page',
+        engine: 'dom-lite',
+        accessibilityProfile: {
+          wcagLevel: 'A+',
+          includeBestPractices: true
+        }
+      })
+    ).toThrow(/accessibilityProfile\.wcagLevel/);
 
     expect(() =>
       assertScanRequest({

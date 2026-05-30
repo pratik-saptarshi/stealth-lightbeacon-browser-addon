@@ -78,6 +78,10 @@ export interface ScanRequest {
   crawlDepth?: number;
   crawlMaxUrls?: number;
   ruleCategories?: RuleDomain[];
+  accessibilityProfile?: {
+    wcagLevel: 'A' | 'AA' | 'AAA';
+    includeBestPractices: boolean;
+  };
   backend?: {
     enabled?: boolean;
     mode?: 'http' | 'stdin';

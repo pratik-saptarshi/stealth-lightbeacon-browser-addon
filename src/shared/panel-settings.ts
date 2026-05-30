@@ -28,6 +28,12 @@ export interface PanelVisibilitySettings {
 export interface PanelSettingsForm {
   theme: PanelThemeSettings;
   visibility: PanelVisibilitySettings;
+  accessibility: PanelAccessibilitySettings;
+}
+
+export interface PanelAccessibilitySettings {
+  wcagLevel: 'A' | 'AA' | 'AAA';
+  includeBestPractices: boolean;
 }
 
 export const PANEL_SETTINGS_STORAGE_KEY = 'addon_panel_settings';
@@ -62,11 +68,16 @@ export const DEFAULT_PANEL_VISIBILITY: PanelVisibilitySettings = {
 
 export const DEFAULT_PANEL_SETTINGS: PanelSettingsForm = {
   theme: { ...DEFAULT_PANEL_THEME },
-  visibility: { ...DEFAULT_PANEL_VISIBILITY }
+  visibility: { ...DEFAULT_PANEL_VISIBILITY },
+  accessibility: {
+    wcagLevel: 'AA',
+    includeBestPractices: true
+  }
 };
 
 const THEME_KEYS = Object.keys(DEFAULT_PANEL_THEME) as Array<keyof PanelThemeSettings>;
 const VISIBILITY_KEYS = Object.keys(DEFAULT_PANEL_VISIBILITY) as Array<keyof PanelVisibilitySettings>;
+const ACCESSIBILITY_LEVELS = ['A', 'AA', 'AAA'] as const;
 const HEX_COLOR_RE = /^#?[0-9a-fA-F]{6}$/;
 
 export function normalizePanelSettings(input: unknown): PanelSettingsForm {
@@ -76,7 +87,8 @@ export function normalizePanelSettings(input: unknown): PanelSettingsForm {
 
   return {
     theme: normalizeTheme(input.theme),
-    visibility: normalizeVisibility(input.visibility)
+    visibility: normalizeVisibility(input.visibility),
+    accessibility: normalizeAccessibility(input.accessibility)
   };
 }
 
@@ -102,6 +114,15 @@ export function buildBugReportMailto(input: {
   return `mailto:${BUG_REPORT_EMAIL}?${params.toString()}`;
 }
 
+export function buildAccessibilityProfileSummary(input: PanelAccessibilitySettings): string {
+  const wcagLabel = `WCAG ${input.wcagLevel}`;
+  if (input.includeBestPractices) {
+    return `${wcagLabel} plus best-practice checks for UX-oriented accessibility guardrails.`;
+  }
+
+  return `${wcagLabel} only, without best-practice checks.`;
+}
+
 function normalizeTheme(input: unknown): PanelThemeSettings {
   const source = isRecord(input) ? input : {};
   const theme = cloneDefaultTheme();
@@ -124,6 +145,22 @@ function normalizeVisibility(input: unknown): PanelVisibilitySettings {
   return visibility;
 }
 
+function normalizeAccessibility(input: unknown): PanelAccessibilitySettings {
+  const source = isRecord(input) ? input : {};
+  const wcagLevel = typeof source.wcagLevel === 'string' && ACCESSIBILITY_LEVELS.includes(source.wcagLevel as (typeof ACCESSIBILITY_LEVELS)[number])
+    ? source.wcagLevel as PanelAccessibilitySettings['wcagLevel']
+    : DEFAULT_PANEL_SETTINGS.accessibility.wcagLevel;
+  const includeBestPractices =
+    typeof source.includeBestPractices === 'boolean'
+      ? source.includeBestPractices
+      : DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices;
+
+  return {
+    wcagLevel,
+    includeBestPractices
+  };
+}
+
 function normalizeHexColor(value: unknown, fallback: string): string {
   if (typeof value !== 'string') {
     return fallback;
@@ -144,7 +181,11 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 function cloneDefaultPanelSettings(): PanelSettingsForm {
   return {
     theme: cloneDefaultTheme(),
-    visibility: cloneDefaultVisibility()
+    visibility: cloneDefaultVisibility(),
+    accessibility: {
+      wcagLevel: DEFAULT_PANEL_SETTINGS.accessibility.wcagLevel,
+      includeBestPractices: DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices
+    }
   };
 }
 

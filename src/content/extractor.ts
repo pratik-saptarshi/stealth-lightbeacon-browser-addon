@@ -10,6 +10,12 @@ export interface LinkSignal {
   ariaLabel: string | null;
   title: string | null;
   isInternal: boolean;
+  quality?: {
+    hasQuery: boolean;
+    hasFragment: boolean;
+    hasTrackingParams: boolean;
+    isCleanPath: boolean;
+  };
 }
 
 export interface FormInputSignal {
@@ -34,6 +40,9 @@ export interface ImageSignal {
   alt: string | null;
   ariaLabel?: string | null;
   role?: string | null;
+  formatHint?: string | null;
+  hasQuery?: boolean;
+  hasFragment?: boolean;
 }
 
 export function extractPageContext(documentRef: Document, requestUrl: string): RuleContext {
@@ -51,12 +60,17 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
       .querySelector('link[rel="canonical"]')
       ?.getAttribute('href')
       ?.trim() ?? null;
+  const canonicalNormalized = canonical ? normalizeUrl(canonical, requestUrl) : null;
+  const requestNormalized = normalizeComparableUrl(requestUrl);
 
   const images = [...documentRef.querySelectorAll('img')].map((img) => ({
     src: img.currentSrc || img.src || img.getAttribute('src') || '',
     alt: img.getAttribute('alt'),
     ariaLabel: img.getAttribute('aria-label'),
-    role: img.getAttribute('role')
+    role: img.getAttribute('role'),
+    formatHint: inferImageFormatHint(img.currentSrc || img.src || img.getAttribute('src') || ''),
+    hasQuery: hasQuerySegment(img.currentSrc || img.src || img.getAttribute('src') || ''),
+    hasFragment: hasFragmentSegment(img.currentSrc || img.src || img.getAttribute('src') || '')
   }));
 
   const headings = {
@@ -68,11 +82,13 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
     level: Number(heading.tagName.slice(1)),
     text: (heading.textContent ?? '').trim()
   }));
+  const headingHierarchy = analyzeHeadingHierarchy(headingSequence);
 
   const links: LinkSignal[] = [...documentRef.querySelectorAll('a[href]')]
     .slice(0, MAX_LINKS)
     .map((link) => {
       const href = normalizeUrl(link.getAttribute('href') ?? '', requestUrl);
+      const quality = buildUrlQuality(href);
       return {
         href,
         text: (link.textContent ?? '').trim().slice(0, 120),
@@ -80,7 +96,8 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
         target: (link.getAttribute('target') ?? '').toLowerCase(),
         ariaLabel: link.getAttribute('aria-label')?.trim() ?? null,
         title: link.getAttribute('title')?.trim() ?? null,
-        isInternal: isInternalUrl(href, requestUrl)
+        isInternal: isInternalUrl(href, requestUrl),
+        ...(quality.isCleanPath ? {} : { quality })
       };
     })
     .filter((item) => item.href);
@@ -110,14 +127,39 @@ export function extractPageContext(documentRef: Document, requestUrl: string): R
     title,
     lang,
     canonical,
+    canonicalSignal: {
+      raw: canonical,
+      normalized: canonicalNormalized,
+      requestNormalized,
+      sameOrigin: haveSameOrigin(canonicalNormalized, requestUrl),
+      matchesRequest: canonicalNormalized !== null && requestNormalized !== null && canonicalNormalized === requestNormalized
+    },
     metaDescription,
     headings,
     headingSequence,
+    headingHierarchy,
     images,
     links,
     buttons,
     formInputs
   };
+}
+
+function analyzeHeadingHierarchy(sequence: Array<{ level: number; text: string }>) {
+  const skips: Array<{ fromLevel: number; toLevel: number; text: string; index: number }> = [];
+  const regressions: Array<{ fromLevel: number; toLevel: number; text: string; index: number }> = [];
+  for (let index = 1; index < sequence.length; index += 1) {
+    const previous = sequence[index - 1];
+    const current = sequence[index];
+    if (current.level > previous.level + 1) {
+      skips.push({ fromLevel: previous.level, toLevel: current.level, text: current.text, index });
+      continue;
+    }
+    if (current.level < previous.level) {
+      regressions.push({ fromLevel: previous.level, toLevel: current.level, text: current.text, index });
+    }
+  }
+  return { skips, regressions };
 }
 
 function normalizeUrl(href: string, baseUrl: string): string {
@@ -136,6 +178,77 @@ function normalizeUrl(href: string, baseUrl: string): string {
 function isInternalUrl(candidate: string, baseUrl: string): boolean {
   try {
     return new URL(candidate).origin === new URL(baseUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeComparableUrl(candidate: string): string | null {
+  try {
+    const url = new URL(candidate);
+    url.hash = '';
+    url.search = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function haveSameOrigin(candidate: string | null, baseUrl: string): boolean {
+  if (!candidate) {
+    return false;
+  }
+  try {
+    return new URL(candidate).origin === new URL(baseUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function buildUrlQuality(candidate: string) {
+  try {
+    const url = new URL(candidate);
+    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid'];
+    const hasTrackingParams = trackingParams.some((param) => url.searchParams.has(param));
+    const hasQuery = url.search.length > 0;
+    const hasFragment = url.hash.length > 0;
+    return {
+      hasQuery,
+      hasFragment,
+      hasTrackingParams,
+      isCleanPath: !hasQuery && !hasFragment && !hasTrackingParams
+    };
+  } catch {
+    return {
+      hasQuery: false,
+      hasFragment: false,
+      hasTrackingParams: false,
+      isCleanPath: true
+    };
+  }
+}
+
+function inferImageFormatHint(candidate: string): string | null {
+  try {
+    const pathname = new URL(candidate).pathname.toLowerCase();
+    const extension = pathname.split('.').at(-1);
+    return extension && extension !== pathname ? extension : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasQuerySegment(candidate: string): boolean {
+  try {
+    return new URL(candidate).search.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasFragmentSegment(candidate: string): boolean {
+  try {
+    return new URL(candidate).hash.length > 0;
   } catch {
     return false;
   }

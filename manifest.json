@@ -20,7 +20,9 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "sidePanel",
+    "contextMenus"
   ],
   "host_permissions": [],
   "action": {
@@ -33,5 +35,8 @@
       "64": "icons/icon-normal-64.png",
       "128": "icons/icon-normal-128.png"
     }
+  },
+  "side_panel": {
+    "default_path": "popup.html"
   }
 }

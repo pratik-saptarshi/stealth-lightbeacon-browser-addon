@@ -20,6 +20,7 @@ import {
 } from '../shared/backend-settings';
 import {
   BUG_REPORT_EMAIL,
+  buildAccessibilityProfileSummary,
   buildBugReportMailto,
   DEFAULT_PANEL_SETTINGS,
   PANEL_SETTINGS_STORAGE_KEY,
@@ -27,7 +28,7 @@ import {
   type PanelSettingsForm
 } from '../shared/panel-settings';
 import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-trace';
-import type { DiffResult, Issue, ScanSnapshot } from '../shared/types';
+import type { DiffResult, Issue, RuleDomain, ScanSnapshot } from '../shared/types';
 import type { HistoryCompareReply, HistoryListReply, ReportBuildReply, ScanStartReply } from '../shared/message-contracts';
 
 type PopupTab = 'overview' | 'connection' | 'results' | 'settings';
@@ -141,6 +142,9 @@ const dom = {
   backendAuthPassword: null as HTMLInputElement | null,
   backendRequired: null as HTMLInputElement | null,
   openApiSpecLink: null as HTMLAnchorElement | null,
+  accessibilityWcagLevel: null as HTMLSelectElement | null,
+  accessibilityBestPractices: null as HTMLInputElement | null,
+  accessibilityProfileSummary: null as HTMLElement | null,
   themeInputs: [] as HTMLInputElement[],
   visibilityInputs: [] as HTMLInputElement[],
   tabButtons: [] as HTMLButtonElement[]
@@ -189,6 +193,9 @@ function bindDom(): void {
   dom.backendAuthPassword = document.getElementById('backend-auth-password') as HTMLInputElement | null;
   dom.backendRequired = document.getElementById('backend-required') as HTMLInputElement | null;
   dom.openApiSpecLink = document.getElementById('openapi-spec-link') as HTMLAnchorElement | null;
+  dom.accessibilityWcagLevel = document.getElementById('accessibility-wcag-level') as HTMLSelectElement | null;
+  dom.accessibilityBestPractices = document.getElementById('accessibility-best-practices') as HTMLInputElement | null;
+  dom.accessibilityProfileSummary = document.getElementById('accessibility-profile-summary');
   dom.themeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-theme-setting]'));
   dom.visibilityInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-visibility-setting]'));
   dom.tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-popup-tab]'));
@@ -352,6 +359,8 @@ async function startScan(manual: boolean): Promise<void> {
           tabId: activeTab.id,
           url: activeTab.url,
           engine: 'dom-lite',
+          ruleCategories: buildRuleCategoriesFromAccessibilityProfile(),
+          accessibilityProfile: { ...state.panelSettings.accessibility },
           backend
         },
         persistHistory: true
@@ -801,6 +810,28 @@ function renderIssues(): void {
       void copySelectorsForIssues([issueId]);
     });
   });
+
+  dom.issuesPanel.querySelectorAll<HTMLButtonElement>('button[data-highlight-selector]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const selector = button.dataset.highlightSelector ?? '';
+      if (!selector) {
+        return;
+      }
+
+      void sendHighlightAction({
+        type: 'issue:highlight',
+        selector
+      });
+    });
+  });
+
+  dom.issuesPanel.querySelectorAll<HTMLButtonElement>('button[data-clear-highlight]').forEach((button) => {
+    button.addEventListener('click', () => {
+      void sendHighlightAction({
+        type: 'issue:clear-highlight'
+      });
+    });
+  });
 }
 
 function severityChip(severity: string, count: number): string {
@@ -828,9 +859,29 @@ function renderIssueCard(issue: Issue): string {
       <p class="issue-evidence">${escapeHtml(issue.evidence)}</p>
       <div class="issue-actions">
         <button type="button" data-copy-selector="${escapeAttr(issue.id)}">Copy selector</button>
+        ${issue.selector ? `<button type="button" data-highlight-selector="${escapeAttr(issue.selector)}">Highlight</button>` : ''}
+        <button type="button" data-clear-highlight="true">Clear highlight</button>
       </div>
     </article>
   `;
+}
+
+async function sendHighlightAction(
+  action: { type: 'issue:highlight'; selector: string } | { type: 'issue:clear-highlight' }
+): Promise<void> {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage) {
+    return;
+  }
+
+  const message = state.tabId
+    ? {
+        ...action,
+        tabId: state.tabId
+      }
+    : action;
+
+  await runtime.runtime.sendMessage(message);
 }
 
 function buildStatusLine(): string {
@@ -908,6 +959,8 @@ function bindSettingsInputs(): void {
   dom.backendAuthUsername?.addEventListener('change', updateBackend);
   dom.backendAuthPassword?.addEventListener('change', updateBackend);
   dom.backendRequired?.addEventListener('change', updateBackend);
+  dom.accessibilityWcagLevel?.addEventListener('change', updatePanel);
+  dom.accessibilityBestPractices?.addEventListener('change', updatePanel);
 
   for (const input of dom.themeInputs) {
     input.addEventListener('change', updatePanel);
@@ -1061,7 +1114,11 @@ function readBackendSettingsFromDom(): BackendSettingsForm {
 function readPanelSettingsFromDom(): PanelSettingsForm {
   return normalizePanelSettings({
     theme: readThemeSettingsFromDom(),
-    visibility: readVisibilitySettingsFromDom()
+    visibility: readVisibilitySettingsFromDom(),
+    accessibility: {
+      wcagLevel: dom.accessibilityWcagLevel?.value,
+      includeBestPractices: dom.accessibilityBestPractices?.checked
+    }
   });
 }
 
@@ -1091,6 +1148,23 @@ function readVisibilitySettingsFromDom(): Record<string, boolean> {
   }
 
   return visibility;
+}
+
+function buildRuleCategoriesFromAccessibilityProfile(): RuleDomain[] {
+  const categories: RuleDomain[] = ['accessibility'];
+  const profile = state.panelSettings.accessibility;
+
+  if (profile.wcagLevel === 'AA' || profile.wcagLevel === 'AAA') {
+    categories.push('WCAG2.1AA');
+  }
+  if (profile.wcagLevel === 'AAA') {
+    categories.push('WCAG2.2AA');
+  }
+  if (profile.includeBestPractices) {
+    categories.push('ux');
+  }
+
+  return categories;
 }
 
 function renderPanelSettings(): void {
@@ -1164,6 +1238,16 @@ function renderSettingsForm(): void {
     const specUrl = getRuntime()?.runtime?.getURL?.('api/openapi.yaml') ?? 'api/openapi.yaml';
     dom.openApiSpecLink.href = specUrl;
     dom.openApiSpecLink.title = specUrl;
+  }
+
+  if (dom.accessibilityWcagLevel) {
+    dom.accessibilityWcagLevel.value = state.panelSettings.accessibility.wcagLevel;
+  }
+  if (dom.accessibilityBestPractices) {
+    dom.accessibilityBestPractices.checked = state.panelSettings.accessibility.includeBestPractices;
+  }
+  if (dom.accessibilityProfileSummary) {
+    dom.accessibilityProfileSummary.textContent = buildAccessibilityProfileSummary(state.panelSettings.accessibility);
   }
 }
 
