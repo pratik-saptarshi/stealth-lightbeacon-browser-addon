@@ -510,6 +510,50 @@ describe('side-panel interactions', () => {
     expect(sendMessage.mock.calls.filter(([m]) => (m as { type: string }).type === 'scan:start').length).toBeGreaterThanOrEqual(2);
   });
 
+  it('classifies scan failure as fallback when error message indicates fallback path', async () => {
+    buildShell();
+
+    const storageGet = vi.fn(async () => ({
+      [PANEL_SETTINGS_STORAGE_KEY]: DEFAULT_PANEL_SETTINGS
+    }));
+    const storageSet = vi.fn<(payload: Record<string, unknown>) => Promise<void>>(async () => undefined);
+    const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/page' }]);
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'history:compare') {
+        return {
+          ok: true,
+          payload: {
+            latest: cachedSnapshot,
+            previous: undefined,
+            diff: { newIssues: [], resolvedIssues: [], regressions: [], improvements: [] }
+          }
+        };
+      }
+      if (message.type === 'history:list') {
+        return { ok: true, payload: { snapshots: [cachedSnapshot] } };
+      }
+      if (message.type === 'scan:start') {
+        return { ok: false, error: 'backend fallback is required for this page' };
+      }
+      return { ok: true };
+    });
+
+    (globalThis as typeof globalThis & { chrome?: unknown }).chrome = {
+      runtime: { sendMessage, getURL: (path: string) => `chrome-extension://test/${path}`, getManifest: () => ({ version: '1.0.0' }) },
+      storage: { local: { get: storageGet, set: storageSet } },
+      tabs: { query }
+    };
+
+    await import('../../src/side-panel/side-panel');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+
+    document.getElementById('rescan-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(document.getElementById('status-pill')?.dataset.status).toBe('fallback');
+    });
+    expect(document.getElementById('status-line')?.textContent).toContain('backend fallback is required');
+  });
+
   it('exports selected reports and copies selectors', async () => {
     buildShell();
 

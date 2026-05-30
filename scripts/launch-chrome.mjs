@@ -31,6 +31,10 @@ const args = [
   'about:blank'
 ];
 
+if (process.env.CHROME_HEADLESS === '1') {
+  args.unshift('--no-sandbox', '--disable-gpu', '--headless=new');
+}
+
 console.log(`[launch] Starting Chrome with unpacked extension from ${extensionDir}`);
 console.log(`[launch] User data dir: ${profileDir}`);
 console.log(`[launch] Executable: ${chromeExecutable}`);

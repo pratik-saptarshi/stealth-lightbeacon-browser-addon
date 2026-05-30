@@ -116,7 +116,14 @@ jobs:
           set -euo pipefail
           pnpm run test:ui-load:strict
 
-      - name: Run Playwright E2E
+      - name: Launch connected Chrome extension runtime
         run: |
           set -euo pipefail
-          pnpm exec playwright test tests/side-panel/side-panel.playwright.spec.ts
+          CHROME_HEADLESS=1 pnpm run launch
+
+      - name: Run Playwright E2E (strict extension origin, connected runtime)
+        env:
+          PW_REQUIRE_EXTENSION_ORIGIN: "1"
+        run: |
+          set -euo pipefail
+          pnpm run test:side-panel:connected

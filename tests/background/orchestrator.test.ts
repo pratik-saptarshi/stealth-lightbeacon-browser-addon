@@ -36,6 +36,24 @@ describe('scan orchestrator crawl-lite', () => {
     expect(result.crawlNodes?.[0]).toMatchObject({ errorType: 'blocked' });
   });
 
+  it('throws when backend is required but backend client is unavailable', async () => {
+    const orchestrator = new ScanOrchestrator({ crawlMaxUrls: 10 });
+    const backendRequiredRequest: ScanRequest = {
+      ...request,
+      engine: 'dom-lite',
+      backend: {
+        enabled: true,
+        mode: 'http',
+        endpoint: 'https://localhost:3000',
+        required: true
+      }
+    };
+
+    await expect(orchestrator.runScan(backendRequiredRequest, context)).rejects.toThrow(
+      'Backend required but backend client is unavailable'
+    );
+  });
+
   it('marks non_html content as non_html error', async () => {
     const orchestrator = new ScanOrchestrator({
       fetcher: async () =>

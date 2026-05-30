@@ -102,4 +102,33 @@ describe('content script runtime message guard', () => {
     expect(listener({ type: 'issue:clear-highlight' }, {}, sendResponse)).toBe(true);
     expect(target.dataset.stealthLightbeaconHighlight).toBeUndefined();
   });
+
+  it('returns an explicit error when axe runtime is unavailable', async () => {
+    const addListener = vi.fn();
+    vi.stubGlobal('browser', {
+      runtime: {
+        onMessage: {
+          addListener
+        }
+      }
+    });
+
+    await import('../../src/content/content-script');
+    const listener = addListener.mock.calls[0][0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (response: unknown) => void
+    ) => unknown;
+    const sendResponse = vi.fn();
+
+    expect(listener({ type: 'content:axe-scan' }, {}, sendResponse)).toBe(true);
+    await vi.waitFor(() => {
+      expect(sendResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ok: false,
+          error: expect.stringContaining('axe runtime is unavailable')
+        })
+      );
+    });
+  });
 });
