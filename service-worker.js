@@ -1582,12 +1582,18 @@ var ScanOrchestrator = class {
     const rules = this.selectRules(effectiveRequest, rulesetCatalog);
     const enrichedContext = await this.enrichSecurityHeaderContext(pageContext, validated.url);
     const localResult = runRules(rules, enrichedContext);
-    let snapshot = localResult.snapshot;
+    const hybridStealthEscalation = this.shouldRunHybridStealthScan(effectiveRequest, enrichedContext);
+    let snapshotIssues = [...localResult.snapshot.issues];
     let crawlNodes;
     if (this.shouldUseBackend(effectiveRequest)) {
-      const backendResult = await this.runBackendScan(effectiveRequest, pageContext, rulesetCatalog);
+      const backendRequest = hybridStealthEscalation ? this.withForcedBackendEngine(effectiveRequest, "stealth-playwright") : effectiveRequest;
+      const backendResult = await this.runBackendScan(backendRequest, pageContext, rulesetCatalog);
       if (backendResult) {
-        snapshot = backendResult.snapshot;
+        if (hybridStealthEscalation) {
+          snapshotIssues = this.mergeIssues(localResult.snapshot.issues, backendResult.snapshot.issues);
+        } else {
+          snapshotIssues = [...backendResult.snapshot.issues];
+        }
         crawlNodes = backendResult.crawlNodes;
       }
     }
@@ -1597,7 +1603,7 @@ var ScanOrchestrator = class {
       crawlNodes = await this.runCrawl(validated, pageContext);
     }
     const crawlIssues = buildCrawlIssues(crawlNodes, validated.url);
-    const mergedIssues = [...snapshot.issues, ...crawlIssues];
+    const mergedIssues = [...snapshotIssues, ...crawlIssues];
     const resultSnapshot = {
       id: `scan-${this.clock()}`,
       origin: localResult.snapshot.origin,
@@ -1657,6 +1663,45 @@ var ScanOrchestrator = class {
       return false;
     }
     return request.backend.enabled !== false;
+  }
+  shouldRunHybridStealthScan(request, context) {
+    if (request.engine !== "dom-lite") {
+      return false;
+    }
+    if (!request.backend || request.backend.enabled === false) {
+      return false;
+    }
+    const linkHeavy = context.links.length >= 30;
+    const imageHeavy = context.images.length >= 12;
+    const headingHeavy = context.headings.h3 >= 10;
+    const weakMetadata = !context.metaDescription || !context.canonical || !context.lang;
+    return linkHeavy || imageHeavy || headingHeavy || weakMetadata;
+  }
+  withForcedBackendEngine(request, engine) {
+    return {
+      ...request,
+      backend: {
+        ...request.backend,
+        enabled: true,
+        engine
+      }
+    };
+  }
+  mergeIssues(localIssues, backendIssues) {
+    const mergedIssues = [...localIssues];
+    const seenKeys = new Set(localIssues.map((issue) => this.issueMergeKey(issue)));
+    for (const issue of backendIssues) {
+      const key = this.issueMergeKey(issue);
+      if (seenKeys.has(key)) {
+        continue;
+      }
+      mergedIssues.push(issue);
+      seenKeys.add(key);
+    }
+    return mergedIssues;
+  }
+  issueMergeKey(issue) {
+    return [issue.ruleId, issue.domain, issue.severity, issue.selector ?? "", issue.summary].join("|");
   }
   async enrichSecurityHeaderContext(pageContext, requestUrl) {
     if (pageContext.securityHeaders?.observed) {
@@ -3340,7 +3385,10 @@ async function resolvePageContextFromActiveTab(tabId) {
   if (!activeTabId) {
     return void 0;
   }
-  await ensureContentScriptLoaded(runtimeTabs, activeTabId);
+  try {
+    await ensureContentScriptLoaded(runtimeTabs, activeTabId);
+  } catch {
+  }
   const response = await requestContentContext(runtimeTabs, activeTabId);
   if (isRuntimeMessageResponse(response)) {
     return response.payload;
@@ -3378,7 +3426,11 @@ async function requestContentContext(tabs, tabId) {
   if (!tabs.sendMessage) {
     return void 0;
   }
-  return tabs.sendMessage(tabId, { type: "content:extract" });
+  try {
+    return await tabs.sendMessage(tabId, { type: "content:extract" });
+  } catch {
+    return void 0;
+  }
 }
 function resolveBackendStdioExecutor(context) {
   const candidate = context.__STEALTH_LIGHTBEACON_STDIN_EXECUTOR__;

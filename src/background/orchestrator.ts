@@ -56,14 +56,22 @@ export class ScanOrchestrator {
     const rules = this.selectRules(effectiveRequest, rulesetCatalog);
     const enrichedContext = await this.enrichSecurityHeaderContext(pageContext, validated.url);
     const localResult = runRules(rules, enrichedContext);
+    const hybridStealthEscalation = this.shouldRunHybridStealthScan(effectiveRequest, enrichedContext);
 
-    let snapshot = localResult.snapshot;
+    let snapshotIssues = [...localResult.snapshot.issues];
     let crawlNodes: CrawlNode[] | undefined;
 
     if (this.shouldUseBackend(effectiveRequest)) {
-      const backendResult = await this.runBackendScan(effectiveRequest, pageContext, rulesetCatalog);
+      const backendRequest = hybridStealthEscalation
+        ? this.withForcedBackendEngine(effectiveRequest, 'stealth-playwright')
+        : effectiveRequest;
+      const backendResult = await this.runBackendScan(backendRequest, pageContext, rulesetCatalog);
       if (backendResult) {
-        snapshot = backendResult.snapshot;
+        if (hybridStealthEscalation) {
+          snapshotIssues = this.mergeIssues(localResult.snapshot.issues, backendResult.snapshot.issues);
+        } else {
+          snapshotIssues = [...backendResult.snapshot.issues];
+        }
         crawlNodes = backendResult.crawlNodes;
       }
     }
@@ -75,7 +83,7 @@ export class ScanOrchestrator {
     }
 
     const crawlIssues = buildCrawlIssues(crawlNodes, validated.url);
-    const mergedIssues = [...snapshot.issues, ...crawlIssues];
+    const mergedIssues = [...snapshotIssues, ...crawlIssues];
 
     const resultSnapshot: ScanSnapshot = {
       id: `scan-${this.clock()}`,
@@ -148,6 +156,58 @@ export class ScanOrchestrator {
     }
 
     return request.backend.enabled !== false;
+  }
+
+  private shouldRunHybridStealthScan(request: ScanRequest, context: RuleContext): boolean {
+    if (request.engine !== 'dom-lite') {
+      return false;
+    }
+
+    if (!request.backend || request.backend.enabled === false) {
+      return false;
+    }
+
+    const linkHeavy = context.links.length >= 30;
+    const imageHeavy = context.images.length >= 12;
+    const headingHeavy = context.headings.h3 >= 10;
+    const weakMetadata = !context.metaDescription || !context.canonical || !context.lang;
+
+    return linkHeavy || imageHeavy || headingHeavy || weakMetadata;
+  }
+
+  private withForcedBackendEngine(request: ScanRequest, engine: BackendEngine): ScanRequest {
+    return {
+      ...request,
+      backend: {
+        ...request.backend,
+        enabled: true,
+        engine
+      }
+    };
+  }
+
+  private mergeIssues(
+    localIssues: ScanSnapshot['issues'],
+    backendIssues: ScanSnapshot['issues']
+  ): ScanSnapshot['issues'] {
+    const mergedIssues = [...localIssues];
+    const seenKeys = new Set(localIssues.map((issue) => this.issueMergeKey(issue)));
+
+    for (const issue of backendIssues) {
+      const key = this.issueMergeKey(issue);
+      if (seenKeys.has(key)) {
+        continue;
+      }
+
+      mergedIssues.push(issue);
+      seenKeys.add(key);
+    }
+
+    return mergedIssues;
+  }
+
+  private issueMergeKey(issue: ScanSnapshot['issues'][number]): string {
+    return [issue.ruleId, issue.domain, issue.severity, issue.selector ?? '', issue.summary].join('|');
   }
 
   private async enrichSecurityHeaderContext(pageContext: RuleContext, requestUrl: string): Promise<RuleContext> {

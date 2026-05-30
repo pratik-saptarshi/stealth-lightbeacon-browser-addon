@@ -430,7 +430,13 @@ async function resolvePageContextFromActiveTab(tabId?: number): Promise<RuleCont
     return undefined;
   }
 
-  await ensureContentScriptLoaded(runtimeTabs, activeTabId);
+  try {
+    await ensureContentScriptLoaded(runtimeTabs, activeTabId);
+  } catch {
+    // Injection can fail on restricted pages or permission-scoped tabs.
+    // Continue and try message-based extraction in case the script is already present.
+  }
+
   const response = await requestContentContext(runtimeTabs, activeTabId);
   if (isRuntimeMessageResponse(response)) {
     return response.payload;
@@ -480,7 +486,11 @@ async function requestContentContext(
     return undefined;
   }
 
-  return tabs.sendMessage(tabId, { type: 'content:extract' });
+  try {
+    return await tabs.sendMessage(tabId, { type: 'content:extract' });
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveBackendStdioExecutor(

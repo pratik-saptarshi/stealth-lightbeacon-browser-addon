@@ -180,6 +180,46 @@ it('resolves scan context from active tab when pageContext is omitted', async ()
   });
 });
 
+it('continues scan when content script reinjection is blocked by permissions but extraction messaging succeeds', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalExecuteScript = chrome.scripting?.executeScript;
+  const originalSendMessage = chrome.tabs?.sendMessage;
+
+  if (chrome.scripting) {
+    chrome.scripting.executeScript = vi.fn(async () => {
+      throw new Error('Cannot access contents of the page. Extension manifest must request permission to access this host.');
+    });
+  }
+  if (chrome.tabs) {
+    chrome.tabs.sendMessage = vi.fn(async () => ({ ok: true, payload: extractedContext }));
+  }
+
+  try {
+    const reply = (await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'permission-blocked-reinject',
+        url: 'https://example.com/page',
+        engine: 'dom-lite'
+      }
+    } as const)) as ScanStartReply;
+
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) {
+      throw new Error(reply.error);
+    }
+
+    expect(reply.payload.snapshot.origin).toBe('https://example.com');
+  } finally {
+    if (chrome.scripting) {
+      chrome.scripting.executeScript = originalExecuteScript!;
+    }
+    if (chrome.tabs) {
+      chrome.tabs.sendMessage = originalSendMessage!;
+    }
+  }
+});
+
 it('returns the bundled knowledge base catalog', async () => {
   const reply = await handleMessage({ type: 'knowledge-base:get' } as const);
 

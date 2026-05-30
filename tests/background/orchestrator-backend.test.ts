@@ -239,4 +239,59 @@ describe('orchestrator backend integration', () => {
 
     await expect(orchestrator.runScan(request, context)).rejects.toThrow(/summary\.total/);
   });
+
+  it('auto-escalates dom-lite to stealth-playwright on trigger conditions and merges local + backend issues', async () => {
+    const triggerContext: RuleContext = {
+      ...context,
+      links: Array.from({ length: 36 }, (_, index) => ({
+        href: `https://example.com/link-${index}`,
+        text: `link-${index}`,
+        rel: '',
+        target: '',
+        isInternal: true
+      }))
+    };
+    const request: ScanRequest = {
+      ...baseRequest,
+      requestId: 'backend-hybrid-1',
+      backend: { enabled: true, mode: 'stdin', required: false }
+    };
+
+    let receivedEngine: string | undefined;
+    const orchestrator = new ScanOrchestrator({
+      backendClient: {
+        async runScan(payload) {
+          receivedEngine = payload.request.backend?.engine;
+          return {
+            snapshot: {
+              ...localSnapshotFor('https://example.com/backend-hybrid'),
+              issues: [
+                {
+                  id: 'backend-extra',
+                  ruleId: 'backend-dynamic-render',
+                  title: 'Dynamic render issue',
+                  severity: 'medium',
+                  domain: 'performance',
+                  summary: 'Backend observed delayed rendering',
+                  evidence: 'hydration-marker',
+                  source: 'backend'
+                }
+              ],
+              summary: {
+                total: 1,
+                bySeverity: { critical: 0, high: 0, medium: 1, low: 0 },
+                byDomain: { seo: 0, performance: 1, accessibility: 0, aeo: 0, ux: 0, drupal: 0, geo: 0, 'security-headers': 0, 'WCAG2.1AA': 0, 'WCAG2.2AA': 0 }
+              }
+            }
+          };
+        }
+      }
+    });
+
+    const result = await orchestrator.runScan(request, triggerContext);
+
+    expect(receivedEngine).toBe('stealth-playwright');
+    expect(result.snapshot.issues.some((issue) => issue.source === 'dom-only')).toBe(true);
+    expect(result.snapshot.issues.some((issue) => issue.ruleId === 'backend-dynamic-render')).toBe(true);
+  });
 });

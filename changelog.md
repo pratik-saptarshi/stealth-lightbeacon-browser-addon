@@ -3,6 +3,13 @@
 ## Unreleased
 - Ongoing roadmap and validation follow-ups remain tracked in `docs/roadmap/`.
 
+## 0.1.11 — 2026-05-30
+- Added hybrid fallback policy for higher-trust scans: `dom-lite` now auto-escalates to `stealth-playwright` under dynamic-page trigger conditions when backend mode is enabled.
+- Merged local embedded-rule findings with backend findings in hybrid mode to preserve deterministic local coverage while incorporating deeper runtime findings.
+- Hardened standalone scan behavior against extension permission failures by treating content-script reinjection and tab-message permission errors as recoverable where possible.
+- Added regression coverage for hybrid escalation/merge and permission-blocked reinjection recovery.
+- Bumped release metadata to `0.1.11` in `package.json` and `manifest.json`.
+
 ## 0.1.10 — 2026-05-30
 - Fixed standalone scan regression so side-panel scans can proceed when active tab metadata omits URL and the service worker resolves canonical URL from extracted page context.
 - Updated side-panel runtime status messaging to remove popup-first wording and reflect side-panel-only behavior.

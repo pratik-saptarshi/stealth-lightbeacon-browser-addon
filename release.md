@@ -1,13 +1,13 @@
 # Stealth Lightbeacon Browser Addon Releases
 
-Latest stable release: `v0.1.10` (2026-05-30)
+Latest stable release: `v0.1.11` (2026-05-30)
 
 ## Release Summary
 
-`v0.1.10` focuses on standalone scan reliability and report-output quality:
-- restores standalone embedded-rule scanning when active-tab URL is unavailable,
-- aligns HTML/Markdown exports to executive-style fidelity report formatting,
-- updates runtime messaging to side-panel-first terminology and keeps CI hardening current.
+`v0.1.11` focuses on hybrid scan trust and resilient standalone execution:
+- auto-escalates from `dom-lite` to `stealth-playwright` on dynamic-page trigger conditions,
+- merges local embedded-rule findings with backend findings for higher-trust outputs,
+- tolerates permission-related content script injection failures when extraction messaging remains available.
 
 ## Validation Gate
 
@@ -24,6 +24,7 @@ pnpm exec vitest --run --coverage --exclude tests/popup/popup.playwright.spec.ts
 
 ## Versioned Notes
 
+- [v0.1.11](./docs/releases/v0.1.11.md)
 - [v0.1.10](./docs/releases/v0.1.10.md)
 - [v0.1.9](./docs/releases/v0.1.9.md)
 - [v0.1.8](./docs/releases/v0.1.8.md)

@@ -4,7 +4,7 @@ Stealth Lightbeacon is a side-panel-first browser extension for fast, local webs
 
 It scans the active page, groups issues by severity and category, tracks history, and exports reports without requiring a remote service by default.
 
-Current package version: `0.1.10`
+Current package version: `0.1.11`
 
 ## Key Features
 - Side-panel-first workflow with action and context-menu open flows.
