@@ -50,3 +50,38 @@ jobs:
 
       - name: Run test leg (${{ matrix.label }})
         run: ${{ matrix.command }}
+
+  playwright-e2e:
+    name: playwright-e2e
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run extension runtime smoke (strict Playwright mode)
+        run: SMOKE_REQUIRE_PLAYWRIGHT=1 pnpm run test:ui-load
+
+      - name: Run Playwright E2E
+        run: pnpm exec playwright test tests/popup/popup.playwright.spec.ts

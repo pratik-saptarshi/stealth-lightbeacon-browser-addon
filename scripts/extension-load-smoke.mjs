@@ -1,4 +1,5 @@
 import { accessSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,13 +12,28 @@ import {
 
 const projectRoot = resolve(process.cwd());
 const distDir = resolve(projectRoot, 'dist');
-const chromeExecutablePath = [
-  process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH,
-  process.env.CHROME_BIN,
-  '/usr/local/bin/chromium',
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium'
-].find((candidate) => candidate && existsSync(candidate));
+function resolveUsableChromeExecutable() {
+  const candidates = [
+    process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH,
+    process.env.CHROME_BIN
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate || !existsSync(candidate)) {
+      continue;
+    }
+
+    const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' });
+    if (probe.status === 0) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+const chromeExecutablePath = resolveUsableChromeExecutable();
+const requirePlaywrightRuntime = process.env.SMOKE_REQUIRE_PLAYWRIGHT === '1';
 const distWorker = resolve(distDir, 'service-worker.js');
 const sourceManifestPath = resolve(projectRoot, 'manifest.json');
 const sourceWorker = resolve(projectRoot, 'service-worker.js');
@@ -155,21 +171,27 @@ function assertPopupSurface(popupPath) {
 }
 
 async function validateAxeSmoke(extensionDir) {
-  let playwright;
+  let playwrightChromium;
   try {
-    playwright = await import('playwright');
+    ({ chromium: playwrightChromium } = await import('@playwright/test'));
   } catch (error) {
+    if (requirePlaywrightRuntime) {
+      throw new Error('Playwright runtime is required but @playwright/test is unavailable');
+    }
     return validateJsdomAxeSmoke(extensionDir);
   }
 
-  if (!playwright.chromium) {
+  if (!playwrightChromium) {
+    if (requirePlaywrightRuntime) {
+      throw new Error('Playwright runtime is required but chromium launcher is unavailable');
+    }
     return validateJsdomAxeSmoke(extensionDir);
   }
 
   const tmpProfile = mkdtempSync(join(tmpdir(), 'slt-extension-load-'));
   let context;
   try {
-    context = await playwright.chromium.launchPersistentContext(tmpProfile, {
+    context = await playwrightChromium.launchPersistentContext(tmpProfile, {
       ...(chromeExecutablePath
         ? {
             executablePath: chromeExecutablePath
@@ -185,6 +207,13 @@ async function validateAxeSmoke(extensionDir) {
       ]
     });
   } catch (error) {
+    if (requirePlaywrightRuntime) {
+      throw new Error(
+        `Playwright runtime is required but browser launch failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
     console.warn(
       `[extension-load-smoke] Playwright browser launch unavailable (${error instanceof Error ? error.message : String(error)}); falling back to jsdom axe validation.`
     );
