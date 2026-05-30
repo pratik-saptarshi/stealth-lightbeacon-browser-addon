@@ -19,7 +19,7 @@
 - Restored run-history rendering and per-history report download actions in the popup.
 - Restored collapse/expand controls for issue/history detail groups.
 - Corrected startup hydration ordering so persisted popup UI selection state rebinds to cached scan data.
-- `node ./node_modules/vitest/vitest.mjs --run tests/popup/popup-state.test.ts tests/popup/popup-initialize.test.ts tests/popup/popup-interactions.test.ts tests/popup/popup-tabs.test.ts` ✅
+- `node ./node_modules/vitest/vitest.mjs --run tests/side-panel/side-panel-state.test.ts tests/side-panel/side-panel-initialize.test.ts tests/side-panel/side-panel-interactions.test.ts tests/side-panel/side-panel-tabs.test.ts` ✅
 
 ## 0.1.6 — 2026-05-27
 - Published a public release with refreshed markdown release notes and synchronized version metadata.

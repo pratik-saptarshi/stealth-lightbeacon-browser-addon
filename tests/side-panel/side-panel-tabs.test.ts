@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BACKEND_SETTINGS_STORAGE_KEY } from '../../src/shared/backend-settings';
 import { PANEL_SETTINGS_STORAGE_KEY } from '../../src/shared/panel-settings';
 
 const latestSnapshot = {
@@ -56,7 +55,7 @@ const olderSnapshot = {
 
 function buildShell(): void {
   document.body.innerHTML = `
-    <div class="shell" id="popup-shell">
+    <div class="shell" id="side-panel-shell">
       <header class="hero">
         <div>
           <p class="eyebrow">In-page audit lite</p>
@@ -70,36 +69,12 @@ function buildShell(): void {
       </header>
       <main class="content" id="content-panel" aria-label="Popup tabs">
         <section class="tab-strip" role="tablist" aria-label="Popup sections">
-          <button id="overview-tab" type="button" role="tab" data-popup-tab="overview" aria-controls="overview-panel" aria-selected="false">Overview</button>
-          <button id="connection-tab" type="button" role="tab" data-popup-tab="connection" aria-controls="connection-panel" aria-selected="false">Connection</button>
-          <button id="results-tab" type="button" role="tab" data-popup-tab="results" aria-controls="results-panel" aria-selected="false">Results</button>
-          <button id="settings-tab" type="button" role="tab" data-popup-tab="settings" aria-controls="settings-panel" aria-selected="false">Settings</button>
+          <button id="overview-tab" type="button" role="tab" data-side-panel-tab="overview" aria-controls="overview-panel" aria-selected="false">Overview</button>          <button id="results-tab" type="button" role="tab" data-side-panel-tab="results" aria-controls="results-panel" aria-selected="false">Results</button>
+          <button id="settings-tab" type="button" role="tab" data-side-panel-tab="settings" aria-controls="settings-panel" aria-selected="false">Settings</button>
         </section>
 
-        <section id="overview-panel" data-popup-tab-panel="overview" aria-labelledby="overview-tab"></section>
-
-        <section id="connection-panel" data-popup-tab-panel="connection" aria-labelledby="connection-tab">
-          <div id="connection-summary"></div>
-          <section class="settings-group backend-settings" id="backend-settings-section" aria-label="Backend settings">
-            <div class="settings-head">
-              <p class="eyebrow">Local backend settings</p>
-              <p class="settings-note">Configure a local or remote backend before rescanning. Stdin mode is useful for direct Python adapters.</p>
-            </div>
-            <div class="settings-grid">
-              <label><span>Backend enabled</span><input id="backend-enabled" type="checkbox" /></label>
-              <label><span>Mode</span><select id="backend-mode"><option value="http">HTTP</option><option value="stdin">Stdin</option></select></label>
-              <label><span>Endpoint</span><input id="backend-endpoint" type="text" /></label>
-              <label><span>Port</span><input id="backend-port" type="text" /></label>
-              <label><span>Secret / API key</span><input id="backend-secret" type="password" /></label>
-              <label><span>Basic auth username</span><input id="backend-auth-username" type="text" /></label>
-              <label><span>Basic auth password</span><input id="backend-auth-password" type="password" /></label>
-              <label class="checkbox-row"><input id="backend-required" type="checkbox" /><span>Hard fail when backend is unavailable</span></label>
-            </div>
-            <div class="settings-actions"><a id="openapi-spec-link" class="settings-link" target="_blank" rel="noreferrer">Open OpenAPI spec</a></div>
-          </section>
-        </section>
-
-        <section id="results-panel" data-popup-tab-panel="results" aria-labelledby="results-tab">
+        <section id="overview-panel" data-side-panel-tab-panel="overview" aria-labelledby="overview-tab"></section>
+        <section id="results-panel" data-side-panel-tab-panel="results" aria-labelledby="results-tab">
           <section class="results-toolbar" aria-label="Results actions">
             <div class="report-actions">
               <button class="primary" id="rescan-button" type="button">Re-scan this page</button>
@@ -128,7 +103,7 @@ function buildShell(): void {
           <div class="settings-panel-head">
             <div>
               <p class="eyebrow">Panel settings</p>
-              <p class="settings-note">Tune colors, hide optional sections, and report bugs without leaving the popup.</p>
+              <p class="settings-note">Tune colors, hide optional sections, and report bugs without leaving the side panel.</p>
             </div>
             <button id="settings-close-button" type="button">Close</button>
           </div>
@@ -155,8 +130,7 @@ function buildShell(): void {
             <h2>Visible sections</h2>
             <div class="settings-checklist">
               <label class="checkbox-row"><input id="show-controls" data-visibility-setting="showControls" type="checkbox" /><span>Scan actions</span></label>
-              <label class="checkbox-row"><input id="show-backend-settings" data-visibility-setting="showBackendSettings" type="checkbox" /><span>Backend settings</span></label>
-              <label class="checkbox-row"><input id="show-summary" data-visibility-setting="showSummary" type="checkbox" /><span>Summary cards</span></label>
+                            <label class="checkbox-row"><input id="show-summary" data-visibility-setting="showSummary" type="checkbox" /><span>Summary cards</span></label>
               <label class="checkbox-row"><input id="show-delta" data-visibility-setting="showDelta" type="checkbox" /><span>Delta summary</span></label>
               <label class="checkbox-row"><input id="show-status-line" data-visibility-setting="showStatusLine" type="checkbox" /><span>Status line</span></label>
               <label class="checkbox-row"><input id="show-offline-banner" data-visibility-setting="showOfflineBanner" type="checkbox" /><span>Offline banner</span></label>
@@ -173,7 +147,7 @@ function buildShell(): void {
   `;
 }
 
-describe('popup tab shell', () => {
+describe('side-panel tab shell', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -183,20 +157,10 @@ describe('popup tab shell', () => {
     delete (globalThis as typeof globalThis & { browser?: unknown }).browser;
   });
 
-  it('switches tabs and exposes the standalone connection copy', async () => {
+  it('switches tabs and exposes the standalone overview copy', async () => {
     buildShell();
 
     const storageGet = vi.fn(async () => ({
-      [BACKEND_SETTINGS_STORAGE_KEY]: {
-        enabled: false,
-        mode: 'stdin',
-        endpoint: 'http://127.0.0.1',
-        port: '5000',
-        requestSigningSecret: '',
-        authUsername: '',
-        authPassword: '',
-        required: false
-      },
       [PANEL_SETTINGS_STORAGE_KEY]: {
         theme: {
           backgroundStart: '#102030',
@@ -216,8 +180,7 @@ describe('popup tab shell', () => {
         },
         visibility: {
           showControls: true,
-          showBackendSettings: true,
-          showSummary: true,
+                    showSummary: true,
           showDelta: true,
           showStatusLine: true,
           showOfflineBanner: true,
@@ -333,7 +296,7 @@ describe('popup tab shell', () => {
       }
     };
 
-    await import('../../src/popup/popup');
+    await import('../../src/side-panel/side-panel');
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.waitFor(() => {
@@ -346,9 +309,7 @@ describe('popup tab shell', () => {
     expect(document.getElementById('status-pill')?.textContent).toBe('Complete');
     expect(document.querySelectorAll('[data-testid="issue-domain"]').length).toBeGreaterThan(0);
 
-    document.getElementById('connection-tab')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(document.getElementById('connection-panel')?.classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('backend-settings-section')?.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('overview-panel')?.classList.contains('hidden')).toBe(true);
 
     document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(document.getElementById('settings-panel')?.classList.contains('hidden')).toBe(false);
@@ -372,16 +333,6 @@ describe('popup tab shell', () => {
     });
 
     const storageGet = vi.fn(async () => ({
-      [BACKEND_SETTINGS_STORAGE_KEY]: {
-        enabled: true,
-        mode: 'http',
-        endpoint: 'https://backend.example.com',
-        port: '5000',
-        requestSigningSecret: 'secret',
-        authUsername: 'user',
-        authPassword: 'pass',
-        required: false
-      },
       [PANEL_SETTINGS_STORAGE_KEY]: {
         theme: {
           backgroundStart: '#102030',
@@ -401,8 +352,7 @@ describe('popup tab shell', () => {
         },
         visibility: {
           showControls: true,
-          showBackendSettings: true,
-          showSummary: true,
+                    showSummary: true,
           showDelta: true,
           showStatusLine: true,
           showOfflineBanner: true,
@@ -503,7 +453,7 @@ describe('popup tab shell', () => {
       }
     };
 
-    await import('../../src/popup/popup');
+    await import('../../src/side-panel/side-panel');
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.waitFor(() => {
@@ -546,16 +496,6 @@ describe('popup tab shell', () => {
     buildShell();
 
     const storageGet = vi.fn(async () => ({
-      [BACKEND_SETTINGS_STORAGE_KEY]: {
-        enabled: false,
-        mode: 'http',
-        endpoint: 'https://backend.example.com',
-        port: '5000',
-        requestSigningSecret: '',
-        authUsername: '',
-        authPassword: '',
-        required: false
-      },
       [PANEL_SETTINGS_STORAGE_KEY]: {
         theme: {
           backgroundStart: '#102030',
@@ -575,8 +515,7 @@ describe('popup tab shell', () => {
         },
         visibility: {
           showControls: true,
-          showBackendSettings: true,
-          showSummary: true,
+                    showSummary: true,
           showDelta: true,
           showStatusLine: true,
           showOfflineBanner: true,
@@ -605,7 +544,7 @@ describe('popup tab shell', () => {
       tabs: { query }
     };
 
-    await import('../../src/popup/popup');
+    await import('../../src/side-panel/side-panel');
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.waitFor(() => {

@@ -10,8 +10,12 @@ import { createKnowledgeBaseStorage, KnowledgeBaseManager, MemoryKnowledgeBaseSt
 import { buildReport } from '../ui/export';
 import { withEventLoopTrace } from '../shared/performance-trace';
 import { applyToolbarState } from './toolbar-state';
+import { summarizeIssues } from '../shared/contracts';
+import { diffSnapshots } from '../shared/rule-engine';
+import { createIssue } from '../shared/rule-engine';
 import type { RuleContext } from '../shared/rule-engine';
-import type { ScanRequest } from '../shared/types';
+import type { Issue, ScanRequest } from '../shared/types';
+import type { ContentAxeViolation } from '../content/content-script';
 
 type RuntimeContext = {
   chrome?: {
@@ -25,7 +29,14 @@ type RuntimeContext = {
     };
     tabs?: {
       query?: (query: Record<string, unknown>) => Promise<ActiveTabLookup[]>;
+      get?: (tabId: number) => Promise<ActiveTabLookup | undefined>;
       sendMessage?: (tabId: number, message: unknown) => Promise<unknown>;
+      onUpdated?: {
+        addListener?: (callback: (tabId: number, changeInfo: { status?: string }) => void) => void;
+      };
+      onRemoved?: {
+        addListener?: (callback: (tabId: number) => void) => void;
+      };
     };
     scripting?: {
       executeScript?: (details: {
@@ -77,7 +88,14 @@ type RuntimeContext = {
     };
     tabs?: {
       query?: (query: Record<string, unknown>) => Promise<ActiveTabLookup[]>;
+      get?: (tabId: number) => Promise<ActiveTabLookup | undefined>;
       sendMessage?: (tabId: number, message: unknown) => Promise<unknown>;
+      onUpdated?: {
+        addListener?: (callback: (tabId: number, changeInfo: { status?: string }) => void) => void;
+      };
+      onRemoved?: {
+        addListener?: (callback: (tabId: number) => void) => void;
+      };
     };
     scripting?: {
       executeScript?: (details: {
@@ -129,6 +147,7 @@ type RuntimeContext = {
 
 type ActiveTabLookup = {
   id?: number;
+  url?: string;
 };
 
 type RuntimeMessageResponse = {
@@ -146,6 +165,7 @@ const rulesetStorage = createRulesetCatalogStorage(resolveHistoryStorage(globalR
 const rulesetManager = new RulesetCatalogManager(rulesetStorage ?? new MemoryRulesetCatalogStorage());
 const knowledgeBaseStorage = createKnowledgeBaseStorage(resolveHistoryStorage(globalRuntime)?.storage?.local);
 const knowledgeBaseManager = new KnowledgeBaseManager(knowledgeBaseStorage ?? new MemoryKnowledgeBaseStorage());
+const axeLoadedTabs = new Set<number>();
 
 export async function handleMessage(message: ClientMessage): Promise<MessageResponseByType[keyof MessageResponseByType]> {
   try {
@@ -153,9 +173,15 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
       return await withEventLoopTrace('service-worker.scan:start', async () => {
         const pageContext = message.pageContext ?? await resolvePageContextFromActiveTab(message.request.tabId);
         if (!pageContext) {
+          const unsupportedSnapshot = createUnsupportedSnapshot(message.request, await resolveActiveTabUrl(globalRuntime, message.request.tabId));
           return {
-            ok: false,
-            error: createFailure('Page context is missing; provide pageContext or request.tabId with active-tab permissions')
+            ok: true,
+            payload: {
+              snapshot: unsupportedSnapshot,
+              diff: diffSnapshots(unsupportedSnapshot),
+              crawlNodes: [],
+              recommendation: undefined
+            }
           };
         }
 
@@ -198,19 +224,35 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
           previous,
           catalog
         );
-
+        const includeAxeChecks = message.request.accessibilityProfile?.includeAxeChecks === true;
+        let mergedSnapshot = result.snapshot;
+        let mergedDiff = result.diff;
         const tabId = message.request.tabId ?? (await resolveActiveTabId(globalRuntime));
-        await applyToolbarState(globalRuntime, tabId, result.snapshot);
+
+        if (includeAxeChecks && typeof tabId === 'number') {
+          const axeIssues = await collectAxeIssues(globalRuntime, tabId);
+          if (axeIssues.length > 0) {
+            const mergedIssues = [...result.snapshot.issues, ...axeIssues];
+            mergedSnapshot = {
+              ...result.snapshot,
+              issues: mergedIssues,
+              summary: summarizeIssues(mergedIssues)
+            };
+            mergedDiff = diffSnapshots(mergedSnapshot, previous);
+          }
+        }
+
+        await applyToolbarState(globalRuntime, tabId, mergedSnapshot);
 
         if (message.persistHistory) {
-          await historyManager.saveSnapshot(result.snapshot);
+          await historyManager.saveSnapshot(mergedSnapshot);
         }
 
         return {
           ok: true,
           payload: {
-            snapshot: result.snapshot,
-            diff: result.diff,
+            snapshot: mergedSnapshot,
+            diff: mergedDiff,
             crawlNodes: result.crawlNodes,
             recommendation: result.recommendation
           }
@@ -381,6 +423,18 @@ function registerShellEntrypoints(context: RuntimeContext): void {
       await host.sidePanel?.open?.({ tabId: tab.id });
     }
   });
+
+  host.tabs?.onUpdated?.addListener?.((tabId, changeInfo) => {
+    if (typeof tabId === 'number' && changeInfo?.status === 'complete') {
+      axeLoadedTabs.delete(tabId);
+    }
+  });
+
+  host.tabs?.onRemoved?.addListener?.((tabId) => {
+    if (typeof tabId === 'number') {
+      axeLoadedTabs.delete(tabId);
+    }
+  });
 }
 
 function isKnownMessageType(type: unknown): type is ClientMessage['type'] {
@@ -455,6 +509,41 @@ async function resolveActiveTabId(context: RuntimeContext): Promise<number | und
   return activeTab?.id;
 }
 
+async function resolveActiveTabUrl(context: RuntimeContext, tabId?: number): Promise<string | undefined> {
+  const runtimeTabs = resolveRuntimeTabs(context);
+  if (!runtimeTabs) {
+    return undefined;
+  }
+
+  if (typeof tabId === 'number') {
+    if (runtimeTabs.get) {
+      try {
+        const direct = await runtimeTabs.get(tabId);
+        if (typeof direct?.url === 'string') {
+          return direct.url;
+        }
+      } catch {
+        // continue to query fallback
+      }
+    }
+
+    if (runtimeTabs.query) {
+      const matches = await runtimeTabs.query({ active: true, currentWindow: true });
+      const direct = matches.find((entry) => entry.id === tabId);
+      return typeof direct?.url === 'string' ? direct.url : undefined;
+    }
+
+    return undefined;
+  }
+
+  if (!runtimeTabs.query) {
+    return undefined;
+  }
+
+  const activeTab = await pickActiveTabId(runtimeTabs);
+  return typeof activeTab?.url === 'string' ? activeTab.url : undefined;
+}
+
 async function pickActiveTabId(tabs: NonNullable<RuntimeTabs>): Promise<ActiveTabLookup | undefined> {
   if (!tabs.query) {
     return undefined;
@@ -504,8 +593,173 @@ function resolveBackendStdioExecutor(
   return undefined;
 }
 
+async function collectAxeIssues(context: RuntimeContext, tabId: number): Promise<Issue[]> {
+  const tabs = resolveRuntimeTabs(context);
+  if (!tabs?.sendMessage) {
+    return [];
+  }
+
+  try {
+    await ensureAxeRuntimeLoaded(tabId);
+    const response = await tabs.sendMessage(tabId, { type: 'content:axe-scan' });
+    if (!response || typeof response !== 'object') {
+      return [];
+    }
+    const payload = response as {
+      ok?: boolean;
+      payload?: { violations?: ContentAxeViolation[] };
+    };
+    if (!payload.ok) {
+      return [];
+    }
+    const violations = payload.payload?.violations ?? [];
+    return mapAxeViolationsToIssues(violations);
+  } catch {
+    return [];
+  }
+}
+
+async function ensureAxeRuntimeLoaded(tabId: number): Promise<void> {
+  if (axeLoadedTabs.has(tabId)) {
+    return;
+  }
+
+  const scripting = globalRuntime.chrome?.scripting ?? globalRuntime.browser?.scripting;
+  if (!scripting?.executeScript) {
+    return;
+  }
+
+  await scripting.executeScript({
+    target: { tabId },
+    files: ['axe.min.js']
+  });
+  axeLoadedTabs.add(tabId);
+}
+
+function mapAxeViolationsToIssues(violations: ContentAxeViolation[]): Issue[] {
+  const issues: Issue[] = [];
+  for (const violation of violations) {
+    const severity = mapAxeImpactToSeverity(violation.impact);
+    for (const node of violation.nodes) {
+      const selector = node.target[0];
+      const summary = violation.help;
+      const evidence = node.failureSummary ?? node.html ?? violation.description;
+      issues.push({
+        id: `axe-${simpleHash(`${violation.id}|${selector ?? ''}|${evidence}`)}`,
+        ruleId: `axe-${violation.id}`,
+        title: violation.help,
+        severity,
+        domain: 'accessibility',
+        summary,
+        evidence,
+        selector,
+        source: 'axe'
+      });
+    }
+  }
+
+  return issues;
+}
+
+function mapAxeImpactToSeverity(impact: string | null): Issue['severity'] {
+  switch (impact) {
+    case 'critical':
+      return 'critical';
+    case 'serious':
+      return 'high';
+    case 'moderate':
+      return 'medium';
+    default:
+      return 'low';
+  }
+}
+
+function simpleHash(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return Math.abs(hash).toString(16);
+}
+
+function createUnsupportedSnapshot(request: ScanRequest, tabUrl?: string) {
+  const classInfo = classifyUnsupportedTarget(tabUrl, request.url);
+  const issue = createIssue(
+    {
+      id: `unsupported-page-${classInfo.classId}`,
+      title: 'Unsupported page target',
+      severity: 'low',
+      domain: 'ux'
+    },
+    classInfo.summary,
+    classInfo.education,
+    undefined,
+    'dom-only'
+  );
+
+  const now = Date.now();
+  const snapshotUrl = classInfo.url ?? 'https://unsupported.local/';
+  return {
+    id: `scan-${now}`,
+    origin: resolveSnapshotOrigin(snapshotUrl),
+    url: snapshotUrl,
+    timestamp: now,
+    engine: request.engine,
+    issues: [issue],
+    summary: summarizeIssues([issue])
+  };
+}
+
+function classifyUnsupportedTarget(tabUrl: string | undefined, requestUrl: string) {
+  const candidate = (tabUrl?.trim() || requestUrl?.trim() || '').toLowerCase();
+  if (candidate.startsWith('chrome://') || candidate.startsWith('edge://') || candidate.startsWith('about:')) {
+    return {
+      classId: 'browser-internal',
+      url: tabUrl ?? requestUrl,
+      summary: 'Browser-internal pages cannot be scanned by extension scripts.',
+      education: 'Open a standard https:// page and run scan again.'
+    };
+  }
+
+  if (candidate.startsWith('chrome-extension://') || candidate.startsWith('moz-extension://')) {
+    return {
+      classId: 'extension-page',
+      url: tabUrl ?? requestUrl,
+      summary: 'Extension pages are not valid scan targets.',
+      education: 'Switch to a public site tab and re-run the scan.'
+    };
+  }
+
+  if (candidate.startsWith('file://')) {
+    return {
+      classId: 'permission-scoped',
+      url: tabUrl ?? requestUrl,
+      summary: 'File URLs may be blocked by extension permissions.',
+      education: 'Enable file URL access in extension settings or scan an http(s) page.'
+    };
+  }
+
+  return {
+    classId: 'injection-blocked',
+    url: tabUrl ?? requestUrl,
+    summary: 'Page context could not be extracted for this tab.',
+    education: 'Verify host permissions and reload the tab before retrying.'
+  };
+}
+
+function resolveSnapshotOrigin(input: string): string {
+  try {
+    return new URL(input).origin;
+  } catch {
+    return 'https://unsupported.local';
+  }
+}
+
 type RuntimeTabs = {
   query?: (query: Record<string, unknown>) => Promise<ActiveTabLookup[]>;
+  get?: (tabId: number) => Promise<ActiveTabLookup | undefined>;
   sendMessage?: (tabId: number, message: unknown) => Promise<unknown>;
   scripting?: {
     executeScript?: (details: {

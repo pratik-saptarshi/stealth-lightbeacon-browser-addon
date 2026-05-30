@@ -37,16 +37,21 @@ describe('stage e ci and release-readiness contracts', () => {
     expect(workflow).toContain('label: required-backend-hard-fail');
     expect(workflow).toContain('command: pnpm run test:ci:required-backend-hard-fail');
     expect(workflow).toContain('pnpm run test:ui-load:strict');
-    expect(workflow).toContain('pnpm exec playwright test tests/popup/popup.playwright.spec.ts');
+    expect(workflow).toContain('pnpm exec playwright test tests/side-panel/side-panel.playwright.spec.ts');
   });
 
   it('documents coverage gate with playwright spec excluded', () => {
     const implementationPlan = readRepoFile('docs/implementation-plan.md');
     const integrationPlan = readRepoFile('docs/roadmap/addon-feature-integration-plan.md');
     const expectedCoverageGate =
-      'pnpm exec vitest --run --coverage --exclude tests/popup/popup.playwright.spec.ts';
+      'pnpm exec vitest --run --coverage --exclude tests/side-panel/side-panel.playwright.spec.ts';
 
     expect(implementationPlan).toContain(expectedCoverageGate);
     expect(integrationPlan).toContain(expectedCoverageGate);
+  });
+
+  it('pins minimum branch coverage threshold to 78 percent', () => {
+    const vitestConfig = readRepoFile('vitest.config.ts');
+    expect(vitestConfig).toContain('branches: 78');
   });
 });

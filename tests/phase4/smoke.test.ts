@@ -266,7 +266,7 @@ describe('phase 4 smoke contract flow', () => {
     expect(geoXmlReportResponse.payload.report).toContain('<geoReport>');
   });
 
-  it('requires active context when no page context is supplied', async () => {
+  it('returns informational unsupported scan result when no page context is supplied', async () => {
     const scanResponse = (await handleMessage({
       type: 'scan:start',
       request: {
@@ -276,12 +276,11 @@ describe('phase 4 smoke contract flow', () => {
       }
     } as const)) as ScanStartReply;
 
-    expect(scanResponse.ok).toBe(false);
-    if (scanResponse.ok) {
-      throw new Error('Expected scan to fail');
+    expect(scanResponse.ok).toBe(true);
+    if (!scanResponse.ok) {
+      throw new Error(scanResponse.error);
     }
-
-    expect(scanResponse.error).toContain('Page context is missing');
+    expect(scanResponse.payload.snapshot.issues[0]?.ruleId.startsWith('unsupported-page-')).toBe(true);
   });
 });
 
@@ -292,7 +291,7 @@ describe('phase 4 browser smoke helpers', () => {
     expect(isExternalSmokeRequest('wss://example.com/socket')).toBe(true);
     expect(isExternalSmokeRequest('ws://example.com/socket')).toBe(true);
     expect(isExternalSmokeRequest('file:///tmp/extension-load-smoke.html')).toBe(false);
-    expect(isExternalSmokeRequest('chrome-extension://abc123/popup.html')).toBe(false);
+    expect(isExternalSmokeRequest('chrome-extension://abc123/side-panel.html')).toBe(false);
     expect(isExternalSmokeRequest('about:blank')).toBe(false);
     expect(isExternalSmokeRequest('data:text/html,hello')).toBe(false);
   });

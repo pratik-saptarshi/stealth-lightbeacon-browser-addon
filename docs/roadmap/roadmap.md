@@ -61,6 +61,23 @@ This summary points to the durable plan in `docs/roadmap/playwright-test-plan.md
 | Persistence and workflow evolution | Workspace watcher mode | Automatic rescan on content change | As a developer, I can keep audits fresh without manual reruns. | Define watch triggers; reconcile duplicate runs; add background tests; gate post-MCP stabilization. | `stealth-lightbeacon-browser-addon-zca.6.10` | P2 | open |
 | Persistence and workflow evolution | Deeper remote engine parity | Engine selection beyond transport wiring | As an integrator, I can choose the best backend engine without changing the audit surface. | Refine recommendation; separate transport failure from validation failure; extend fallback semantics; add adapter tests. | `stealth-lightbeacon-browser-addon-zca.6.12` | P2 | open |
 
+## Implementation Stage Backlog (Performance + Reliability)
+| Stage | Milestone | Bead ID | `bd-feat-description` | TDD validation gate | Status |
+| --- | --- | --- | --- | --- | --- |
+| Stage 0 | M0 baseline + SLO | `stealth-lightbeacon-browser-addon-zca.7.1` | `bd-feat-scan-latency-slo-and-visual-status-mode` | RED tests for settings normalization and status-mode rendering; GREEN via side-panel tests; full unit rerun | complete |
+| Stage 1 | M1 axe runtime efficiency | `stealth-lightbeacon-browser-addon-zca.7.2` | `bd-feat-axe-runtime-injection-cache-and-lifecycle-invalidation` | RED service-worker runtime tests; GREEN injection-cache behavior; integration rerun | complete |
+| Stage 2 | M2 crawl throughput + cancellation | `stealth-lightbeacon-browser-addon-zca.7.3` | `bd-feat-crawl-bounded-concurrency-and-abort-timeouts` | RED orchestrator tests for parallelism and timeout classification; GREEN with deterministic ordering | complete |
+| Stage 3 | M3 history hot-path optimization | `stealth-lightbeacon-browser-addon-zca.7.4` | `bd-feat-history-sorting-churn-reduction` | RED history manager tests for ordering invariant; GREEN with lower sort churn | complete |
+| Stage 4 | M4 diff/identity scalability | `stealth-lightbeacon-browser-addon-zca.7.5` | `bd-feat-issue-identity-key-reuse-for-diff-and-merge` | RED rule-engine/adversarial tests for dedup and collisions; GREEN with stable identity reuse | complete |
+| Stage 5 | M5 unsupported-page reporting UX | `stealth-lightbeacon-browser-addon-zca.7.6` | `bd-feat-unsupported-page-informational-reporting-with-guidance` | RED service-worker + export tests for classed guidance; GREEN UI informational rendering | complete |
+| Stage 6 | M6 progressive recursive validation | `stealth-lightbeacon-browser-addon-zca.7.7` | `bd-feat-recursive-progressive-validation-gates` | Per-bead targeted tests -> stage bundle -> full suite (`test:unit`, `test:integration`, `test:e2e`, `test:ui-load:strict`) | blocked (host Playwright launch permission) |
+
+### Unsupported Class Guidance (short actionable copy in report)
+- `browser-internal`: Browser-internal pages cannot be scanned. Open an `https://` page and retry.
+- `extension-page`: Extension pages are not scan targets. Switch to a public page tab.
+- `permission-scoped`: File URLs may require extra extension permission. Enable file URL access or use `http(s)`.
+- `injection-blocked`: Context extraction failed. Verify host permissions and reload before rescanning.
+
 ## Completion Tracker
 | Item | Status | Evidence |
 | --- | --- | --- |

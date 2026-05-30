@@ -8,6 +8,11 @@ import {
 } from '../../src/shared/panel-settings';
 
 describe('panel settings helpers', () => {
+  it('does not expose deprecated backend visibility in standalone mode', () => {
+    const normalized = normalizePanelSettings(undefined);
+    expect('showBackendSettings' in normalized.visibility).toBe(false);
+  });
+
   it('normalizes theme colors and visibility toggles', () => {
     expect(normalizePanelSettings(undefined)).toEqual(DEFAULT_PANEL_SETTINGS);
     expect(
@@ -41,7 +46,6 @@ describe('panel settings helpers', () => {
       },
       visibility: {
         showControls: false,
-        showBackendSettings: true,
         showSummary: true,
         showDelta: true,
         showStatusLine: true,
@@ -50,8 +54,10 @@ describe('panel settings helpers', () => {
       },
       accessibility: {
         wcagLevel: 'AA',
-        includeBestPractices: true
-      }
+        includeBestPractices: true,
+        includeAxeChecks: true
+      },
+      statusIndicatorMode: 'header-badge'
     });
   });
 
@@ -75,15 +81,19 @@ describe('panel settings helpers', () => {
       normalizePanelSettings({
         accessibility: {
           wcagLevel: 'AAA',
-          includeBestPractices: false
-        }
+          includeBestPractices: false,
+          includeAxeChecks: true
+        },
+        statusIndicatorMode: 'footer-chip'
       })
     ).toEqual({
       ...DEFAULT_PANEL_SETTINGS,
       accessibility: {
         wcagLevel: 'AAA',
-        includeBestPractices: false
-      }
+        includeBestPractices: false,
+        includeAxeChecks: true
+      },
+      statusIndicatorMode: 'footer-chip'
     });
 
     expect(
@@ -100,13 +110,15 @@ describe('panel settings helpers', () => {
     expect(
       buildAccessibilityProfileSummary({
         wcagLevel: 'AAA',
-        includeBestPractices: false
+        includeBestPractices: false,
+        includeAxeChecks: true
       })
     ).toContain('WCAG AAA');
     expect(
       buildAccessibilityProfileSummary({
         wcagLevel: 'A',
-        includeBestPractices: true
+        includeBestPractices: true,
+        includeAxeChecks: true
       })
     ).toContain('best-practice');
   });

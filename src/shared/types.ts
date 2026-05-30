@@ -16,7 +16,7 @@ export type RuleDomain =
   | 'WCAG2.1AA'
   | 'WCAG2.2AA';
 
-export type IssueSource = 'dom-only' | 'backend';
+export type IssueSource = 'dom-only' | 'backend' | 'axe';
 
 export type AddonRuleCategory = 'seo' | 'geo' | 'aeo' | 'security-headers' | 'WCAG2.1AA' | 'WCAG2.2AA';
 
@@ -81,6 +81,7 @@ export interface ScanRequest {
   accessibilityProfile?: {
     wcagLevel: 'A' | 'AA' | 'AAA';
     includeBestPractices: boolean;
+    includeAxeChecks?: boolean;
   };
   backend?: {
     enabled?: boolean;

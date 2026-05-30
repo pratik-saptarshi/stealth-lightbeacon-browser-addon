@@ -12,7 +12,7 @@ import type {
   SecurityHeaderSignals
 } from '../shared/types';
 import type { RuleContext } from '../shared/rule-engine';
-import { diffSnapshots, runRules } from '../shared/rule-engine';
+import { diffSnapshots, issueIdentityKey, runRules } from '../shared/rule-engine';
 import { allRules } from '../shared/rules';
 import { filterEnabledRuleIds } from '../shared/rulesets/catalog';
 import type { AddonRulesCatalog } from '../shared/rulesets/catalog';
@@ -28,6 +28,7 @@ export interface OrchestratorDeps {
   crawlMaxUrls?: number;
   timeoutMs?: number;
   crawlMaxUrlLimit?: number;
+  crawlConcurrency?: number;
   backendClient?: BackendAdapter;
 }
 
@@ -107,47 +108,21 @@ export class ScanOrchestrator {
   }
 
   private enrichBackendRequest(request: ScanRequest, recommendation: { engine: BackendEngine }): ScanRequest {
-    const requestWithCategories = this.enrichRuleCategoriesFromAccessibilityProfile(request);
-
-    if (!requestWithCategories.backend || requestWithCategories.backend.enabled === false) {
-      return requestWithCategories;
+    if (!request.backend || request.backend.enabled === false) {
+      return request;
     }
 
-    if (requestWithCategories.backend.mode === 'stdin' || requestWithCategories.backend.mode === undefined) {
+    if (request.backend.mode === 'stdin' || request.backend.mode === undefined) {
       return {
-        ...requestWithCategories,
+        ...request,
         backend: {
-          ...requestWithCategories.backend,
-          engine: requestWithCategories.backend.engine ?? recommendation.engine
+          ...request.backend,
+          engine: request.backend.engine ?? recommendation.engine
         }
       };
     }
 
-    return requestWithCategories;
-  }
-
-  private enrichRuleCategoriesFromAccessibilityProfile(request: ScanRequest): ScanRequest {
-    if (request.ruleCategories?.length || !request.accessibilityProfile) {
-      return request;
-    }
-
-    const categories: RuleDomain[] = ['accessibility'];
-    const profile = request.accessibilityProfile;
-
-    if (profile.wcagLevel === 'AA' || profile.wcagLevel === 'AAA') {
-      categories.push('WCAG2.1AA');
-    }
-    if (profile.wcagLevel === 'AAA') {
-      categories.push('WCAG2.2AA');
-    }
-    if (profile.includeBestPractices) {
-      categories.push('ux');
-    }
-
-    return {
-      ...request,
-      ruleCategories: categories
-    };
+    return request;
   }
 
   private shouldUseBackend(request: ScanRequest): boolean {
@@ -191,10 +166,10 @@ export class ScanOrchestrator {
     backendIssues: ScanSnapshot['issues']
   ): ScanSnapshot['issues'] {
     const mergedIssues = [...localIssues];
-    const seenKeys = new Set(localIssues.map((issue) => this.issueMergeKey(issue)));
+    const seenKeys = new Set(localIssues.map((issue) => issueIdentityKey(issue)));
 
     for (const issue of backendIssues) {
-      const key = this.issueMergeKey(issue);
+      const key = issueIdentityKey(issue);
       if (seenKeys.has(key)) {
         continue;
       }
@@ -204,10 +179,6 @@ export class ScanOrchestrator {
     }
 
     return mergedIssues;
-  }
-
-  private issueMergeKey(issue: ScanSnapshot['issues'][number]): string {
-    return [issue.ruleId, issue.domain, issue.severity, issue.selector ?? '', issue.summary].join('|');
   }
 
   private async enrichSecurityHeaderContext(pageContext: RuleContext, requestUrl: string): Promise<RuleContext> {
@@ -243,11 +214,16 @@ export class ScanOrchestrator {
     }
 
     try {
-      const response = await this.securityHeaderFetcher(parsedUrl.toString(), {
-        method: 'HEAD',
-        redirect: 'follow',
-        cache: 'no-store'
-      });
+      const response = await fetchWithTimeoutSignal(
+        this.securityHeaderFetcher,
+        parsedUrl.toString(),
+        {
+          method: 'HEAD',
+          redirect: 'follow',
+          cache: 'no-store'
+        },
+        this.deps.timeoutMs ?? 2000
+      );
 
       return {
         observed: true,
@@ -357,18 +333,18 @@ export class ScanOrchestrator {
       }));
     }
 
-    const results: CrawlNode[] = [];
+    const results: CrawlNode[] = new Array(crawlQueue.length);
+    const concurrency = clamp(this.deps.crawlConcurrency ?? 4, 1, 8);
 
-    for (const node of crawlQueue) {
+    const processNode = async (node: (typeof crawlQueue)[number]): Promise<CrawlNode> => {
       const safety = validateCrawlTarget(node.url, seedUrl.origin);
       if (!safety.ok) {
-        results.push({
+        return {
           ...node,
           status: 'error',
           errorType: 'blocked',
           note: safety.reason
-        });
-        continue;
+        };
       }
 
       const marker: CrawlNode = {
@@ -379,10 +355,10 @@ export class ScanOrchestrator {
       };
 
       try {
-        const response = await withTimeout(
-          this.fetcher(node.url, {
-            method: 'HEAD'
-          }),
+        const response = await fetchWithTimeoutSignal(
+          this.fetcher!,
+          node.url,
+          { method: 'HEAD' },
           this.deps.timeoutMs ?? 2000
         );
 
@@ -395,36 +371,43 @@ export class ScanOrchestrator {
           marker.status = 'error';
           marker.errorType = 'blocked';
           marker.note = redirectCheck.reason;
-          results.push(marker);
-          continue;
+          return marker;
         }
 
         if (!response.ok) {
           marker.status = 'error';
           marker.errorType = 'other';
           marker.note = `HTTP ${response.status}`;
-          results.push(marker);
-          continue;
+          return marker;
         }
 
         const contentType = typeof response.headers?.get === 'function' ? response.headers.get('content-type') ?? '' : '';
         if (!contentType || !contentType.toLowerCase().includes('text/html')) {
           marker.status = 'error';
           marker.errorType = 'non_html';
-          results.push(marker);
-          continue;
+          return marker;
         }
 
         marker.status = 'done';
-        results.push(marker);
+        return marker;
       } catch (error) {
         marker.status = 'error';
         marker.errorType = classifyError(error);
-        results.push(marker);
+        return marker;
       }
-    }
+    };
 
-    return results;
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, crawlQueue.length) }, async () => {
+      while (cursor < crawlQueue.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await processNode(crawlQueue[index]);
+      }
+    });
+    await Promise.all(workers);
+
+    return results.filter(Boolean);
   }
 }
 
@@ -625,7 +608,7 @@ function isPrivateOrRestrictedHost(hostname: string): boolean {
 }
 
 function classifyError(error: unknown): FailureType {
-  if (error instanceof Error && error.name === 'AbortError') {
+  if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
     return 'timeout';
   }
 
@@ -641,20 +624,23 @@ function classifyError(error: unknown): FailureType {
   return 'other';
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+async function fetchWithTimeoutSignal(
+  fetcher: typeof fetch,
+  input: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  if (typeof AbortController === 'undefined') {
+    return fetcher(input, init);
+  }
 
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(Object.assign(new Error('Timed out'), { name: 'AbortError' })), timeoutMs);
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const result = await Promise.race<T>([promise, timeout]);
-    return result;
+    return await fetcher(input, { ...init, signal: controller.signal });
   } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
+    clearTimeout(timeoutId);
   }
 }
 

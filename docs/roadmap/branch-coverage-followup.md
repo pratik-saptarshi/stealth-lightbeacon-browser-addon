@@ -11,7 +11,7 @@ Raise branch coverage from `78.34%` to `85%+` without regressing statements/line
 
 ## Hotspots
 
-1. `src/popup/popup.ts` (`63.87%`)
+1. `src/side-panel/side-panel.ts` (`63.87%`)
 2. `src/background/orchestrator.ts` (`66.84%`)
 3. `src/ui/pdf.ts` (`64.28%`)
 4. `src/background/storage.ts` (`66.66%`)

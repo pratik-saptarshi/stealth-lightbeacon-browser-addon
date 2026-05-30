@@ -79,7 +79,7 @@ const DOMAINS = [
   'WCAG2.1AA',
   'WCAG2.2AA'
 ] as const;
-const ISSUE_SOURCES = ['dom-only', 'backend'] as const;
+const ISSUE_SOURCES = ['dom-only', 'backend', 'axe'] as const;
 const BACKEND_ENGINES = ['http', 'fast-obscura', 'stealth-playwright', 'mcp'] as const;
 const SCAN_ENGINES = ['dom-lite', 'crawl-lite'] as const;
 const BACKEND_MODES = ['http', 'stdin'] as const;
@@ -147,7 +147,7 @@ function assertIssue(input: unknown): Issue {
   if ('selector' in input && input.selector !== undefined) {
     assert(isString(input.selector), 'issue.selector must be a string when present');
   }
-  assert(isEnumValue(input.source, ISSUE_SOURCES), 'issue.source must be dom-only or backend');
+  assert(isEnumValue(input.source, ISSUE_SOURCES), 'issue.source must be dom-only, backend, or axe');
 
   return {
     id: input.id,
@@ -238,6 +238,9 @@ function assertScanRequestInput(input: unknown): ScanRequest {
     const profile = input.accessibilityProfile;
     assert(isEnumValue(profile.wcagLevel, ['A', 'AA', 'AAA'] as const), 'scan request.accessibilityProfile.wcagLevel must be A, AA, or AAA');
     assert(typeof profile.includeBestPractices === 'boolean', 'scan request.accessibilityProfile.includeBestPractices must be a boolean');
+    if ('includeAxeChecks' in profile && profile.includeAxeChecks !== undefined) {
+      assert(typeof profile.includeAxeChecks === 'boolean', 'scan request.accessibilityProfile.includeAxeChecks must be a boolean');
+    }
   }
   if ('backend' in input && input.backend !== undefined) {
     assert(isRecord(input.backend), 'scan request.backend must be an object when present');

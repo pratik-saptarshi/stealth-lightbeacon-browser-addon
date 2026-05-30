@@ -4,20 +4,20 @@ const debuggerUrl = process.env.CHROME_DEBUGGER_URL ?? 'http://127.0.0.1:9222/js
 
 const response = await fetch(debuggerUrl);
 if (!response.ok) {
-  console.error(`[popup-playwright] Failed to read ${debuggerUrl}: ${response.status}`);
+  console.error(`[side-panel-playwright] Failed to read ${debuggerUrl}: ${response.status}`);
   process.exit(1);
 }
 
 const payload = await response.json();
 const wsEndpoint = payload.webSocketDebuggerUrl;
 if (!wsEndpoint) {
-  console.error('[popup-playwright] Chrome debugger endpoint is missing webSocketDebuggerUrl');
+  console.error('[side-panel-playwright] Chrome debugger endpoint is missing webSocketDebuggerUrl');
   process.exit(1);
 }
 
-console.log(`[popup-playwright] Connecting Playwright to ${wsEndpoint}`);
+console.log(`[side-panel-playwright] Connecting Playwright to ${wsEndpoint}`);
 
-const child = spawn('pnpm', ['exec', 'playwright', 'test', 'tests/popup/popup.playwright.spec.ts'], {
+const child = spawn('pnpm', ['exec', 'playwright', 'test', 'tests/side-panel/side-panel.playwright.spec.ts'], {
   stdio: 'inherit',
   env: {
     ...process.env,
@@ -30,6 +30,6 @@ child.on('exit', (code) => {
 });
 
 child.on('error', (error) => {
-  console.error(`[popup-playwright] Failed to start Playwright: ${error.message}`);
+  console.error(`[side-panel-playwright] Failed to start Playwright: ${error.message}`);
   process.exit(1);
 });

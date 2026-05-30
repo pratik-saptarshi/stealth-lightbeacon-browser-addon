@@ -4,6 +4,7 @@ import {
   countIssuesByDomain,
   createIssue,
   diffSnapshots,
+  issueIdentityKey,
   runRules
 } from '../../src/shared/rule-engine';
 import { domRules } from '../../src/shared/rules/dom';
@@ -140,6 +141,69 @@ describe('rule-engine', () => {
     expect(same.improvements).toHaveLength(0);
   });
 
+  it('uses source-aware identity keys for issue transparency', () => {
+    const domIssue = createIssue(
+      { id: 'seo-title-missing', title: 'Title tag missing', severity: 'high', domain: 'seo' },
+      'missing title',
+      'no title',
+      undefined,
+      'dom-only'
+    );
+    const backendIssue = {
+      ...domIssue,
+      id: 'backend-copy',
+      source: 'backend' as const
+    };
+
+    expect(issueIdentityKey(domIssue)).not.toBe(issueIdentityKey(backendIssue));
+  });
+
+  it('treats missing source as dom-only for backward-compatible identity', () => {
+    const domIssue = createIssue(
+      { id: 'seo-title-missing', title: 'Title tag missing', severity: 'high', domain: 'seo' },
+      'missing title',
+      'no title',
+      undefined,
+      'dom-only'
+    );
+    const legacyIssue = {
+      ...domIssue,
+      source: undefined
+    } as unknown as typeof domIssue;
+
+    expect(issueIdentityKey(legacyIssue)).toBe(issueIdentityKey(domIssue));
+  });
+
+  it('does not collapse distinct summaries with same evidence and selector', () => {
+    const rules = [
+      {
+        id: 'dup-rule',
+        title: 'Duplicate key rule',
+        severity: 'medium' as const,
+        domain: 'seo' as const,
+        evaluate: () => [
+          createIssue(
+            { id: 'dup-rule', title: 'Duplicate key rule', severity: 'medium', domain: 'seo' },
+            'Summary A',
+            'same evidence',
+            'main',
+            'dom-only'
+          ),
+          createIssue(
+            { id: 'dup-rule', title: 'Duplicate key rule', severity: 'medium', domain: 'seo' },
+            'Summary B',
+            'same evidence',
+            'main',
+            'dom-only'
+          )
+        ]
+      }
+    ];
+
+    const result = runRules(rules, baseContext);
+    expect(result.issues).toHaveLength(2);
+  });
+
   it('tracks regressions and improvements when severity changes', () => {
     const current: ScanSnapshot = {
       ...currentBase,
@@ -203,6 +267,29 @@ describe('rule-engine', () => {
   it('rejects invalid rule context urls', () => {
     expect(() => runRules([], { ...baseContext, requestUrl: 'not-a-url' })).toThrow(
       'rule context.requestUrl must be a valid URL'
+    );
+  });
+
+  it('surfaces seo, aeo, geo, and wcag22 findings in standalone dom-lite rules', () => {
+    const context: RuleContext = {
+      ...baseContext,
+      requestUrl: 'https://example.com/us/products',
+      title: 'Plans',
+      metaDescription: '',
+      canonical: null,
+      formInputs: [{ required: true, labelText: null, type: 'email' }]
+    };
+
+    const result = runRules(domRules, context);
+    const ruleIds = new Set(result.issues.map((issue) => issue.ruleId));
+    const domains = new Set(result.issues.map((issue) => issue.domain));
+
+    expect(ruleIds.has('seo-title-short') || ruleIds.has('seo-missing-meta-description')).toBe(true);
+    expect(ruleIds.has('aeo-canonical-link')).toBe(true);
+    expect(ruleIds.has('geo-title-intent-mismatch')).toBe(true);
+    expect(ruleIds.has('wcag22-input-assistance')).toBe(true);
+    expect(Array.from(domains)).toEqual(
+      expect.arrayContaining(['seo', 'aeo', 'geo', 'WCAG2.2AA'])
     );
   });
 });

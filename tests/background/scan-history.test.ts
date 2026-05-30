@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryHistoryStorage, ScanHistoryManager } from '../../src/background/scan-history';
+import { MemoryHistoryStorage, ScanHistoryManager, type HistoryStoragePort } from '../../src/background/scan-history';
 import type { ScanSnapshot } from '../../src/shared/types';
 
 const base: ScanSnapshot = {
@@ -26,6 +26,14 @@ function mkSnapshot(step: number): ScanSnapshot {
       total: step
     }
   };
+}
+
+class StaticHistoryStorage implements HistoryStoragePort {
+  constructor(private readonly snapshots: ScanSnapshot[]) {}
+  async loadSnapshots(_origin: string): Promise<ScanSnapshot[]> {
+    return [...this.snapshots];
+  }
+  async saveSnapshots(_origin: string, _snapshots: ScanSnapshot[]): Promise<void> {}
 }
 
 describe('scan history manager', () => {
@@ -61,5 +69,56 @@ describe('scan history manager', () => {
     const storage = new MemoryHistoryStorage();
     const history = new ScanHistoryManager(storage);
     expect(await history.getLatest('https://unknown.example')).toBeUndefined();
+  });
+
+  it('replaces duplicate snapshot ids and keeps newest-first ordering', async () => {
+    const storage = new MemoryHistoryStorage();
+    const history = new ScanHistoryManager(storage, { maxSnapshotsPerOrigin: 10 });
+
+    await history.saveSnapshot(mkSnapshot(1));
+    await history.saveSnapshot(mkSnapshot(2));
+    await history.saveSnapshot({
+      ...mkSnapshot(1),
+      timestamp: 3
+    });
+
+    const list = await history.listSnapshots('https://example.com');
+    expect(list.map((item) => item.id)).toEqual(['s-1', 's-2']);
+    expect(list[0]?.timestamp).toBe(3);
+  });
+
+  it('returns latest and previous from storage order without mutation', async () => {
+    const storage = new MemoryHistoryStorage();
+    const history = new ScanHistoryManager(storage, { maxSnapshotsPerOrigin: 10 });
+
+    await history.saveSnapshot(mkSnapshot(5));
+    await history.saveSnapshot(mkSnapshot(4));
+    await history.saveSnapshot(mkSnapshot(3));
+
+    const latest = await history.getLatest('https://example.com');
+    expect(latest?.id).toBe('s-5');
+
+    const compare = await history.compareLatest('https://example.com');
+    expect(compare.latest?.id).toBe('s-5');
+    expect(compare.previous?.id).toBe('s-4');
+  });
+
+  it('preserves read order when storage is already newest-first', async () => {
+    const newestFirst = [mkSnapshot(3), mkSnapshot(2), mkSnapshot(1)];
+    const history = new ScanHistoryManager(new StaticHistoryStorage(newestFirst), { maxSnapshotsPerOrigin: 10 });
+
+    const list = await history.listSnapshots('https://example.com');
+    expect(list.map((item) => item.id)).toEqual(['s-3', 's-2', 's-1']);
+  });
+
+  it('normalizes read order when storage rows are out-of-order', async () => {
+    const unsorted = [mkSnapshot(2), mkSnapshot(1), mkSnapshot(3)];
+    const history = new ScanHistoryManager(new StaticHistoryStorage(unsorted), { maxSnapshotsPerOrigin: 10 });
+
+    const list = await history.listSnapshots('https://example.com');
+    expect(list.map((item) => item.id)).toEqual(['s-3', 's-2', 's-1']);
+    const compare = await history.compareLatest('https://example.com');
+    expect(compare.latest?.id).toBe('s-3');
+    expect(compare.previous?.id).toBe('s-2');
   });
 });

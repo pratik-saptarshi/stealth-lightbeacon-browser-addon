@@ -79,6 +79,7 @@ describe('ui export branches', () => {
   it('covers html, llm markdown, and json report branches with diff data', () => {
     expect(toHtmlExport(bundle)).toContain('<h2>Diff</h2>');
     expect(toLlmMarkdownExport(bundle)).toContain('## Delta');
+    expect(toLlmMarkdownExport(bundle)).toContain('evidence: Evidence > here & there');
     expect(buildReport(bundle, 'json' as any)).toContain('"generatedAt"');
   });
 });

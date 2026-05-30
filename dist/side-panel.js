@@ -206,7 +206,7 @@ var init_pdf = __esm({
   }
 });
 
-// src/popup/popup-state.ts
+// src/side-panel/side-panel-state.ts
 var SEVERITY_ORDER = {
   critical: 0,
   high: 1,
@@ -216,8 +216,8 @@ var SEVERITY_ORDER = {
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-var POPUP_UI_STATE_STORAGE_KEY = "addon_popup_state";
-var DEFAULT_POPUP_UI_STATE = {
+var SIDE_PANEL_UI_STATE_STORAGE_KEY = "addon_side_panel_state";
+var DEFAULT_SIDE_PANEL_UI_STATE = {
   settingsOpen: false,
   scanId: void 0,
   selectedIssueIds: []
@@ -242,7 +242,7 @@ function sortIssuesForPanel(issues) {
     return left.id.localeCompare(right.id);
   });
 }
-function buildPopupIssuePanelModel(snapshot, diff, scanStatus = "complete") {
+function buildSidePanelIssuePanelModel(snapshot, diff, scanStatus = "complete") {
   const sortedIssues = sortIssuesForPanel(snapshot.issues);
   const groupedByDomain = /* @__PURE__ */ new Map();
   const counts = {
@@ -324,21 +324,21 @@ function buildIssueExportMarkdown(issues, meta) {
   }
   return lines.join("\n");
 }
-function normalizePopupUiState(input) {
+function normalizeSidePanelUiState(input) {
   if (!isRecord(input)) {
     return {
-      settingsOpen: DEFAULT_POPUP_UI_STATE.settingsOpen,
-      scanId: DEFAULT_POPUP_UI_STATE.scanId,
-      selectedIssueIds: [...DEFAULT_POPUP_UI_STATE.selectedIssueIds]
+      settingsOpen: DEFAULT_SIDE_PANEL_UI_STATE.settingsOpen,
+      scanId: DEFAULT_SIDE_PANEL_UI_STATE.scanId,
+      selectedIssueIds: [...DEFAULT_SIDE_PANEL_UI_STATE.selectedIssueIds]
     };
   }
   return {
-    settingsOpen: typeof input.settingsOpen === "boolean" ? input.settingsOpen : DEFAULT_POPUP_UI_STATE.settingsOpen,
+    settingsOpen: typeof input.settingsOpen === "boolean" ? input.settingsOpen : DEFAULT_SIDE_PANEL_UI_STATE.settingsOpen,
     scanId: typeof input.scanId === "string" && input.scanId.trim() ? input.scanId.trim() : void 0,
     selectedIssueIds: normalizeSelectedIssueIds(input.selectedIssueIds)
   };
 }
-function buildPopupUiState(input) {
+function buildSidePanelUiState(input) {
   return {
     settingsOpen: input.settingsOpen,
     scanId: input.scanId?.trim() || void 0,
@@ -395,6 +395,41 @@ function computeSnapshotScore(snapshot) {
   const bySeverity = snapshot.summary.bySeverity;
   const penalty = bySeverity.critical * 25 + bySeverity.high * 10 + bySeverity.medium * 5 + bySeverity.low;
   return Math.max(0, 100 - penalty);
+}
+
+// src/side-panel/latency-metrics.ts
+var LATENCY_SAMPLES_STORAGE_KEY = "addon_scan_latency_samples";
+var DEFAULT_SCAN_P95_TARGET_MS = 2e3;
+function normalizeLatencySamples(input, maxSamples = 100) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const normalized = input.filter((value) => typeof value === "number" && Number.isFinite(value)).map((value) => Math.max(0, Math.round(value))).slice(-maxSamples);
+  return normalized;
+}
+function appendLatencySample(samples, durationMs, maxSamples = 100) {
+  const normalized = normalizeLatencySamples(samples, maxSamples);
+  const next = [...normalized, Math.max(0, Math.round(durationMs))];
+  return next.slice(-maxSamples);
+}
+function computeLatencyStats(samples) {
+  const normalized = normalizeLatencySamples(samples);
+  if (!normalized.length) {
+    return { p95Ms: 0, sampleCount: 0 };
+  }
+  const sorted = [...normalized].sort((a, b) => a - b);
+  const percentileIndex = Math.max(0, Math.ceil(sorted.length * 0.95) - 1);
+  return {
+    p95Ms: sorted[percentileIndex],
+    sampleCount: sorted.length
+  };
+}
+function formatLatencySloBadge(stats, targetMs = DEFAULT_SCAN_P95_TARGET_MS) {
+  if (!stats.sampleCount) {
+    return "p95 n/a";
+  }
+  const status = stats.p95Ms <= targetMs ? "ok" : "slow";
+  return `p95 ${stats.p95Ms}ms (${status})`;
 }
 
 // src/ui/export.ts
@@ -512,7 +547,10 @@ function toLlmMarkdownExport(bundle) {
     `Generated: ${new Date(bundle.snapshot.timestamp).toISOString()}`,
     "",
     "## Prioritized Issue List",
-    ...bundle.snapshot.issues.map((issue) => `- (${issue.severity}) ${issue.title} \u2014 ${issue.summary}`),
+    ...bundle.snapshot.issues.flatMap((issue) => [
+      `- (${issue.severity}) ${issue.title} \u2014 ${issue.summary}`,
+      `  evidence: ${issue.evidence}`
+    ]),
     ""
   ];
   if (bundle.diff) {
@@ -592,6 +630,7 @@ function toMarkdownExport(bundle) {
   for (const issue of bundle.snapshot.issues) {
     const bucket = byDomain.get(issue.domain) ?? [];
     bucket.push(`- [${issue.severity}] **${issue.title}**: ${issue.summary}`);
+    bucket.push(`  - Evidence: ${issue.evidence}`);
     byDomain.set(issue.domain, bucket);
   }
   for (const [domain, bulletPoints] of byDomain.entries()) {
@@ -632,88 +671,6 @@ function escapeHtml(input) {
   return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// src/shared/backend-settings.ts
-var BACKEND_SETTINGS_STORAGE_KEY = "addon_backend_settings";
-var DEFAULT_BACKEND_SETTINGS = {
-  enabled: false,
-  mode: "http",
-  endpoint: "http://127.0.0.1",
-  port: "5000",
-  requestSigningSecret: "",
-  authUsername: "",
-  authPassword: "",
-  required: false
-};
-function normalizeBackendSettings(input) {
-  if (!isRecord2(input)) {
-    return { ...DEFAULT_BACKEND_SETTINGS };
-  }
-  return {
-    enabled: coerceBoolean(input.enabled, DEFAULT_BACKEND_SETTINGS.enabled),
-    mode: input.mode === "stdin" ? "stdin" : "http",
-    endpoint: coerceString(input.endpoint, DEFAULT_BACKEND_SETTINGS.endpoint),
-    port: coerceString(input.port, DEFAULT_BACKEND_SETTINGS.port),
-    requestSigningSecret: coerceString(input.requestSigningSecret, DEFAULT_BACKEND_SETTINGS.requestSigningSecret),
-    authUsername: coerceString(input.authUsername ?? input.username, DEFAULT_BACKEND_SETTINGS.authUsername),
-    authPassword: coerceString(input.authPassword ?? input.password, DEFAULT_BACKEND_SETTINGS.authPassword),
-    required: coerceBoolean(input.required, DEFAULT_BACKEND_SETTINGS.required)
-  };
-}
-function buildBackendRequestFromSettings(settings) {
-  if (!settings.enabled) {
-    return void 0;
-  }
-  const request = {
-    enabled: true,
-    mode: settings.mode,
-    required: settings.required
-  };
-  if (settings.requestSigningSecret.trim()) {
-    request.requestSigningSecret = settings.requestSigningSecret.trim();
-  }
-  if (settings.authUsername.trim() && settings.authPassword.trim()) {
-    request.auth = {
-      username: settings.authUsername.trim(),
-      password: settings.authPassword.trim()
-    };
-  }
-  if (settings.mode === "stdin") {
-    return request;
-  }
-  const endpoint = composeEndpoint(settings.endpoint, settings.port);
-  if (!endpoint) {
-    return void 0;
-  }
-  request.endpoint = endpoint;
-  return request;
-}
-function composeEndpoint(endpoint, port) {
-  const trimmedEndpoint = endpoint.trim();
-  if (!trimmedEndpoint) {
-    return void 0;
-  }
-  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmedEndpoint) ? trimmedEndpoint : `http://${trimmedEndpoint.replace(/^\/+/, "")}`;
-  try {
-    const url = new URL(withScheme);
-    const trimmedPort = port.trim();
-    if (trimmedPort) {
-      url.port = trimmedPort;
-    }
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return void 0;
-  }
-}
-function isRecord2(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function coerceString(value, fallback) {
-  return typeof value === "string" ? value : fallback;
-}
-function coerceBoolean(value, fallback) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
 // src/shared/panel-settings.ts
 var PANEL_SETTINGS_STORAGE_KEY = "addon_panel_settings";
 var BUG_REPORT_EMAIL = "pratik.saptarshi@outlook.com";
@@ -735,7 +692,6 @@ var DEFAULT_PANEL_THEME = {
 };
 var DEFAULT_PANEL_VISIBILITY = {
   showControls: true,
-  showBackendSettings: true,
   showSummary: true,
   showDelta: true,
   showStatusLine: true,
@@ -747,21 +703,24 @@ var DEFAULT_PANEL_SETTINGS = {
   visibility: { ...DEFAULT_PANEL_VISIBILITY },
   accessibility: {
     wcagLevel: "AA",
-    includeBestPractices: true
-  }
+    includeBestPractices: true,
+    includeAxeChecks: true
+  },
+  statusIndicatorMode: "header-badge"
 };
 var THEME_KEYS = Object.keys(DEFAULT_PANEL_THEME);
 var VISIBILITY_KEYS = Object.keys(DEFAULT_PANEL_VISIBILITY);
 var ACCESSIBILITY_LEVELS = ["A", "AA", "AAA"];
 var HEX_COLOR_RE = /^#?[0-9a-fA-F]{6}$/;
 function normalizePanelSettings(input) {
-  if (!isRecord3(input)) {
+  if (!isRecord2(input)) {
     return cloneDefaultPanelSettings();
   }
   return {
     theme: normalizeTheme(input.theme),
     visibility: normalizeVisibility(input.visibility),
-    accessibility: normalizeAccessibility(input.accessibility)
+    accessibility: normalizeAccessibility(input.accessibility),
+    statusIndicatorMode: normalizeStatusIndicatorMode(input.statusIndicatorMode)
   };
 }
 function buildBugReportMailto(input = {}) {
@@ -779,13 +738,11 @@ function buildBugReportMailto(input = {}) {
 }
 function buildAccessibilityProfileSummary(input) {
   const wcagLabel = `WCAG ${input.wcagLevel}`;
-  if (input.includeBestPractices) {
-    return `${wcagLabel} plus best-practice checks for UX-oriented accessibility guardrails.`;
-  }
-  return `${wcagLabel} only, without best-practice checks.`;
+  const base = input.includeBestPractices ? `${wcagLabel} plus best-practice checks for UX-oriented accessibility guardrails.` : `${wcagLabel} only, without best-practice checks.`;
+  return input.includeAxeChecks ? `${base} Axe deep checks are enabled.` : `${base} Axe deep checks are disabled.`;
 }
 function normalizeTheme(input) {
-  const source = isRecord3(input) ? input : {};
+  const source = isRecord2(input) ? input : {};
   const theme = cloneDefaultTheme();
   for (const key of THEME_KEYS) {
     theme[key] = normalizeHexColor(source[key], DEFAULT_PANEL_THEME[key]);
@@ -793,7 +750,7 @@ function normalizeTheme(input) {
   return theme;
 }
 function normalizeVisibility(input) {
-  const source = isRecord3(input) ? input : {};
+  const source = isRecord2(input) ? input : {};
   const visibility = cloneDefaultVisibility();
   for (const key of VISIBILITY_KEYS) {
     visibility[key] = normalizeBoolean(source[key], DEFAULT_PANEL_VISIBILITY[key]);
@@ -801,13 +758,18 @@ function normalizeVisibility(input) {
   return visibility;
 }
 function normalizeAccessibility(input) {
-  const source = isRecord3(input) ? input : {};
+  const source = isRecord2(input) ? input : {};
   const wcagLevel = typeof source.wcagLevel === "string" && ACCESSIBILITY_LEVELS.includes(source.wcagLevel) ? source.wcagLevel : DEFAULT_PANEL_SETTINGS.accessibility.wcagLevel;
   const includeBestPractices = typeof source.includeBestPractices === "boolean" ? source.includeBestPractices : DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices;
+  const includeAxeChecks = typeof source.includeAxeChecks === "boolean" ? source.includeAxeChecks : DEFAULT_PANEL_SETTINGS.accessibility.includeAxeChecks;
   return {
     wcagLevel,
-    includeBestPractices
+    includeBestPractices,
+    includeAxeChecks
   };
+}
+function normalizeStatusIndicatorMode(input) {
+  return input === "footer-chip" ? "footer-chip" : "header-badge";
 }
 function normalizeHexColor(value, fallback) {
   if (typeof value !== "string") {
@@ -828,8 +790,10 @@ function cloneDefaultPanelSettings() {
     visibility: cloneDefaultVisibility(),
     accessibility: {
       wcagLevel: DEFAULT_PANEL_SETTINGS.accessibility.wcagLevel,
-      includeBestPractices: DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices
-    }
+      includeBestPractices: DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices,
+      includeAxeChecks: DEFAULT_PANEL_SETTINGS.accessibility.includeAxeChecks
+    },
+    statusIndicatorMode: DEFAULT_PANEL_SETTINGS.statusIndicatorMode
   };
 }
 function cloneDefaultTheme() {
@@ -838,7 +802,7 @@ function cloneDefaultTheme() {
 function cloneDefaultVisibility() {
   return { ...DEFAULT_PANEL_VISIBILITY };
 }
-function isRecord3(value) {
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -872,7 +836,7 @@ async function withEventLoopTrace(label, task, sink = console, clock = globalThi
   }
 }
 
-// src/popup/popup.ts
+// src/side-panel/side-panel.ts
 var runtimeHost = typeof globalThis === "undefined" ? {} : globalThis;
 var state = {
   status: "idle",
@@ -880,17 +844,18 @@ var state = {
   activeTab: "overview",
   historySnapshots: [],
   selectedIssueIds: /* @__PURE__ */ new Set(),
-  backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
   settingsOpen: false,
   resultsExpanded: true,
-  settingsFocusTarget: null
+  settingsFocusTarget: null,
+  latencyStats: { p95Ms: 0, sampleCount: 0 }
 };
 var startupHydration;
-var popupUiSettingsTouched = false;
+var sidePanelUiSettingsTouched = false;
 var dom = {
   shell: null,
   statusPill: null,
+  statusPillFooter: null,
   statusLine: null,
   summaryGrid: null,
   deltaPanel: null,
@@ -900,7 +865,6 @@ var dom = {
   footer: null,
   issuesPanel: null,
   overviewPanel: null,
-  connectionPanel: null,
   resultsPanel: null,
   historyPanel: null,
   rescanButton: null,
@@ -914,20 +878,12 @@ var dom = {
   settingsToggleButton: null,
   settingsCloseButton: null,
   settingsPanel: null,
-  backendSettingsSection: null,
   bugReportLink: null,
-  backendEnabled: null,
-  backendMode: null,
-  backendEndpoint: null,
-  backendPort: null,
-  backendSecret: null,
-  backendAuthUsername: null,
-  backendAuthPassword: null,
-  backendRequired: null,
-  openApiSpecLink: null,
   accessibilityWcagLevel: null,
   accessibilityBestPractices: null,
+  accessibilityAxeChecks: null,
   accessibilityProfileSummary: null,
+  statusIndicatorMode: null,
   themeInputs: [],
   visibilityInputs: [],
   tabButtons: []
@@ -938,17 +894,16 @@ document.addEventListener("DOMContentLoaded", () => {
   void initialize();
 });
 function bindDom() {
-  dom.shell = document.getElementById("popup-shell");
+  dom.shell = document.getElementById("side-panel-shell");
   dom.statusPill = document.getElementById("status-pill");
+  dom.statusPillFooter = document.getElementById("status-pill-footer");
   dom.statusLine = document.getElementById("status-line");
   dom.settingsToggleButton = document.getElementById("settings-toggle-button");
   dom.settingsCloseButton = document.getElementById("settings-close-button");
   dom.overviewPanel = document.getElementById("overview-panel");
-  dom.connectionPanel = document.getElementById("connection-panel");
   dom.resultsPanel = document.getElementById("results-panel");
   dom.historyPanel = document.getElementById("history-panel");
   dom.settingsPanel = document.getElementById("settings-panel");
-  dom.backendSettingsSection = document.getElementById("backend-settings-section");
   dom.bugReportLink = document.getElementById("bug-report-link");
   dom.controlsSection = document.querySelector(".controls");
   dom.summaryGrid = document.getElementById("summary-grid");
@@ -965,37 +920,30 @@ function bindDom() {
   dom.copySelectorsButton = document.getElementById("copy-selectors-button");
   dom.collapseResultsButton = document.getElementById("collapse-results-button");
   dom.expandResultsButton = document.getElementById("expand-results-button");
-  dom.backendEnabled = document.getElementById("backend-enabled");
-  dom.backendMode = document.getElementById("backend-mode");
-  dom.backendEndpoint = document.getElementById("backend-endpoint");
-  dom.backendPort = document.getElementById("backend-port");
-  dom.backendSecret = document.getElementById("backend-secret");
-  dom.backendAuthUsername = document.getElementById("backend-auth-username");
-  dom.backendAuthPassword = document.getElementById("backend-auth-password");
-  dom.backendRequired = document.getElementById("backend-required");
-  dom.openApiSpecLink = document.getElementById("openapi-spec-link");
   dom.accessibilityWcagLevel = document.getElementById("accessibility-wcag-level");
   dom.accessibilityBestPractices = document.getElementById("accessibility-best-practices");
+  dom.accessibilityAxeChecks = document.getElementById("accessibility-axe-checks");
   dom.accessibilityProfileSummary = document.getElementById("accessibility-profile-summary");
+  dom.statusIndicatorMode = document.getElementById("status-indicator-mode");
   dom.themeInputs = Array.from(document.querySelectorAll("input[data-theme-setting]"));
   dom.visibilityInputs = Array.from(document.querySelectorAll("input[data-visibility-setting]"));
-  dom.tabButtons = Array.from(document.querySelectorAll("[data-popup-tab]"));
+  dom.tabButtons = Array.from(document.querySelectorAll("[data-side-panel-tab]"));
 }
 function bindActions() {
   dom.settingsToggleButton?.addEventListener("click", () => {
     state.settingsOpen = !state.settingsOpen;
-    popupUiSettingsTouched = true;
+    sidePanelUiSettingsTouched = true;
     state.settingsFocusTarget = state.settingsOpen ? "close" : "toggle";
     render();
-    void persistPopupUiState();
+    void persistSidePanelUiState();
   });
   dom.settingsCloseButton?.addEventListener("click", () => {
     state.settingsOpen = false;
     state.activeTab = "overview";
-    popupUiSettingsTouched = true;
+    sidePanelUiSettingsTouched = true;
     state.settingsFocusTarget = "toggle";
     render();
-    void persistPopupUiState();
+    void persistSidePanelUiState();
   });
   dom.settingsPanel?.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") {
@@ -1004,7 +952,7 @@ function bindActions() {
     state.settingsOpen = false;
     state.settingsFocusTarget = "toggle";
     render();
-    void persistPopupUiState();
+    void persistSidePanelUiState();
     dom.settingsToggleButton?.focus();
   });
   dom.rescanButton?.addEventListener("click", () => {
@@ -1035,7 +983,7 @@ function bindActions() {
   });
   for (const button of dom.tabButtons) {
     button.addEventListener("click", () => {
-      const tab = button.dataset.popupTab;
+      const tab = button.dataset.sidePanelTab;
       if (!tab) {
         return;
       }
@@ -1050,7 +998,7 @@ function setActiveTab(tab) {
   render();
 }
 async function initialize() {
-  await withEventLoopTrace("popup.initialize", async () => {
+  await withEventLoopTrace("side-panel.initialize", async () => {
     if (!hasExtensionRuntime()) {
       state.status = "idle";
       state.note = "Runtime unavailable";
@@ -1077,7 +1025,7 @@ function getRuntime() {
   return runtimeHost.chrome ?? runtimeHost.browser;
 }
 async function startScan(manual) {
-  await withEventLoopTrace("popup.scan", async () => {
+  await withEventLoopTrace("side-panel.scan", async () => {
     await ensureStartupHydrated();
     if (state.status === "loading") {
       return;
@@ -1100,7 +1048,7 @@ async function startScan(manual) {
       state.tabId = activeTab.id;
       state.tabUrl = activeTab.url;
       state.scanId = createScanId();
-      const backend = buildBackendRequestFromSettings(state.backendSettings);
+      const scanStartedAt = Date.now();
       const reply = await runtime.runtime.sendMessage({
         type: "scan:start",
         request: {
@@ -1110,12 +1058,12 @@ async function startScan(manual) {
           // Service worker resolves canonical URL from extracted page context.
           url: activeTab.url ?? "",
           engine: "dom-lite",
-          ruleCategories: buildRuleCategoriesFromAccessibilityProfile(),
-          accessibilityProfile: { ...state.panelSettings.accessibility },
-          backend
+          accessibilityProfile: { ...state.panelSettings.accessibility }
         },
         persistHistory: true
       });
+      const scanDurationMs = Date.now() - scanStartedAt;
+      void persistLatencySample(scanDurationMs);
       if (!reply.ok) {
         throw new Error(reply.error);
       }
@@ -1129,7 +1077,7 @@ async function startScan(manual) {
       state.status = inferStatus(reply.payload);
       state.note = reply.payload.recommendation ? `Backend recommendation: ${reply.payload.recommendation.engine}` : "Scan complete";
       state.activeTab = "results";
-      void persistPopupUiState();
+      void persistSidePanelUiState();
       render();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1142,16 +1090,16 @@ async function startScan(manual) {
 }
 async function hydrateStartupState() {
   try {
-    const [backendSettings, panelSettings, popupUiState, loadedCachedScan, historySnapshots] = await Promise.all([
-      loadBackendSettings(),
+    const [panelSettings, popupUiState, loadedCachedScan, historySnapshots, latencyStats] = await Promise.all([
       loadPanelSettings(),
-      loadPopupUiState(),
+      loadSidePanelUiState(),
       loadCachedScanFromHistory(),
-      loadHistoryFromHistory()
+      loadHistoryFromHistory(),
+      loadLatencyStats()
     ]);
-    state.backendSettings = backendSettings;
     state.panelSettings = panelSettings;
     state.historySnapshots = historySnapshots;
+    state.latencyStats = latencyStats;
     if (!loadedCachedScan) {
       state.snapshot = void 0;
       state.diff = void 0;
@@ -1162,7 +1110,7 @@ async function hydrateStartupState() {
     } else {
       state.activeTab = "results";
     }
-    applyPopupUiState(popupUiState);
+    applySidePanelUiState(popupUiState);
     render();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1185,7 +1133,7 @@ function inferStatus(payload) {
   return "complete";
 }
 function render(options) {
-  const trace = startEventLoopTrace("popup.render");
+  const trace = startEventLoopTrace("side-panel.render");
   try {
     if (options?.offline) {
       dom.offlinePanel?.classList.remove("hidden");
@@ -1195,6 +1143,10 @@ function render(options) {
     if (dom.statusPill) {
       dom.statusPill.dataset.status = state.status;
       dom.statusPill.textContent = statusLabel(state.status);
+    }
+    if (dom.statusPillFooter) {
+      dom.statusPillFooter.dataset.status = state.status;
+      dom.statusPillFooter.textContent = statusLabel(state.status);
     }
     if (dom.statusLine) {
       dom.statusLine.textContent = options?.statusLine ?? buildStatusLine();
@@ -1224,7 +1176,6 @@ function render(options) {
     }
     renderPanelSettings();
     renderOverviewPanel();
-    renderConnectionPanel();
     renderHistoryPanel();
     renderSummary();
     renderDelta();
@@ -1236,7 +1187,7 @@ function render(options) {
 }
 function renderTabNavigation() {
   for (const button of dom.tabButtons) {
-    const tab = button.dataset.popupTab;
+    const tab = button.dataset.sidePanelTab;
     const selected = tab === state.activeTab;
     button.setAttribute("aria-selected", String(selected));
     button.classList.toggle("is-active", selected);
@@ -1253,7 +1204,6 @@ function renderTabPanels() {
     panel.classList.toggle("hidden", hidden);
   };
   setPanelHidden(dom.overviewPanel, state.activeTab !== "overview");
-  setPanelHidden(dom.connectionPanel, state.activeTab !== "connection");
   setPanelHidden(dom.resultsPanel, state.activeTab !== "results");
   setPanelHidden(dom.settingsPanel, state.activeTab !== "settings");
 }
@@ -1264,71 +1214,45 @@ function renderOverviewPanel() {
   const snapshot = state.snapshot;
   const issueCount = snapshot?.summary.total ?? 0;
   const historyCount = state.historySnapshots.length;
-  const backendMode = state.backendSettings.enabled ? state.backendSettings.mode === "stdin" ? "Standalone stdin mode" : "Remote HTTP backend" : "Local-only audit mode";
   dom.overviewPanel.innerHTML = `
     <section class="overview-grid" aria-label="Popup overview">
       <article class="info-card">
-        <p class="eyebrow">Connection</p>
+        <p class="eyebrow">Scan mode</p>
         <h2>Standalone audit</h2>
-        <p>${escapeHtml2(
-    state.backendSettings.enabled && state.backendSettings.mode === "stdin" ? "Run locally with the packaged stdin adapter and bundled rules." : "Run locally without an external dependency, or switch to HTTP when needed."
-  )}</p>
-        <button type="button" data-popup-tab="connection">Open Connection</button>
+        <p>${escapeHtml2("Run locally with bundled rules directly in the extension runtime.")}</p>
+        <button type="button" id="overview-rescan-button">Run Scan</button>
       </article>
       <article class="info-card">
         <p class="eyebrow">Results</p>
         <h2>Recent runs and reports</h2>
         <p>${escapeHtml2(`Review ${historyCount} saved runs, collapse issue groups, and download standard reports.`)}</p>
-        <button type="button" data-popup-tab="results">Open Results</button>
+        <button type="button" data-side-panel-tab="results">Open Results</button>
       </article>
       <article class="info-card">
         <p class="eyebrow">Settings</p>
         <h2>Theme grid and visibility</h2>
         <p>Adjust colors, toggle optional sections, and keep the popup compact on smaller screens.</p>
-        <button type="button" data-popup-tab="settings">Open Settings</button>
+        <button type="button" data-side-panel-tab="settings">Open Settings</button>
       </article>
       <article class="info-card">
         <p class="eyebrow">Current state</p>
         <h2>${escapeHtml2(snapshot ? snapshot.url : "No scan yet")}</h2>
         <p>${escapeHtml2(snapshot ? `${issueCount} issues \xB7 ${snapshot.engine}` : state.note ?? "Waiting for a scan")}</p>
-        <p>${escapeHtml2(`Mode: ${backendMode}`)}</p>
+        <p>${escapeHtml2("Mode: Standalone only")}</p>
       </article>
     </section>
   `;
-  dom.overviewPanel.querySelectorAll("button[data-popup-tab]").forEach((button) => {
+  dom.overviewPanel.querySelector("#overview-rescan-button")?.addEventListener("click", () => {
+    void startScan(true);
+  });
+  dom.overviewPanel.querySelectorAll("button[data-side-panel-tab]").forEach((button) => {
     button.addEventListener("click", () => {
-      const tab = button.dataset.popupTab;
+      const tab = button.dataset.sidePanelTab;
       if (tab) {
         setActiveTab(tab);
       }
     });
   });
-}
-function renderConnectionPanel() {
-  if (!dom.connectionPanel) {
-    return;
-  }
-  if (dom.connectionPanel.classList.contains("hidden")) {
-    return;
-  }
-  const standalone = !state.backendSettings.enabled || state.backendSettings.mode === "stdin";
-  const modeLabel = state.backendSettings.enabled ? state.backendSettings.mode === "stdin" ? "Standalone stdin engine" : "Remote HTTP backend" : "Standalone local-only audit mode";
-  const summary = standalone && state.backendSettings.enabled ? "Standalone execution is enabled. The service worker can run the audit locally through the packaged stdin adapter, parse testrun output, and keep reporting offline." : state.backendSettings.enabled ? "Backend settings are configured for a remote HTTP endpoint, but the popup still retains local audit and report generation capabilities." : "Standalone execution is available without an external dependency. The popup can run an audit locally and still produce standard reports.";
-  const summaryHost = dom.connectionPanel.querySelector("#connection-summary");
-  if (summaryHost) {
-    summaryHost.innerHTML = `
-      <article class="connection-callout">
-        <p class="eyebrow">Connection state</p>
-        <h2>${escapeHtml2(modeLabel)}</h2>
-        <p>${escapeHtml2(summary)}</p>
-        <ul>
-          <li>Bundled rules remain available in the popup and service worker.</li>
-          <li>History lookups and report generation use the background message bridge.</li>
-          <li>Markdown, HTML, JSON, and PDF outputs stay available for saved runs.</li>
-        </ul>
-      </article>
-    `;
-  }
 }
 function renderHistoryPanel() {
   if (!dom.historyPanel) {
@@ -1405,7 +1329,7 @@ function renderDelta() {
     dom.deltaPanel.innerHTML = "";
     return;
   }
-  const delta = state.snapshot && state.diff ? buildPopupIssuePanelModel(state.snapshot, state.diff, state.status).delta : void 0;
+  const delta = state.snapshot && state.diff ? buildSidePanelIssuePanelModel(state.snapshot, state.diff, state.status).delta : void 0;
   if (!delta) {
     dom.deltaPanel.classList.add("hidden");
     dom.deltaPanel.innerHTML = "";
@@ -1429,7 +1353,7 @@ function renderIssues() {
     dom.issuesPanel.innerHTML = `<section class="offline" data-testid="issue-empty">No scan has been run yet.</section>`;
     return;
   }
-  const model = buildPopupIssuePanelModel(state.snapshot, state.diff, state.status);
+  const model = buildSidePanelIssuePanelModel(state.snapshot, state.diff, state.status);
   if (model.total === 0) {
     dom.issuesPanel.innerHTML = `<section class="offline" data-testid="issue-empty">No issues found for this page.</section>`;
     return;
@@ -1470,7 +1394,7 @@ function renderIssues() {
         state.selectedIssueIds.delete(checkbox.dataset.issueId ?? "");
       }
       render();
-      void persistPopupUiState();
+      void persistSidePanelUiState();
     });
   });
   dom.issuesPanel.querySelectorAll("button[data-copy-selector]").forEach((button) => {
@@ -1541,14 +1465,15 @@ async function sendHighlightAction(action) {
   await runtime.runtime.sendMessage(message);
 }
 function buildStatusLine() {
+  const latencyHint = ` \xB7 ${formatLatencySloBadge(state.latencyStats)}`;
   if (state.status === "loading") {
-    return `Scanning active tab${state.tabUrl ? ` \xB7 ${state.tabUrl}` : ""}...`;
+    return `Scanning active tab${state.tabUrl ? ` \xB7 ${state.tabUrl}` : ""}...${latencyHint}`;
   }
   if (state.snapshot) {
     const selectedCount = state.selectedIssueIds.size;
-    return `${state.snapshot.url} \xB7 ${state.snapshot.summary.total} issues${selectedCount ? ` \xB7 ${selectedCount} selected` : ""} \xB7 ${state.snapshot.engine}`;
+    return `${state.snapshot.url} \xB7 ${state.snapshot.summary.total} issues${selectedCount ? ` \xB7 ${selectedCount} selected` : ""} \xB7 ${state.snapshot.engine}${latencyHint}`;
   }
-  return state.note ?? "Scan state will appear here.";
+  return `${state.note ?? "Scan state will appear here."}${latencyHint}`;
 }
 function statusLabel(status) {
   switch (status) {
@@ -1587,39 +1512,21 @@ function hideError() {
   dom.errorPanel.textContent = state.error;
 }
 function bindSettingsInputs() {
-  const updateBackend = () => {
-    state.backendSettings = readBackendSettingsFromDom();
-    void persistBackendSettings();
-  };
   const updatePanel = () => {
     state.panelSettings = readPanelSettingsFromDom();
     void persistPanelSettings();
     render();
   };
-  dom.backendEnabled?.addEventListener("change", updateBackend);
-  dom.backendMode?.addEventListener("change", updateBackend);
-  dom.backendEndpoint?.addEventListener("change", updateBackend);
-  dom.backendPort?.addEventListener("change", updateBackend);
-  dom.backendSecret?.addEventListener("change", updateBackend);
-  dom.backendAuthUsername?.addEventListener("change", updateBackend);
-  dom.backendAuthPassword?.addEventListener("change", updateBackend);
-  dom.backendRequired?.addEventListener("change", updateBackend);
   dom.accessibilityWcagLevel?.addEventListener("change", updatePanel);
   dom.accessibilityBestPractices?.addEventListener("change", updatePanel);
+  dom.accessibilityAxeChecks?.addEventListener("change", updatePanel);
+  dom.statusIndicatorMode?.addEventListener("change", updatePanel);
   for (const input of dom.themeInputs) {
     input.addEventListener("change", updatePanel);
   }
   for (const input of dom.visibilityInputs) {
     input.addEventListener("change", updatePanel);
   }
-}
-async function loadBackendSettings() {
-  const storage = getRuntime()?.storage?.local;
-  if (!storage?.get) {
-    return { ...DEFAULT_BACKEND_SETTINGS };
-  }
-  const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
-  return normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
 }
 async function loadPanelSettings() {
   const storage = getRuntime()?.storage?.local;
@@ -1629,13 +1536,13 @@ async function loadPanelSettings() {
   const payload = await storage.get([PANEL_SETTINGS_STORAGE_KEY]);
   return normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
 }
-async function loadPopupUiState() {
+async function loadSidePanelUiState() {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
-    return normalizePopupUiState(void 0);
+    return normalizeSidePanelUiState(void 0);
   }
-  const payload = await storage.get([POPUP_UI_STATE_STORAGE_KEY]);
-  return normalizePopupUiState(payload[POPUP_UI_STATE_STORAGE_KEY]);
+  const payload = await storage.get([SIDE_PANEL_UI_STATE_STORAGE_KEY]);
+  return normalizeSidePanelUiState(payload[SIDE_PANEL_UI_STATE_STORAGE_KEY]);
 }
 async function loadCachedScanFromHistory() {
   const runtime = getRuntime();
@@ -1692,25 +1599,42 @@ async function loadHistoryFromHistory() {
     return [];
   }
 }
-async function persistBackendSettings() {
-  state.backendSettings = readBackendSettingsFromDom();
-  const storage = getRuntime()?.storage?.local;
-  if (storage?.set) {
-    await storage.set({ [BACKEND_SETTINGS_STORAGE_KEY]: state.backendSettings });
-  }
-}
 async function persistPanelSettings() {
   const storage = getRuntime()?.storage?.local;
   if (storage?.set) {
     await storage.set({ [PANEL_SETTINGS_STORAGE_KEY]: state.panelSettings });
   }
 }
-async function persistPopupUiState() {
+async function loadLatencyStats() {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    return { p95Ms: 0, sampleCount: 0 };
+  }
+  const payload = await storage.get([LATENCY_SAMPLES_STORAGE_KEY]);
+  return computeLatencyStats(normalizeLatencySamples(payload[LATENCY_SAMPLES_STORAGE_KEY]));
+}
+async function persistLatencySample(durationMs) {
+  try {
+    const storage = getRuntime()?.storage?.local;
+    if (!storage?.get || !storage?.set) {
+      return;
+    }
+    const payload = await storage.get([LATENCY_SAMPLES_STORAGE_KEY]);
+    const nextSamples = appendLatencySample(
+      normalizeLatencySamples(payload[LATENCY_SAMPLES_STORAGE_KEY]),
+      durationMs
+    );
+    await storage.set({ [LATENCY_SAMPLES_STORAGE_KEY]: nextSamples });
+    state.latencyStats = computeLatencyStats(nextSamples);
+  } catch {
+  }
+}
+async function persistSidePanelUiState() {
   await ensureStartupHydrated();
   const storage = getRuntime()?.storage?.local;
   if (storage?.set) {
     await storage.set({
-      [POPUP_UI_STATE_STORAGE_KEY]: buildPopupUiState({
+      [SIDE_PANEL_UI_STATE_STORAGE_KEY]: buildSidePanelUiState({
         settingsOpen: state.settingsOpen,
         scanId: state.snapshot?.id,
         selectedIssueIds: state.selectedIssueIds
@@ -1718,26 +1642,16 @@ async function persistPopupUiState() {
     });
   }
 }
-function readBackendSettingsFromDom() {
-  return normalizeBackendSettings({
-    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
-    mode: dom.backendMode?.value === "stdin" ? "stdin" : "http",
-    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
-    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
-    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
-    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
-    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
-    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
-  });
-}
 function readPanelSettingsFromDom() {
   return normalizePanelSettings({
     theme: readThemeSettingsFromDom(),
     visibility: readVisibilitySettingsFromDom(),
     accessibility: {
       wcagLevel: dom.accessibilityWcagLevel?.value,
-      includeBestPractices: dom.accessibilityBestPractices?.checked
-    }
+      includeBestPractices: dom.accessibilityBestPractices?.checked,
+      includeAxeChecks: dom.accessibilityAxeChecks?.checked
+    },
+    statusIndicatorMode: dom.statusIndicatorMode?.value
   });
 }
 function readThemeSettingsFromDom() {
@@ -1761,20 +1675,6 @@ function readVisibilitySettingsFromDom() {
     visibility[key] = input.checked;
   }
   return visibility;
-}
-function buildRuleCategoriesFromAccessibilityProfile() {
-  const categories = ["accessibility"];
-  const profile = state.panelSettings.accessibility;
-  if (profile.wcagLevel === "AA" || profile.wcagLevel === "AAA") {
-    categories.push("WCAG2.1AA");
-  }
-  if (profile.wcagLevel === "AAA") {
-    categories.push("WCAG2.2AA");
-  }
-  if (profile.includeBestPractices) {
-    categories.push("ux");
-  }
-  return categories;
 }
 function renderPanelSettings() {
   applyPanelTheme();
@@ -1810,43 +1710,20 @@ function renderSettingsForm() {
     }
     input.checked = state.panelSettings.visibility[key];
   }
-  if (dom.backendEnabled) {
-    dom.backendEnabled.checked = state.backendSettings.enabled;
-  }
-  if (dom.backendMode) {
-    dom.backendMode.value = state.backendSettings.mode;
-  }
-  if (dom.backendEndpoint) {
-    dom.backendEndpoint.value = state.backendSettings.endpoint;
-  }
-  if (dom.backendPort) {
-    dom.backendPort.value = state.backendSettings.port;
-  }
-  if (dom.backendSecret) {
-    dom.backendSecret.value = state.backendSettings.requestSigningSecret;
-  }
-  if (dom.backendAuthUsername) {
-    dom.backendAuthUsername.value = state.backendSettings.authUsername;
-  }
-  if (dom.backendAuthPassword) {
-    dom.backendAuthPassword.value = state.backendSettings.authPassword;
-  }
-  if (dom.backendRequired) {
-    dom.backendRequired.checked = state.backendSettings.required;
-  }
-  if (dom.openApiSpecLink) {
-    const specUrl = getRuntime()?.runtime?.getURL?.("api/openapi.yaml") ?? "api/openapi.yaml";
-    dom.openApiSpecLink.href = specUrl;
-    dom.openApiSpecLink.title = specUrl;
-  }
   if (dom.accessibilityWcagLevel) {
     dom.accessibilityWcagLevel.value = state.panelSettings.accessibility.wcagLevel;
   }
   if (dom.accessibilityBestPractices) {
     dom.accessibilityBestPractices.checked = state.panelSettings.accessibility.includeBestPractices;
   }
+  if (dom.accessibilityAxeChecks) {
+    dom.accessibilityAxeChecks.checked = state.panelSettings.accessibility.includeAxeChecks;
+  }
   if (dom.accessibilityProfileSummary) {
     dom.accessibilityProfileSummary.textContent = buildAccessibilityProfileSummary(state.panelSettings.accessibility);
+  }
+  if (dom.statusIndicatorMode) {
+    dom.statusIndicatorMode.value = state.panelSettings.statusIndicatorMode;
   }
 }
 function renderBugReportLink() {
@@ -1865,8 +1742,8 @@ function renderBugReportLink() {
   dom.bugReportLink.href = href;
   dom.bugReportLink.title = `Report a bug to ${BUG_REPORT_EMAIL}`;
 }
-function applyPopupUiState(popupUiState) {
-  if (!popupUiSettingsTouched) {
+function applySidePanelUiState(popupUiState) {
+  if (!sidePanelUiSettingsTouched) {
     state.settingsOpen = popupUiState.settingsOpen;
   }
   if (!state.snapshot || popupUiState.scanId !== state.snapshot.id) {
@@ -1902,12 +1779,14 @@ function applyPanelTheme() {
 }
 function applyVisibilitySettings() {
   setSectionVisibility(dom.controlsSection, state.panelSettings.visibility.showControls);
-  setSectionVisibility(dom.backendSettingsSection, state.panelSettings.visibility.showBackendSettings);
   setSectionVisibility(dom.summaryGrid, state.panelSettings.visibility.showSummary);
   setSectionVisibility(dom.deltaPanel, state.panelSettings.visibility.showDelta);
   setSectionVisibility(dom.statusLine, state.panelSettings.visibility.showStatusLine);
   setSectionVisibility(dom.offlinePanel, state.panelSettings.visibility.showOfflineBanner);
   setSectionVisibility(dom.footer, state.panelSettings.visibility.showFooter);
+  const footerMode = state.panelSettings.statusIndicatorMode === "footer-chip";
+  setSectionVisibility(dom.statusPill, !footerMode);
+  setSectionVisibility(dom.statusPillFooter, footerMode && state.panelSettings.visibility.showFooter);
 }
 function setSectionVisibility(element, visible) {
   if (!element || !(element instanceof HTMLElement)) {

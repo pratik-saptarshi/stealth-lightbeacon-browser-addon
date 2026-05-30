@@ -2,22 +2,23 @@ import {
   buildIssueExportJson,
   buildIssueExportMarkdown,
   buildReportDownloadPath,
-  buildPopupUiState,
-  buildPopupIssuePanelModel,
+  buildSidePanelUiState,
+  buildSidePanelIssuePanelModel,
   collectSelectors,
-  normalizePopupUiState,
-  POPUP_UI_STATE_STORAGE_KEY,
-  type PopupUiState,
-  type PopupScanStatus
-} from './popup-state';
-import { buildReport } from '../ui/export';
+  normalizeSidePanelUiState,
+  SIDE_PANEL_UI_STATE_STORAGE_KEY,
+  type SidePanelUiState,
+  type SidePanelScanStatus
+} from './side-panel-state';
 import {
-  BACKEND_SETTINGS_STORAGE_KEY,
-  buildBackendRequestFromSettings,
-  DEFAULT_BACKEND_SETTINGS,
-  normalizeBackendSettings,
-  type BackendSettingsForm
-} from '../shared/backend-settings';
+  appendLatencySample,
+  computeLatencyStats,
+  formatLatencySloBadge,
+  LATENCY_SAMPLES_STORAGE_KEY,
+  normalizeLatencySamples,
+  type LatencyStats
+} from './latency-metrics';
+import { buildReport } from '../ui/export';
 import {
   BUG_REPORT_EMAIL,
   buildAccessibilityProfileSummary,
@@ -31,9 +32,9 @@ import { startEventLoopTrace, withEventLoopTrace } from '../shared/performance-t
 import type { DiffResult, Issue, RuleDomain, ScanSnapshot } from '../shared/types';
 import type { HistoryCompareReply, HistoryListReply, ReportBuildReply, ScanStartReply } from '../shared/message-contracts';
 
-type PopupTab = 'overview' | 'connection' | 'results' | 'settings';
+type SidePanelTab = 'overview' | 'results' | 'settings';
 
-type PopupRuntime = {
+type SidePanelRuntime = {
   chrome?: {
     runtime?: {
       sendMessage?: (message: unknown) => Promise<unknown>;
@@ -68,10 +69,10 @@ type PopupRuntime = {
   };
 };
 
-type PopupState = {
-  status: PopupScanStatus;
+type SidePanelState = {
+  status: SidePanelScanStatus;
   scanId: string;
-  activeTab: PopupTab;
+  activeTab: SidePanelTab;
   tabId?: number;
   tabUrl?: string;
   snapshot?: ScanSnapshot;
@@ -80,34 +81,35 @@ type PopupState = {
   selectedIssueIds: Set<string>;
   error?: string;
   note?: string;
-  backendSettings: BackendSettingsForm;
   panelSettings: PanelSettingsForm;
   settingsOpen: boolean;
   resultsExpanded: boolean;
   settingsFocusTarget: 'toggle' | 'close' | null;
+  latencyStats: LatencyStats;
 };
 
-const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as PopupRuntime)) as PopupRuntime;
+const runtimeHost = (typeof globalThis === 'undefined' ? {} : (globalThis as unknown as SidePanelRuntime)) as SidePanelRuntime;
 
-const state: PopupState = {
+const state: SidePanelState = {
   status: 'idle',
   scanId: '',
   activeTab: 'overview',
   historySnapshots: [],
   selectedIssueIds: new Set(),
-  backendSettings: { ...DEFAULT_BACKEND_SETTINGS },
   panelSettings: { ...DEFAULT_PANEL_SETTINGS },
   settingsOpen: false,
   resultsExpanded: true,
-  settingsFocusTarget: null
+  settingsFocusTarget: null,
+  latencyStats: { p95Ms: 0, sampleCount: 0 }
 };
 
 let startupHydration: Promise<void> | undefined;
-let popupUiSettingsTouched = false;
+let sidePanelUiSettingsTouched = false;
 
 const dom = {
   shell: null as HTMLElement | null,
   statusPill: null as HTMLElement | null,
+  statusPillFooter: null as HTMLElement | null,
   statusLine: null as HTMLElement | null,
   summaryGrid: null as HTMLElement | null,
   deltaPanel: null as HTMLElement | null,
@@ -117,7 +119,6 @@ const dom = {
   footer: null as HTMLElement | null,
   issuesPanel: null as HTMLElement | null,
   overviewPanel: null as HTMLElement | null,
-  connectionPanel: null as HTMLElement | null,
   resultsPanel: null as HTMLElement | null,
   historyPanel: null as HTMLElement | null,
   rescanButton: null as HTMLButtonElement | null,
@@ -131,20 +132,12 @@ const dom = {
   settingsToggleButton: null as HTMLButtonElement | null,
   settingsCloseButton: null as HTMLButtonElement | null,
   settingsPanel: null as HTMLElement | null,
-  backendSettingsSection: null as HTMLElement | null,
   bugReportLink: null as HTMLAnchorElement | null,
-  backendEnabled: null as HTMLInputElement | null,
-  backendMode: null as HTMLSelectElement | null,
-  backendEndpoint: null as HTMLInputElement | null,
-  backendPort: null as HTMLInputElement | null,
-  backendSecret: null as HTMLInputElement | null,
-  backendAuthUsername: null as HTMLInputElement | null,
-  backendAuthPassword: null as HTMLInputElement | null,
-  backendRequired: null as HTMLInputElement | null,
-  openApiSpecLink: null as HTMLAnchorElement | null,
   accessibilityWcagLevel: null as HTMLSelectElement | null,
   accessibilityBestPractices: null as HTMLInputElement | null,
+  accessibilityAxeChecks: null as HTMLInputElement | null,
   accessibilityProfileSummary: null as HTMLElement | null,
+  statusIndicatorMode: null as HTMLSelectElement | null,
   themeInputs: [] as HTMLInputElement[],
   visibilityInputs: [] as HTMLInputElement[],
   tabButtons: [] as HTMLButtonElement[]
@@ -157,17 +150,16 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function bindDom(): void {
-  dom.shell = document.getElementById('popup-shell');
+  dom.shell = document.getElementById('side-panel-shell');
   dom.statusPill = document.getElementById('status-pill');
+  dom.statusPillFooter = document.getElementById('status-pill-footer');
   dom.statusLine = document.getElementById('status-line');
   dom.settingsToggleButton = document.getElementById('settings-toggle-button') as HTMLButtonElement | null;
   dom.settingsCloseButton = document.getElementById('settings-close-button') as HTMLButtonElement | null;
   dom.overviewPanel = document.getElementById('overview-panel');
-  dom.connectionPanel = document.getElementById('connection-panel');
   dom.resultsPanel = document.getElementById('results-panel');
   dom.historyPanel = document.getElementById('history-panel');
   dom.settingsPanel = document.getElementById('settings-panel');
-  dom.backendSettingsSection = document.getElementById('backend-settings-section');
   dom.bugReportLink = document.getElementById('bug-report-link') as HTMLAnchorElement | null;
   dom.controlsSection = document.querySelector('.controls');
   dom.summaryGrid = document.getElementById('summary-grid');
@@ -184,39 +176,32 @@ function bindDom(): void {
   dom.copySelectorsButton = document.getElementById('copy-selectors-button') as HTMLButtonElement | null;
   dom.collapseResultsButton = document.getElementById('collapse-results-button') as HTMLButtonElement | null;
   dom.expandResultsButton = document.getElementById('expand-results-button') as HTMLButtonElement | null;
-  dom.backendEnabled = document.getElementById('backend-enabled') as HTMLInputElement | null;
-  dom.backendMode = document.getElementById('backend-mode') as HTMLSelectElement | null;
-  dom.backendEndpoint = document.getElementById('backend-endpoint') as HTMLInputElement | null;
-  dom.backendPort = document.getElementById('backend-port') as HTMLInputElement | null;
-  dom.backendSecret = document.getElementById('backend-secret') as HTMLInputElement | null;
-  dom.backendAuthUsername = document.getElementById('backend-auth-username') as HTMLInputElement | null;
-  dom.backendAuthPassword = document.getElementById('backend-auth-password') as HTMLInputElement | null;
-  dom.backendRequired = document.getElementById('backend-required') as HTMLInputElement | null;
-  dom.openApiSpecLink = document.getElementById('openapi-spec-link') as HTMLAnchorElement | null;
   dom.accessibilityWcagLevel = document.getElementById('accessibility-wcag-level') as HTMLSelectElement | null;
   dom.accessibilityBestPractices = document.getElementById('accessibility-best-practices') as HTMLInputElement | null;
+  dom.accessibilityAxeChecks = document.getElementById('accessibility-axe-checks') as HTMLInputElement | null;
   dom.accessibilityProfileSummary = document.getElementById('accessibility-profile-summary');
+  dom.statusIndicatorMode = document.getElementById('status-indicator-mode') as HTMLSelectElement | null;
   dom.themeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-theme-setting]'));
   dom.visibilityInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-visibility-setting]'));
-  dom.tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-popup-tab]'));
+  dom.tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-side-panel-tab]'));
 }
 
 function bindActions(): void {
   dom.settingsToggleButton?.addEventListener('click', () => {
     state.settingsOpen = !state.settingsOpen;
-    popupUiSettingsTouched = true;
+    sidePanelUiSettingsTouched = true;
     state.settingsFocusTarget = state.settingsOpen ? 'close' : 'toggle';
     render();
-    void persistPopupUiState();
+    void persistSidePanelUiState();
   });
 
   dom.settingsCloseButton?.addEventListener('click', () => {
     state.settingsOpen = false;
     state.activeTab = 'overview';
-    popupUiSettingsTouched = true;
+    sidePanelUiSettingsTouched = true;
     state.settingsFocusTarget = 'toggle';
     render();
-    void persistPopupUiState();
+    void persistSidePanelUiState();
   });
 
   dom.settingsPanel?.addEventListener('keydown', (event) => {
@@ -227,7 +212,7 @@ function bindActions(): void {
     state.settingsOpen = false;
     state.settingsFocusTarget = 'toggle';
     render();
-    void persistPopupUiState();
+    void persistSidePanelUiState();
     dom.settingsToggleButton?.focus();
   });
 
@@ -267,7 +252,7 @@ function bindActions(): void {
 
   for (const button of dom.tabButtons) {
     button.addEventListener('click', () => {
-      const tab = button.dataset.popupTab as PopupTab | undefined;
+      const tab = button.dataset.sidePanelTab as SidePanelTab | undefined;
       if (!tab) {
         return;
       }
@@ -279,14 +264,14 @@ function bindActions(): void {
   bindSettingsInputs();
 }
 
-function setActiveTab(tab: PopupTab): void {
+function setActiveTab(tab: SidePanelTab): void {
   state.activeTab = tab;
   state.settingsOpen = tab === 'settings';
   render();
 }
 
 export async function initialize(): Promise<void> {
-  await withEventLoopTrace('popup.initialize', async () => {
+  await withEventLoopTrace('side-panel.initialize', async () => {
     if (!hasExtensionRuntime()) {
       state.status = 'idle';
       state.note = 'Runtime unavailable';
@@ -314,12 +299,12 @@ function hasExtensionRuntime(): boolean {
   return Boolean(runtimeHost.chrome?.runtime?.sendMessage || runtimeHost.browser?.runtime?.sendMessage);
 }
 
-function getRuntime(): NonNullable<PopupRuntime['chrome'] | PopupRuntime['browser']> | undefined {
+function getRuntime(): NonNullable<SidePanelRuntime['chrome'] | SidePanelRuntime['browser']> | undefined {
   return runtimeHost.chrome ?? runtimeHost.browser;
 }
 
 async function startScan(manual: boolean): Promise<void> {
-  await withEventLoopTrace('popup.scan', async () => {
+  await withEventLoopTrace('side-panel.scan', async () => {
     await ensureStartupHydrated();
 
     if (state.status === 'loading') {
@@ -347,7 +332,7 @@ async function startScan(manual: boolean): Promise<void> {
       state.tabId = activeTab.id;
       state.tabUrl = activeTab.url;
       state.scanId = createScanId();
-      const backend = buildBackendRequestFromSettings(state.backendSettings);
+      const scanStartedAt = Date.now();
       const reply = (await runtime.runtime.sendMessage({
         type: 'scan:start',
         request: {
@@ -357,12 +342,12 @@ async function startScan(manual: boolean): Promise<void> {
           // Service worker resolves canonical URL from extracted page context.
           url: activeTab.url ?? '',
           engine: 'dom-lite',
-          ruleCategories: buildRuleCategoriesFromAccessibilityProfile(),
-          accessibilityProfile: { ...state.panelSettings.accessibility },
-          backend
+          accessibilityProfile: { ...state.panelSettings.accessibility }
         },
         persistHistory: true
       })) as ScanStartReply;
+      const scanDurationMs = Date.now() - scanStartedAt;
+      void persistLatencySample(scanDurationMs);
 
       if (!reply.ok) {
         throw new Error(reply.error);
@@ -380,7 +365,7 @@ async function startScan(manual: boolean): Promise<void> {
         ? `Backend recommendation: ${reply.payload.recommendation.engine}`
         : 'Scan complete';
       state.activeTab = 'results';
-      void persistPopupUiState();
+      void persistSidePanelUiState();
       render();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -394,17 +379,17 @@ async function startScan(manual: boolean): Promise<void> {
 
 async function hydrateStartupState(): Promise<void> {
   try {
-    const [backendSettings, panelSettings, popupUiState, loadedCachedScan, historySnapshots] = await Promise.all([
-      loadBackendSettings(),
+    const [panelSettings, popupUiState, loadedCachedScan, historySnapshots, latencyStats] = await Promise.all([
       loadPanelSettings(),
-      loadPopupUiState(),
+      loadSidePanelUiState(),
       loadCachedScanFromHistory(),
-      loadHistoryFromHistory()
+      loadHistoryFromHistory(),
+      loadLatencyStats()
     ]);
 
-    state.backendSettings = backendSettings;
     state.panelSettings = panelSettings;
     state.historySnapshots = historySnapshots;
+    state.latencyStats = latencyStats;
 
     if (!loadedCachedScan) {
       state.snapshot = undefined;
@@ -417,7 +402,7 @@ async function hydrateStartupState(): Promise<void> {
       state.activeTab = 'results';
     }
 
-    applyPopupUiState(popupUiState);
+    applySidePanelUiState(popupUiState);
     render();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -436,7 +421,7 @@ async function ensureStartupHydrated(): Promise<void> {
   await startupHydration;
 }
 
-function inferStatus(payload: { recommendation?: { confidence: number } }): PopupScanStatus {
+function inferStatus(payload: { recommendation?: { confidence: number } }): SidePanelScanStatus {
   if (payload.recommendation && payload.recommendation.confidence < 0.5) {
     return 'fallback';
   }
@@ -445,7 +430,7 @@ function inferStatus(payload: { recommendation?: { confidence: number } }): Popu
 }
 
 function render(options?: { offline?: boolean; statusLine?: string; lightweight?: boolean }): void {
-  const trace = startEventLoopTrace('popup.render');
+  const trace = startEventLoopTrace('side-panel.render');
   try {
     if (options?.offline) {
       dom.offlinePanel?.classList.remove('hidden');
@@ -456,6 +441,10 @@ function render(options?: { offline?: boolean; statusLine?: string; lightweight?
     if (dom.statusPill) {
       dom.statusPill.dataset.status = state.status;
       dom.statusPill.textContent = statusLabel(state.status);
+    }
+    if (dom.statusPillFooter) {
+      dom.statusPillFooter.dataset.status = state.status;
+      dom.statusPillFooter.textContent = statusLabel(state.status);
     }
 
     if (dom.statusLine) {
@@ -495,7 +484,6 @@ function render(options?: { offline?: boolean; statusLine?: string; lightweight?
 
     renderPanelSettings();
     renderOverviewPanel();
-    renderConnectionPanel();
     renderHistoryPanel();
 
     renderSummary();
@@ -509,7 +497,7 @@ function render(options?: { offline?: boolean; statusLine?: string; lightweight?
 
 function renderTabNavigation(): void {
   for (const button of dom.tabButtons) {
-    const tab = button.dataset.popupTab as PopupTab | undefined;
+    const tab = button.dataset.sidePanelTab as SidePanelTab | undefined;
     const selected = tab === state.activeTab;
     button.setAttribute('aria-selected', String(selected));
     button.classList.toggle('is-active', selected);
@@ -530,7 +518,6 @@ function renderTabPanels(): void {
   };
 
   setPanelHidden(dom.overviewPanel, state.activeTab !== 'overview');
-  setPanelHidden(dom.connectionPanel, state.activeTab !== 'connection');
   setPanelHidden(dom.resultsPanel, state.activeTab !== 'results');
   setPanelHidden(dom.settingsPanel, state.activeTab !== 'settings');
 }
@@ -543,92 +530,47 @@ function renderOverviewPanel(): void {
   const snapshot = state.snapshot;
   const issueCount = snapshot?.summary.total ?? 0;
   const historyCount = state.historySnapshots.length;
-  const backendMode = state.backendSettings.enabled
-    ? state.backendSettings.mode === 'stdin'
-      ? 'Standalone stdin mode'
-      : 'Remote HTTP backend'
-    : 'Local-only audit mode';
 
   dom.overviewPanel.innerHTML = `
     <section class="overview-grid" aria-label="Popup overview">
       <article class="info-card">
-        <p class="eyebrow">Connection</p>
+        <p class="eyebrow">Scan mode</p>
         <h2>Standalone audit</h2>
-        <p>${escapeHtml(
-          state.backendSettings.enabled && state.backendSettings.mode === 'stdin'
-            ? 'Run locally with the packaged stdin adapter and bundled rules.'
-            : 'Run locally without an external dependency, or switch to HTTP when needed.'
-        )}</p>
-        <button type="button" data-popup-tab="connection">Open Connection</button>
+        <p>${escapeHtml('Run locally with bundled rules directly in the extension runtime.')}</p>
+        <button type="button" id="overview-rescan-button">Run Scan</button>
       </article>
       <article class="info-card">
         <p class="eyebrow">Results</p>
         <h2>Recent runs and reports</h2>
         <p>${escapeHtml(`Review ${historyCount} saved runs, collapse issue groups, and download standard reports.`)}</p>
-        <button type="button" data-popup-tab="results">Open Results</button>
+        <button type="button" data-side-panel-tab="results">Open Results</button>
       </article>
       <article class="info-card">
         <p class="eyebrow">Settings</p>
         <h2>Theme grid and visibility</h2>
         <p>Adjust colors, toggle optional sections, and keep the popup compact on smaller screens.</p>
-        <button type="button" data-popup-tab="settings">Open Settings</button>
+        <button type="button" data-side-panel-tab="settings">Open Settings</button>
       </article>
       <article class="info-card">
         <p class="eyebrow">Current state</p>
         <h2>${escapeHtml(snapshot ? snapshot.url : 'No scan yet')}</h2>
         <p>${escapeHtml(snapshot ? `${issueCount} issues · ${snapshot.engine}` : state.note ?? 'Waiting for a scan')}</p>
-        <p>${escapeHtml(`Mode: ${backendMode}`)}</p>
+        <p>${escapeHtml('Mode: Standalone only')}</p>
       </article>
     </section>
   `;
 
-  dom.overviewPanel.querySelectorAll<HTMLButtonElement>('button[data-popup-tab]').forEach((button) => {
+  dom.overviewPanel.querySelector<HTMLButtonElement>('#overview-rescan-button')?.addEventListener('click', () => {
+    void startScan(true);
+  });
+  dom.overviewPanel.querySelectorAll<HTMLButtonElement>('button[data-side-panel-tab]').forEach((button) => {
     button.addEventListener('click', () => {
-      const tab = button.dataset.popupTab as PopupTab | undefined;
+      const tab = button.dataset.sidePanelTab as SidePanelTab | undefined;
       if (tab) {
         setActiveTab(tab);
       }
     });
   });
-}
-
-function renderConnectionPanel(): void {
-  if (!dom.connectionPanel) {
-    return;
-  }
-
-  if (dom.connectionPanel.classList.contains('hidden')) {
-    return;
-  }
-
-  const standalone = !state.backendSettings.enabled || state.backendSettings.mode === 'stdin';
-  const modeLabel = state.backendSettings.enabled
-    ? state.backendSettings.mode === 'stdin'
-      ? 'Standalone stdin engine'
-      : 'Remote HTTP backend'
-    : 'Standalone local-only audit mode';
-  const summary =
-    standalone && state.backendSettings.enabled
-      ? 'Standalone execution is enabled. The service worker can run the audit locally through the packaged stdin adapter, parse testrun output, and keep reporting offline.'
-      : state.backendSettings.enabled
-        ? 'Backend settings are configured for a remote HTTP endpoint, but the popup still retains local audit and report generation capabilities.'
-        : 'Standalone execution is available without an external dependency. The popup can run an audit locally and still produce standard reports.';
-
-  const summaryHost = dom.connectionPanel.querySelector<HTMLElement>('#connection-summary');
-  if (summaryHost) {
-    summaryHost.innerHTML = `
-      <article class="connection-callout">
-        <p class="eyebrow">Connection state</p>
-        <h2>${escapeHtml(modeLabel)}</h2>
-        <p>${escapeHtml(summary)}</p>
-        <ul>
-          <li>Bundled rules remain available in the popup and service worker.</li>
-          <li>History lookups and report generation use the background message bridge.</li>
-          <li>Markdown, HTML, JSON, and PDF outputs stay available for saved runs.</li>
-        </ul>
-      </article>
-    `;
-  }
 }
 
 function renderHistoryPanel(): void {
@@ -721,7 +663,7 @@ function renderDelta(): void {
     return;
   }
 
-  const delta = state.snapshot && state.diff ? buildPopupIssuePanelModel(state.snapshot, state.diff, state.status).delta : undefined;
+  const delta = state.snapshot && state.diff ? buildSidePanelIssuePanelModel(state.snapshot, state.diff, state.status).delta : undefined;
   if (!delta) {
     dom.deltaPanel.classList.add('hidden');
     dom.deltaPanel.innerHTML = '';
@@ -749,7 +691,7 @@ function renderIssues(): void {
     return;
   }
 
-  const model = buildPopupIssuePanelModel(state.snapshot, state.diff, state.status);
+  const model = buildSidePanelIssuePanelModel(state.snapshot, state.diff, state.status);
 
   if (model.total === 0) {
     dom.issuesPanel.innerHTML = `<section class="offline" data-testid="issue-empty">No issues found for this page.</section>`;
@@ -798,7 +740,7 @@ function renderIssues(): void {
       }
 
       render();
-      void persistPopupUiState();
+      void persistSidePanelUiState();
     });
   });
 
@@ -883,19 +825,20 @@ async function sendHighlightAction(
 }
 
 function buildStatusLine(): string {
+  const latencyHint = ` · ${formatLatencySloBadge(state.latencyStats)}`;
   if (state.status === 'loading') {
-    return `Scanning active tab${state.tabUrl ? ` · ${state.tabUrl}` : ''}...`;
+    return `Scanning active tab${state.tabUrl ? ` · ${state.tabUrl}` : ''}...${latencyHint}`;
   }
 
   if (state.snapshot) {
     const selectedCount = state.selectedIssueIds.size;
-    return `${state.snapshot.url} · ${state.snapshot.summary.total} issues${selectedCount ? ` · ${selectedCount} selected` : ''} · ${state.snapshot.engine}`;
+    return `${state.snapshot.url} · ${state.snapshot.summary.total} issues${selectedCount ? ` · ${selectedCount} selected` : ''} · ${state.snapshot.engine}${latencyHint}`;
   }
 
-  return state.note ?? 'Scan state will appear here.';
+  return `${state.note ?? 'Scan state will appear here.'}${latencyHint}`;
 }
 
-function statusLabel(status: PopupScanStatus): string {
+function statusLabel(status: SidePanelScanStatus): string {
   switch (status) {
     case 'loading':
       return 'Loading';
@@ -938,27 +881,16 @@ function hideError(): void {
 }
 
 function bindSettingsInputs(): void {
-  const updateBackend = () => {
-    state.backendSettings = readBackendSettingsFromDom();
-    void persistBackendSettings();
-  };
-
   const updatePanel = () => {
     state.panelSettings = readPanelSettingsFromDom();
     void persistPanelSettings();
     render();
   };
 
-  dom.backendEnabled?.addEventListener('change', updateBackend);
-  dom.backendMode?.addEventListener('change', updateBackend);
-  dom.backendEndpoint?.addEventListener('change', updateBackend);
-  dom.backendPort?.addEventListener('change', updateBackend);
-  dom.backendSecret?.addEventListener('change', updateBackend);
-  dom.backendAuthUsername?.addEventListener('change', updateBackend);
-  dom.backendAuthPassword?.addEventListener('change', updateBackend);
-  dom.backendRequired?.addEventListener('change', updateBackend);
   dom.accessibilityWcagLevel?.addEventListener('change', updatePanel);
   dom.accessibilityBestPractices?.addEventListener('change', updatePanel);
+  dom.accessibilityAxeChecks?.addEventListener('change', updatePanel);
+  dom.statusIndicatorMode?.addEventListener('change', updatePanel);
 
   for (const input of dom.themeInputs) {
     input.addEventListener('change', updatePanel);
@@ -967,16 +899,6 @@ function bindSettingsInputs(): void {
   for (const input of dom.visibilityInputs) {
     input.addEventListener('change', updatePanel);
   }
-}
-
-async function loadBackendSettings(): Promise<BackendSettingsForm> {
-  const storage = getRuntime()?.storage?.local;
-  if (!storage?.get) {
-    return { ...DEFAULT_BACKEND_SETTINGS };
-  }
-
-  const payload = await storage.get([BACKEND_SETTINGS_STORAGE_KEY]);
-  return normalizeBackendSettings(payload[BACKEND_SETTINGS_STORAGE_KEY]);
 }
 
 async function loadPanelSettings(): Promise<PanelSettingsForm> {
@@ -989,14 +911,14 @@ async function loadPanelSettings(): Promise<PanelSettingsForm> {
   return normalizePanelSettings(payload[PANEL_SETTINGS_STORAGE_KEY]);
 }
 
-async function loadPopupUiState(): Promise<PopupUiState> {
+async function loadSidePanelUiState(): Promise<SidePanelUiState> {
   const storage = getRuntime()?.storage?.local;
   if (!storage?.get) {
-    return normalizePopupUiState(undefined);
+    return normalizeSidePanelUiState(undefined);
   }
 
-  const payload = await storage.get([POPUP_UI_STATE_STORAGE_KEY]);
-  return normalizePopupUiState(payload[POPUP_UI_STATE_STORAGE_KEY]);
+  const payload = await storage.get([SIDE_PANEL_UI_STATE_STORAGE_KEY]);
+  return normalizeSidePanelUiState(payload[SIDE_PANEL_UI_STATE_STORAGE_KEY]);
 }
 
 async function loadCachedScanFromHistory(): Promise<boolean> {
@@ -1065,15 +987,6 @@ async function loadHistoryFromHistory(): Promise<ScanSnapshot[]> {
   }
 }
 
-async function persistBackendSettings(): Promise<void> {
-  state.backendSettings = readBackendSettingsFromDom();
-  const storage = getRuntime()?.storage?.local;
-
-  if (storage?.set) {
-    await storage.set({ [BACKEND_SETTINGS_STORAGE_KEY]: state.backendSettings });
-  }
-}
-
 async function persistPanelSettings(): Promise<void> {
   const storage = getRuntime()?.storage?.local;
   if (storage?.set) {
@@ -1081,13 +994,42 @@ async function persistPanelSettings(): Promise<void> {
   }
 }
 
-async function persistPopupUiState(): Promise<void> {
+async function loadLatencyStats(): Promise<LatencyStats> {
+  const storage = getRuntime()?.storage?.local;
+  if (!storage?.get) {
+    return { p95Ms: 0, sampleCount: 0 };
+  }
+
+  const payload = await storage.get([LATENCY_SAMPLES_STORAGE_KEY]);
+  return computeLatencyStats(normalizeLatencySamples(payload[LATENCY_SAMPLES_STORAGE_KEY]));
+}
+
+async function persistLatencySample(durationMs: number): Promise<void> {
+  try {
+    const storage = getRuntime()?.storage?.local;
+    if (!storage?.get || !storage?.set) {
+      return;
+    }
+
+    const payload = await storage.get([LATENCY_SAMPLES_STORAGE_KEY]);
+    const nextSamples = appendLatencySample(
+      normalizeLatencySamples(payload[LATENCY_SAMPLES_STORAGE_KEY]),
+      durationMs
+    );
+    await storage.set({ [LATENCY_SAMPLES_STORAGE_KEY]: nextSamples });
+    state.latencyStats = computeLatencyStats(nextSamples);
+  } catch {
+    // Latency persistence is non-critical telemetry and must not fail scan UX.
+  }
+}
+
+async function persistSidePanelUiState(): Promise<void> {
   await ensureStartupHydrated();
 
   const storage = getRuntime()?.storage?.local;
   if (storage?.set) {
     await storage.set({
-      [POPUP_UI_STATE_STORAGE_KEY]: buildPopupUiState({
+      [SIDE_PANEL_UI_STATE_STORAGE_KEY]: buildSidePanelUiState({
         settingsOpen: state.settingsOpen,
         scanId: state.snapshot?.id,
         selectedIssueIds: state.selectedIssueIds
@@ -1096,27 +1038,16 @@ async function persistPopupUiState(): Promise<void> {
   }
 }
 
-function readBackendSettingsFromDom(): BackendSettingsForm {
-  return normalizeBackendSettings({
-    enabled: dom.backendEnabled?.checked ?? DEFAULT_BACKEND_SETTINGS.enabled,
-    mode: dom.backendMode?.value === 'stdin' ? 'stdin' : 'http',
-    endpoint: dom.backendEndpoint?.value ?? DEFAULT_BACKEND_SETTINGS.endpoint,
-    port: dom.backendPort?.value ?? DEFAULT_BACKEND_SETTINGS.port,
-    requestSigningSecret: dom.backendSecret?.value ?? DEFAULT_BACKEND_SETTINGS.requestSigningSecret,
-    authUsername: dom.backendAuthUsername?.value ?? DEFAULT_BACKEND_SETTINGS.authUsername,
-    authPassword: dom.backendAuthPassword?.value ?? DEFAULT_BACKEND_SETTINGS.authPassword,
-    required: dom.backendRequired?.checked ?? DEFAULT_BACKEND_SETTINGS.required
-  });
-}
-
 function readPanelSettingsFromDom(): PanelSettingsForm {
   return normalizePanelSettings({
     theme: readThemeSettingsFromDom(),
     visibility: readVisibilitySettingsFromDom(),
     accessibility: {
       wcagLevel: dom.accessibilityWcagLevel?.value,
-      includeBestPractices: dom.accessibilityBestPractices?.checked
-    }
+      includeBestPractices: dom.accessibilityBestPractices?.checked,
+      includeAxeChecks: dom.accessibilityAxeChecks?.checked
+    },
+    statusIndicatorMode: dom.statusIndicatorMode?.value
   });
 }
 
@@ -1146,23 +1077,6 @@ function readVisibilitySettingsFromDom(): Record<string, boolean> {
   }
 
   return visibility;
-}
-
-function buildRuleCategoriesFromAccessibilityProfile(): RuleDomain[] {
-  const categories: RuleDomain[] = ['accessibility'];
-  const profile = state.panelSettings.accessibility;
-
-  if (profile.wcagLevel === 'AA' || profile.wcagLevel === 'AAA') {
-    categories.push('WCAG2.1AA');
-  }
-  if (profile.wcagLevel === 'AAA') {
-    categories.push('WCAG2.2AA');
-  }
-  if (profile.includeBestPractices) {
-    categories.push('ux');
-  }
-
-  return categories;
 }
 
 function renderPanelSettings(): void {
@@ -1207,45 +1121,20 @@ function renderSettingsForm(): void {
     input.checked = state.panelSettings.visibility[key];
   }
 
-  if (dom.backendEnabled) {
-    dom.backendEnabled.checked = state.backendSettings.enabled;
-  }
-  if (dom.backendMode) {
-    dom.backendMode.value = state.backendSettings.mode;
-  }
-  if (dom.backendEndpoint) {
-    dom.backendEndpoint.value = state.backendSettings.endpoint;
-  }
-  if (dom.backendPort) {
-    dom.backendPort.value = state.backendSettings.port;
-  }
-  if (dom.backendSecret) {
-    dom.backendSecret.value = state.backendSettings.requestSigningSecret;
-  }
-  if (dom.backendAuthUsername) {
-    dom.backendAuthUsername.value = state.backendSettings.authUsername;
-  }
-  if (dom.backendAuthPassword) {
-    dom.backendAuthPassword.value = state.backendSettings.authPassword;
-  }
-  if (dom.backendRequired) {
-    dom.backendRequired.checked = state.backendSettings.required;
-  }
-
-  if (dom.openApiSpecLink) {
-    const specUrl = getRuntime()?.runtime?.getURL?.('api/openapi.yaml') ?? 'api/openapi.yaml';
-    dom.openApiSpecLink.href = specUrl;
-    dom.openApiSpecLink.title = specUrl;
-  }
-
   if (dom.accessibilityWcagLevel) {
     dom.accessibilityWcagLevel.value = state.panelSettings.accessibility.wcagLevel;
   }
   if (dom.accessibilityBestPractices) {
     dom.accessibilityBestPractices.checked = state.panelSettings.accessibility.includeBestPractices;
   }
+  if (dom.accessibilityAxeChecks) {
+    dom.accessibilityAxeChecks.checked = state.panelSettings.accessibility.includeAxeChecks;
+  }
   if (dom.accessibilityProfileSummary) {
     dom.accessibilityProfileSummary.textContent = buildAccessibilityProfileSummary(state.panelSettings.accessibility);
+  }
+  if (dom.statusIndicatorMode) {
+    dom.statusIndicatorMode.value = state.panelSettings.statusIndicatorMode;
   }
 }
 
@@ -1268,8 +1157,8 @@ function renderBugReportLink(): void {
   dom.bugReportLink.title = `Report a bug to ${BUG_REPORT_EMAIL}`;
 }
 
-function applyPopupUiState(popupUiState: PopupUiState): void {
-  if (!popupUiSettingsTouched) {
+function applySidePanelUiState(popupUiState: SidePanelUiState): void {
+  if (!sidePanelUiSettingsTouched) {
     state.settingsOpen = popupUiState.settingsOpen;
   }
 
@@ -1315,12 +1204,14 @@ function applyPanelTheme(): void {
 
 function applyVisibilitySettings(): void {
   setSectionVisibility(dom.controlsSection, state.panelSettings.visibility.showControls);
-  setSectionVisibility(dom.backendSettingsSection, state.panelSettings.visibility.showBackendSettings);
   setSectionVisibility(dom.summaryGrid, state.panelSettings.visibility.showSummary);
   setSectionVisibility(dom.deltaPanel, state.panelSettings.visibility.showDelta);
   setSectionVisibility(dom.statusLine, state.panelSettings.visibility.showStatusLine);
   setSectionVisibility(dom.offlinePanel, state.panelSettings.visibility.showOfflineBanner);
   setSectionVisibility(dom.footer, state.panelSettings.visibility.showFooter);
+  const footerMode = state.panelSettings.statusIndicatorMode === 'footer-chip';
+  setSectionVisibility(dom.statusPill, !footerMode);
+  setSectionVisibility(dom.statusPillFooter, footerMode && state.panelSettings.visibility.showFooter);
 }
 
 function setSectionVisibility(element: Element | null | undefined, visible: boolean): void {
