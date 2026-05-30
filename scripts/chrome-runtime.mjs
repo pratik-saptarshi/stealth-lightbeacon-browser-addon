@@ -29,12 +29,12 @@ export function pickChromeLaunchStrategy(options = {}) {
   if (executablePath) {
     return {
       primary: { executablePath },
-      fallback: { channel: DEFAULT_CHROME_CHANNEL }
+      fallback: {}
     };
   }
 
   return {
-    primary: { channel: DEFAULT_CHROME_CHANNEL },
+    primary: {},
     fallback: { channel: FALLBACK_CHROMIUM_CHANNEL }
   };
 }

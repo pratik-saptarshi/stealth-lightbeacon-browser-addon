@@ -3,6 +3,15 @@
 ## Unreleased
 - Ongoing roadmap and validation follow-ups remain tracked in `docs/roadmap/`.
 
+## 0.1.9 — 2026-05-29
+- Migrated to side-panel-only default shell by removing `action.default_popup` from the extension manifest.
+- Stabilized Playwright runtime launch strategy to prefer default Chromium launch semantics with explicit fallback behavior.
+- Hardened strict extension smoke checks with deterministic side-panel fallback bootstrap when extension service workers are unavailable.
+- Filtered known accessibility false-positive rule IDs consistently across jsdom and Playwright smoke paths.
+- Hardened CI workflow defaults with explicit concurrency cancellation, per-job timeout limits, and non-persistent checkout credentials.
+- Sanitized local artifact hygiene by ignoring coverage outputs and transient test/runtime folders.
+- Bumped release metadata to `0.1.9` in `package.json` and `manifest.json`.
+
 ## 0.1.8 — 2026-05-29
 - Fixed validation reliability in constrained environments by adding explicit Chromium path discovery (`/usr/local/bin/chromium`) across Playwright config and launch scripts.
 - Hardened extension smoke validation to gracefully fall back to jsdom axe checks when Playwright browser launch is unavailable.

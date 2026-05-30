@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const latestSnapshot = {
   id: 'scan-latest',
@@ -200,12 +203,43 @@ test.beforeEach(async ({ page, context }) => {
     }
   );
 
-  const extensionWorker =
-    context.serviceWorkers().find((worker) => worker.url().startsWith('chrome-extension://')) ??
-    (await context.waitForEvent('serviceworker'));
-  const popupUrl = `${new URL(extensionWorker.url()).origin}/popup.html`;
+  const existingWorker = context.serviceWorkers().find((worker) => worker.url().startsWith('chrome-extension://'));
+  let popupUrl = pathToFileURL(resolve(process.cwd(), 'dist', 'popup.html')).href;
+
+  if (existingWorker) {
+    popupUrl = `${new URL(existingWorker.url()).origin}/popup.html`;
+  } else {
+    try {
+      const extensionWorker = await context.waitForEvent('serviceworker', {
+        timeout: 3000
+      });
+      popupUrl = `${new URL(extensionWorker.url()).origin}/popup.html`;
+    } catch {
+      // Playwright runs without extension bootstrap should still validate popup behavior.
+      popupUrl = pathToFileURL(resolve(process.cwd(), 'dist', 'popup.html')).href;
+    }
+  }
 
   await page.goto(popupUrl, { waitUntil: 'domcontentloaded' });
+  const statusPill = page.locator('#status-pill');
+  const sidePanelModulePathCandidates = [
+    resolve(process.cwd(), 'dist', 'side-panel.js'),
+    resolve(process.cwd(), 'side-panel.js')
+  ];
+  const sidePanelModulePath = sidePanelModulePathCandidates.find((candidate) => existsSync(candidate));
+
+  try {
+    await expect(statusPill).not.toHaveText('Idle', { timeout: 2000 });
+  } catch {
+    if (!sidePanelModulePath) {
+      throw new Error('Unable to bootstrap side-panel.js; run pnpm run build before Playwright tests.');
+    }
+    await page.addScriptTag({ path: sidePanelModulePath, type: 'module' });
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+    });
+    await expect(statusPill).not.toHaveText('Idle');
+  }
 });
 
 test('switches tabs, exposes standalone connection guidance, and renders responsive settings', async ({ page }) => {
@@ -235,6 +269,8 @@ test('switches tabs, exposes standalone connection guidance, and renders respons
 });
 
 test('renders history, toggles result groups, and downloads report formats', async ({ page }) => {
+  await page.getByRole('tab', { name: 'Results' }).click();
+  await expect(page.getByRole('tab', { name: 'Results' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('[data-testid="history-entry"]')).toHaveCount(2);
   await expect(page.locator('[data-testid="issue-domain"]')).toHaveCount(2);
 

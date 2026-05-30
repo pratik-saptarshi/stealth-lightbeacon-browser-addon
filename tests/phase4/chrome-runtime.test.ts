@@ -13,17 +13,17 @@ describe('chrome runtime launch strategy', () => {
     });
 
     expect(strategy.primary).toEqual({ executablePath: '/opt/chrome' });
-    expect(strategy.fallback).toEqual({ channel: 'chrome' });
+    expect(strategy.fallback).toEqual({});
   });
 
-  it('falls back to Chrome channel when env path is missing', () => {
+  it('prefers Playwright default launch when env path is missing', () => {
     const strategy = pickChromeLaunchStrategy({
       env: {},
       fileExists: () => false,
       canExecute: () => false
     });
 
-    expect(strategy.primary).toEqual({ channel: 'chrome' });
+    expect(strategy.primary).toEqual({});
     expect(strategy.fallback).toEqual({ channel: 'chromium' });
   });
 });

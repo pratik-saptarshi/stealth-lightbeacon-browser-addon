@@ -28,8 +28,7 @@ describe('addon manifest', () => {
       64: 'icons/icon-normal-64.png',
       128: 'icons/icon-normal-128.png'
     });
-    expect(manifest.action?.default_popup).toBe('popup.html');
-    expect(() => readFileSync(resolve(process.cwd(), manifest.action?.default_popup), 'utf8')).not.toThrow();
+    expect(manifest.action?.default_popup).toBeUndefined();
     expect(manifest.side_panel?.default_path).toBe('popup.html');
     expect(() => readFileSync(resolve(process.cwd(), manifest.side_panel?.default_path), 'utf8')).not.toThrow();
     expect(manifest.permissions).toContain('sidePanel');
