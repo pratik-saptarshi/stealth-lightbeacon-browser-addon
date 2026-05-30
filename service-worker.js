@@ -3117,6 +3117,29 @@ async function handleMessage(message) {
       const compare = await historyManager.compareLatest(message.origin);
       return { ok: true, payload: compare };
     }
+    if (message.type === "issue:highlight") {
+      const tabId = message.tabId ?? await resolveActiveTabId(globalRuntime);
+      if (typeof tabId !== "number") {
+        return { ok: false, error: createFailure("No tab available for highlight action") };
+      }
+      const tabsApi = globalRuntime.chrome?.tabs ?? globalRuntime.browser?.tabs;
+      await tabsApi?.sendMessage?.(tabId, {
+        type: "issue:highlight",
+        selector: message.selector
+      });
+      return { ok: true, payload: { tabId } };
+    }
+    if (message.type === "issue:clear-highlight") {
+      const tabId = message.tabId ?? await resolveActiveTabId(globalRuntime);
+      if (typeof tabId !== "number") {
+        return { ok: false, error: createFailure("No tab available for clear highlight action") };
+      }
+      const tabsApi = globalRuntime.chrome?.tabs ?? globalRuntime.browser?.tabs;
+      await tabsApi?.sendMessage?.(tabId, {
+        type: "issue:clear-highlight"
+      });
+      return { ok: true, payload: { tabId } };
+    }
     if (message.type === "ruleset:get") {
       const catalog = await rulesetManager.getCatalog();
       return { ok: true, payload: { catalog } };
@@ -3186,7 +3209,7 @@ function registerShellEntrypoints(context) {
   });
 }
 function isKnownMessageType(type) {
-  return type === "scan:start" || type === "history:list" || type === "history:latest" || type === "history:compare" || type === "ruleset:get" || type === "ruleset:update" || type === "knowledge-base:get" || type === "knowledge-base:update" || type === "issues:list" || type === "report:build";
+  return type === "scan:start" || type === "history:list" || type === "history:latest" || type === "history:compare" || type === "issue:highlight" || type === "issue:clear-highlight" || type === "ruleset:get" || type === "ruleset:update" || type === "knowledge-base:get" || type === "knowledge-base:update" || type === "issues:list" || type === "report:build";
 }
 function resolveHistoryStorage(context) {
   const chromeStorageArea = context.chrome?.storage?.local;

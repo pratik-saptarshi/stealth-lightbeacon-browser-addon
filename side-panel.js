@@ -1377,6 +1377,25 @@ function renderIssues() {
       void copySelectorsForIssues([issueId]);
     });
   });
+  dom.issuesPanel.querySelectorAll("button[data-highlight-selector]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const selector = button.dataset.highlightSelector ?? "";
+      if (!selector) {
+        return;
+      }
+      void sendHighlightAction({
+        type: "issue:highlight",
+        selector
+      });
+    });
+  });
+  dom.issuesPanel.querySelectorAll("button[data-clear-highlight]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void sendHighlightAction({
+        type: "issue:clear-highlight"
+      });
+    });
+  });
 }
 function severityChip(severity, count) {
   return `<span class="severity-chip ${escapeHtml(severity)}">${escapeHtml(severity)} ${count}</span>`;
@@ -1402,9 +1421,22 @@ function renderIssueCard(issue) {
       <p class="issue-evidence">${escapeHtml(issue.evidence)}</p>
       <div class="issue-actions">
         <button type="button" data-copy-selector="${escapeAttr(issue.id)}">Copy selector</button>
+        ${issue.selector ? `<button type="button" data-highlight-selector="${escapeAttr(issue.selector)}">Highlight</button>` : ""}
+        <button type="button" data-clear-highlight="true">Clear highlight</button>
       </div>
     </article>
   `;
+}
+async function sendHighlightAction(action) {
+  const runtime = getRuntime();
+  if (!runtime?.runtime?.sendMessage) {
+    return;
+  }
+  const message = state.tabId ? {
+    ...action,
+    tabId: state.tabId
+  } : action;
+  await runtime.runtime.sendMessage(message);
 }
 function buildStatusLine() {
   if (state.status === "loading") {

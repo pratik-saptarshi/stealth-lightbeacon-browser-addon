@@ -1,5 +1,4 @@
 import { accessSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -9,30 +8,11 @@ import {
   SMOKE_VIEWPORTS,
   assertNoExternalSmokeRequests
 } from './extension-load-smoke-helpers.mjs';
+import { pickChromeLaunchStrategy } from './chrome-runtime.mjs';
 
 const projectRoot = resolve(process.cwd());
 const distDir = resolve(projectRoot, 'dist');
-function resolveUsableChromeExecutable() {
-  const candidates = [
-    process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH,
-    process.env.CHROME_BIN
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate || !existsSync(candidate)) {
-      continue;
-    }
-
-    const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' });
-    if (probe.status === 0) {
-      return candidate;
-    }
-  }
-
-  return undefined;
-}
-
-const chromeExecutablePath = resolveUsableChromeExecutable();
+const chromeLaunchStrategy = pickChromeLaunchStrategy();
 const requirePlaywrightRuntime = process.env.SMOKE_REQUIRE_PLAYWRIGHT === '1';
 const distWorker = resolve(distDir, 'service-worker.js');
 const sourceManifestPath = resolve(projectRoot, 'manifest.json');
@@ -192,11 +172,7 @@ async function validateAxeSmoke(extensionDir) {
   let context;
   try {
     context = await playwrightChromium.launchPersistentContext(tmpProfile, {
-      ...(chromeExecutablePath
-        ? {
-            executablePath: chromeExecutablePath
-          }
-        : {}),
+      ...chromeLaunchStrategy.primary,
       headless: true,
       args: [
         `--disable-extensions-except=${extensionDir}`,
@@ -207,18 +183,34 @@ async function validateAxeSmoke(extensionDir) {
       ]
     });
   } catch (error) {
-    if (requirePlaywrightRuntime) {
-      throw new Error(
-        `Playwright runtime is required but browser launch failed: ${
+    try {
+      context = await playwrightChromium.launchPersistentContext(tmpProfile, {
+        ...chromeLaunchStrategy.fallback,
+        headless: true,
+        args: [
+          `--disable-extensions-except=${extensionDir}`,
+          `--load-extension=${extensionDir}`,
+          '--disable-sync',
+          '--metrics-recording-only',
+          '--no-first-run'
+        ]
+      });
+    } catch (fallbackError) {
+      if (requirePlaywrightRuntime) {
+        throw new Error(
+          `Playwright runtime is required but browser launch failed: primary=${
+            error instanceof Error ? error.message : String(error)
+          }; fallback=${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`
+        );
+      }
+      console.warn(
+        `[extension-load-smoke] Playwright browser launch unavailable (primary=${
           error instanceof Error ? error.message : String(error)
-        }`
+        }; fallback=${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}); falling back to jsdom axe validation.`
       );
+      rmSync(tmpProfile, { recursive: true, force: true });
+      return validateJsdomAxeSmoke(extensionDir);
     }
-    console.warn(
-      `[extension-load-smoke] Playwright browser launch unavailable (${error instanceof Error ? error.message : String(error)}); falling back to jsdom axe validation.`
-    );
-    rmSync(tmpProfile, { recursive: true, force: true });
-    return validateJsdomAxeSmoke(extensionDir);
   }
 
   try {

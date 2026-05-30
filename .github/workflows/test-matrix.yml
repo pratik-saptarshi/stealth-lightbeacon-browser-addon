@@ -81,7 +81,7 @@ jobs:
         run: pnpm run build
 
       - name: Run extension runtime smoke (strict Playwright mode)
-        run: SMOKE_REQUIRE_PLAYWRIGHT=1 pnpm run test:ui-load
+        run: pnpm run test:ui-load:strict
 
       - name: Run Playwright E2E
         run: pnpm exec playwright test tests/popup/popup.playwright.spec.ts

@@ -71,11 +71,24 @@ export interface HistoryCompareMessage {
   origin: string;
 }
 
+export interface IssueHighlightMessage {
+  type: 'issue:highlight';
+  selector: string;
+  tabId?: number;
+}
+
+export interface IssueClearHighlightMessage {
+  type: 'issue:clear-highlight';
+  tabId?: number;
+}
+
 export type ClientMessage =
   | ScanStartMessage
   | HistoryListMessage
   | HistoryLatestMessage
   | HistoryCompareMessage
+  | IssueHighlightMessage
+  | IssueClearHighlightMessage
   | RulesetGetMessage
   | RulesetUpdateMessage
   | KnowledgeBaseGetMessage
@@ -142,12 +155,16 @@ export type RulesetGetReply = { ok: true; payload: RulesetResponse } | ScanFailu
 export type RulesetUpdateReply = { ok: true; payload: RulesetResponse } | ScanFailure;
 export type KnowledgeBaseGetReply = { ok: true; payload: KnowledgeBaseResponse } | ScanFailure;
 export type KnowledgeBaseUpdateReply = { ok: true; payload: KnowledgeBaseResponse } | ScanFailure;
+export type IssueHighlightReply = { ok: true; payload: { tabId: number } } | ScanFailure;
+export type IssueClearHighlightReply = { ok: true; payload: { tabId: number } } | ScanFailure;
 
 export type MessageResponseByType = {
   'scan:start': ScanStartReply;
   'history:list': HistoryListReply;
   'history:latest': HistoryLatestReply;
   'history:compare': HistoryCompareReply;
+  'issue:highlight': IssueHighlightReply;
+  'issue:clear-highlight': IssueClearHighlightReply;
   'ruleset:get': RulesetGetReply;
   'ruleset:update': RulesetUpdateReply;
   'knowledge-base:get': KnowledgeBaseGetReply;

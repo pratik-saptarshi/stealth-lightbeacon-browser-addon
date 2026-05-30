@@ -1,28 +1,7 @@
-import { existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { defineConfig } from '@playwright/test';
+import { pickChromeLaunchStrategy } from './scripts/chrome-runtime.mjs';
 
-function resolveUsableChromeExecutable() {
-  const candidates = [
-    process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH,
-    process.env.CHROME_BIN
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate || !existsSync(candidate)) {
-      continue;
-    }
-
-    const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' });
-    if (probe.status === 0) {
-      return candidate;
-    }
-  }
-
-  return undefined;
-}
-
-const chromeExecutablePath = resolveUsableChromeExecutable();
+const chromeLaunchStrategy = pickChromeLaunchStrategy();
 
 export default defineConfig({
   testDir: './tests',
@@ -31,13 +10,7 @@ export default defineConfig({
   retries: 0,
   use: {
     browserName: 'chromium',
-    ...(chromeExecutablePath
-      ? {
-          launchOptions: {
-            executablePath: chromeExecutablePath
-          }
-        }
-      : {}),
+    launchOptions: chromeLaunchStrategy.primary,
     viewport: {
       width: 468,
       height: 900

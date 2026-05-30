@@ -16,11 +16,35 @@ export interface RuleContext {
     level: number;
     text: string;
   }>;
+  headingHierarchy?: {
+    skips: Array<{
+      fromLevel: number;
+      toLevel: number;
+      text: string;
+      index: number;
+    }>;
+    regressions: Array<{
+      fromLevel: number;
+      toLevel: number;
+      text: string;
+      index: number;
+    }>;
+  };
+  canonicalSignal?: {
+    raw: string | null;
+    normalized: string | null;
+    requestNormalized: string | null;
+    sameOrigin: boolean;
+    matchesRequest: boolean;
+  };
   images: Array<{
     src: string;
     alt: string | null;
     ariaLabel?: string | null;
     role?: string | null;
+    formatHint?: string | null;
+    hasQuery?: boolean;
+    hasFragment?: boolean;
   }>;
   links: Array<{
     href: string;
@@ -30,6 +54,12 @@ export interface RuleContext {
     ariaLabel?: string | null;
     title?: string | null;
     isInternal: boolean;
+    quality?: {
+      hasQuery: boolean;
+      hasFragment: boolean;
+      hasTrackingParams: boolean;
+      isCleanPath: boolean;
+    };
   }>;
   buttons: Array<{
     text: string;
