@@ -24,6 +24,7 @@ type ChromeLikeRuntime = {
   };
   tabs?: {
     query: ReturnType<typeof vi.fn>;
+    get?: ReturnType<typeof vi.fn>;
     sendMessage: ReturnType<typeof vi.fn>;
   };
   scripting?: {
@@ -368,7 +369,9 @@ it('handles issue listing, report building, history lookups, and unknown message
     throw new Error(issuesReply.error);
   }
 
-  expect(issuesReply.payload.count).toBeGreaterThanOrEqual(0);
+  expect(issuesReply.payload.count).toBe(1);
+  expect(issuesReply.payload.issues).toHaveLength(1);
+  expect(issuesReply.payload.issues[0]?.domain).toBe('seo');
 
   const reportReply = (await handleMessage({
     type: 'report:build',
@@ -435,7 +438,7 @@ it('handles issue listing, report building, history lookups, and unknown message
   expect(unknownReply.error).toContain('Unknown message type');
 });
 
-it('fails when scan start has no page context and no active tab context is available', async () => {
+it('returns an informational unsupported snapshot when scan context is unavailable', async () => {
   const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
   const originalQuery = chrome.tabs?.query;
 
@@ -444,25 +447,102 @@ it('fails when scan start has no page context and no active tab context is avail
   }
 
   try {
-    const reply = await handleMessage({
+    const reply = (await handleMessage({
       type: 'scan:start',
       request: {
         requestId: 'missing-context',
         url: 'https://example.com/page',
         engine: 'dom-lite'
       }
-    } as const);
+    } as const)) as ScanStartReply;
 
-    expect(reply.ok).toBe(false);
-    if (reply.ok) {
-      throw new Error('Expected missing context failure');
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) {
+      throw new Error(reply.error);
     }
-
-    expect(reply.error).toContain('Page context is missing');
+    expect(reply.payload.snapshot.issues[0]?.ruleId.startsWith('unsupported-page-')).toBe(true);
+    expect(reply.payload.snapshot.issues[0]?.domain).toBe('ux');
+    expect(reply.payload.crawlNodes).toEqual([]);
+    expect(reply.payload.recommendation).toBeUndefined();
+    expect(reply.payload.diff.newIssues.length).toBe(1);
+    expect(reply.payload.diff.resolvedIssues).toEqual([]);
   } finally {
     if (chrome.tabs) {
       chrome.tabs.query = originalQuery!;
     }
+  }
+});
+
+it('runs axe deep checks when enabled even if request.tabId is omitted', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalSendMessage = chrome.tabs?.sendMessage;
+
+  if (!chrome.tabs) {
+    throw new Error('Expected tabs runtime for this test');
+  }
+
+  chrome.tabs.sendMessage = vi.fn(async (tabId: number, message: { type: string }) => {
+    if (message.type === 'content:extract') {
+      return { ok: true, payload: extractedContext };
+    }
+
+    if (message.type === 'content:axe-scan') {
+      return {
+        ok: true,
+        payload: {
+          violations: [
+            {
+              id: 'color-contrast',
+              impact: 'serious',
+              help: 'Elements must have sufficient color contrast',
+              description: 'contrast issue',
+              helpUrl: 'https://dequeuniversity.com/',
+              nodes: [
+                {
+                  target: ['button.icon-only'],
+                  html: '<button class="icon-only">Save</button>',
+                  failureSummary: 'Fix contrast'
+                }
+              ]
+            }
+          ]
+        }
+      };
+    }
+
+    return { ok: true, payload: extractedContext };
+  });
+
+  try {
+    const reply = (await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'axe-without-tab-id',
+        url: 'https://example.com/page',
+        engine: 'dom-lite',
+        accessibilityProfile: {
+          wcagLevel: 'AA',
+          includeBestPractices: true,
+          includeAxeChecks: true
+        }
+      }
+    } as const)) as ScanStartReply;
+
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) {
+      throw new Error(reply.error);
+    }
+
+    expect(reply.payload.snapshot.issues.some((issue) => issue.source === 'axe')).toBe(true);
+    expect(chrome.scripting?.executeScript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { tabId: 77 },
+        files: ['axe.min.js']
+      })
+    );
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(77, { type: 'content:axe-scan' });
+  } finally {
+    chrome.tabs.sendMessage = originalSendMessage!;
   }
 });
 
@@ -508,7 +588,224 @@ it('disables an optional backend blocked by host policy', async () => {
   }
 
   expect(reply.payload.snapshot.summary.total).toBeGreaterThanOrEqual(1);
-  expect(reply.payload.recommendation?.engine).toBeTruthy();
+  expect(reply.payload.recommendation).toBeDefined();
+  expect(reply.payload.recommendation?.engine).toBe('mcp');
+  expect(reply.payload.recommendation?.confidence).toBeGreaterThanOrEqual(0);
+});
+
+it('classifies browser-internal unsupported targets and carries guidance into reports', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalQuery = chrome.tabs?.query;
+  const originalSendMessage = chrome.tabs?.sendMessage;
+
+  if (chrome.tabs) {
+    chrome.tabs.query = vi.fn(async () => [{ id: 77, url: 'chrome://settings/' }]);
+    chrome.tabs.sendMessage = vi.fn(async () => undefined);
+  }
+
+  try {
+    const scanReply = (await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'unsupported-browser-internal',
+        url: '',
+        engine: 'dom-lite'
+      }
+    } as const)) as ScanStartReply;
+
+    expect(scanReply.ok).toBe(true);
+    if (!scanReply.ok) {
+      throw new Error(scanReply.error);
+    }
+
+    const issue = scanReply.payload.snapshot.issues[0];
+    expect(issue?.ruleId).toBe('unsupported-page-browser-internal');
+    expect(issue?.evidence).toContain('Open a standard https:// page and run scan again.');
+
+    const reportReply = (await handleMessage({
+      type: 'report:build',
+      snapshot: scanReply.payload.snapshot,
+      diff: scanReply.payload.diff,
+      format: 'markdown'
+    } as const)) as ReportBuildReply;
+
+    expect(reportReply.ok).toBe(true);
+    if (!reportReply.ok) {
+      throw new Error(reportReply.error);
+    }
+    expect(reportReply.payload.report).toContain('Open a standard https:// page and run scan again.');
+  } finally {
+    if (chrome.tabs) {
+      chrome.tabs.query = originalQuery!;
+      chrome.tabs.sendMessage = originalSendMessage!;
+    }
+  }
+});
+
+it('uses explicit tabId lookup when classifying unsupported targets', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalQuery = chrome.tabs?.query;
+  const originalGet = chrome.tabs?.get;
+  const originalSendMessage = chrome.tabs?.sendMessage;
+
+  if (chrome.tabs) {
+    chrome.tabs.query = vi.fn(async () => [{ id: 77, url: 'https://example.com/' }]);
+    chrome.tabs.get = vi.fn(async (tabId: number) => (tabId === 99 ? { id: 99, url: 'chrome://settings/' } : undefined));
+    chrome.tabs.sendMessage = vi.fn(async () => undefined);
+  }
+
+  try {
+    const reply = (await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'unsupported-explicit-tab',
+        tabId: 99,
+        url: '',
+        engine: 'dom-lite'
+      }
+    } as const)) as ScanStartReply;
+
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) {
+      throw new Error(reply.error);
+    }
+    expect(reply.payload.snapshot.issues[0]?.ruleId).toBe('unsupported-page-browser-internal');
+  } finally {
+    if (chrome.tabs) {
+      chrome.tabs.query = originalQuery!;
+      chrome.tabs.get = originalGet;
+      chrome.tabs.sendMessage = originalSendMessage!;
+    }
+  }
+});
+
+it('classifies extension pages as unsupported extension targets', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalQuery = chrome.tabs?.query;
+  const originalSendMessage = chrome.tabs?.sendMessage;
+
+  if (chrome.tabs) {
+    chrome.tabs.query = vi.fn(async () => [{ id: 77, url: 'chrome-extension://abc123/side-panel.html' }]);
+    chrome.tabs.sendMessage = vi.fn(async () => undefined);
+  }
+
+  try {
+    const reply = (await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'unsupported-extension-page',
+        url: '',
+        engine: 'dom-lite'
+      }
+    } as const)) as ScanStartReply;
+
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) {
+      throw new Error(reply.error);
+    }
+
+    expect(reply.payload.snapshot.issues[0]?.ruleId).toBe('unsupported-page-extension-page');
+    expect(reply.payload.snapshot.issues[0]?.evidence).toContain('Switch to a public site tab');
+  } finally {
+    if (chrome.tabs) {
+      chrome.tabs.query = originalQuery!;
+      chrome.tabs.sendMessage = originalSendMessage!;
+    }
+  }
+});
+
+it('classifies file URLs as permission-scoped unsupported targets', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalQuery = chrome.tabs?.query;
+  const originalSendMessage = chrome.tabs?.sendMessage;
+
+  if (chrome.tabs) {
+    chrome.tabs.query = vi.fn(async () => [{ id: 77, url: 'file:///tmp/example.html' }]);
+    chrome.tabs.sendMessage = vi.fn(async () => undefined);
+  }
+
+  try {
+    const reply = (await handleMessage({
+      type: 'scan:start',
+      request: {
+        requestId: 'unsupported-file-url',
+        url: '',
+        engine: 'dom-lite'
+      }
+    } as const)) as ScanStartReply;
+
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) {
+      throw new Error(reply.error);
+    }
+
+    expect(reply.payload.snapshot.issues[0]?.ruleId).toBe('unsupported-page-permission-scoped');
+    expect(reply.payload.snapshot.issues[0]?.evidence).toContain('Enable file URL access');
+  } finally {
+    if (chrome.tabs) {
+      chrome.tabs.query = originalQuery!;
+      chrome.tabs.sendMessage = originalSendMessage!;
+    }
+  }
+});
+
+it('loads axe runtime once per tab and reuses it on repeated scans', async () => {
+  const chrome = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  const originalSendMessage = chrome.tabs?.sendMessage;
+
+  if (!chrome.tabs) {
+    throw new Error('Expected tabs runtime for this test');
+  }
+
+  chrome.tabs.sendMessage = vi.fn(async (_tabId: number, message: { type: string }) => {
+    if (message.type === 'content:extract') {
+      return { ok: true, payload: extractedContext };
+    }
+
+    if (message.type === 'content:axe-scan') {
+      return {
+        ok: true,
+        payload: {
+          violations: []
+        }
+      };
+    }
+
+    return { ok: true, payload: extractedContext };
+  });
+
+  try {
+    const request = {
+      requestId: 'axe-cache-reuse',
+      tabId: 707,
+      url: 'https://example.com/page',
+      engine: 'dom-lite',
+      accessibilityProfile: {
+        wcagLevel: 'AA',
+        includeBestPractices: true,
+        includeAxeChecks: true
+      }
+    } as const;
+
+    const firstReply = (await handleMessage({ type: 'scan:start', request } as const)) as ScanStartReply;
+    const secondReply = (await handleMessage({
+      type: 'scan:start',
+      request: { ...request, requestId: 'axe-cache-reuse-2' }
+    } as const)) as ScanStartReply;
+
+    expect(firstReply.ok).toBe(true);
+    expect(secondReply.ok).toBe(true);
+    const axeScriptLoads =
+      chrome.scripting?.executeScript.mock.calls.filter(
+        ([arg]) =>
+          Array.isArray((arg as { files?: string[] }).files) &&
+          (arg as { files: string[] }).files.includes('axe.min.js')
+      ) ?? [];
+    expect(axeScriptLoads).toHaveLength(1);
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(707, { type: 'content:axe-scan' });
+  } finally {
+    chrome.tabs.sendMessage = originalSendMessage!;
+  }
 });
 
 it('initializes and scans through the browser runtime path', async () => {
@@ -601,7 +898,7 @@ it('skips runtime listener registration when no listener API exists', async () =
 
   try {
     await import('../../src/background/service-worker');
-    expect(true).toBe(true);
+    expect(currentWindowRuntime.browser?.runtime?.onMessage).toBeUndefined();
   } finally {
     if (chrome) {
       currentWindowRuntime.chrome = chrome;

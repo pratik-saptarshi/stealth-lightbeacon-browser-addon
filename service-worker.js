@@ -60,7 +60,7 @@ var DOMAINS = [
   "WCAG2.1AA",
   "WCAG2.2AA"
 ];
-var ISSUE_SOURCES = ["dom-only", "backend"];
+var ISSUE_SOURCES = ["dom-only", "backend", "axe"];
 var BACKEND_ENGINES = ["http", "fast-obscura", "stealth-playwright", "mcp"];
 var SCAN_ENGINES = ["dom-lite", "crawl-lite"];
 var BACKEND_MODES = ["http", "stdin"];
@@ -105,7 +105,7 @@ function assertIssue(input) {
   if ("selector" in input && input.selector !== void 0) {
     assert(isString(input.selector), "issue.selector must be a string when present");
   }
-  assert(isEnumValue(input.source, ISSUE_SOURCES), "issue.source must be dom-only or backend");
+  assert(isEnumValue(input.source, ISSUE_SOURCES), "issue.source must be dom-only, backend, or axe");
   return {
     id: input.id,
     ruleId: input.ruleId,
@@ -188,6 +188,9 @@ function assertScanRequestInput(input) {
     const profile = input.accessibilityProfile;
     assert(isEnumValue(profile.wcagLevel, ["A", "AA", "AAA"]), "scan request.accessibilityProfile.wcagLevel must be A, AA, or AAA");
     assert(typeof profile.includeBestPractices === "boolean", "scan request.accessibilityProfile.includeBestPractices must be a boolean");
+    if ("includeAxeChecks" in profile && profile.includeAxeChecks !== void 0) {
+      assert(typeof profile.includeAxeChecks === "boolean", "scan request.accessibilityProfile.includeAxeChecks must be a boolean");
+    }
   }
   if ("backend" in input && input.backend !== void 0) {
     assert(isRecord(input.backend), "scan request.backend must be an object when present");
@@ -603,7 +606,7 @@ function normalizeIssues(issues) {
   const seen = /* @__PURE__ */ new Set();
   const unique = [];
   for (const issue of issues) {
-    const key = [issue.ruleId, issue.evidence, issue.selector ?? ""].join("::").toLowerCase();
+    const key = issueIdentityKey(issue);
     if (seen.has(key)) {
       continue;
     }
@@ -613,8 +616,8 @@ function normalizeIssues(issues) {
   return unique;
 }
 function diffSnapshots(current, previous) {
-  const prevMap = new Map(previous?.issues.map((issue) => [issueIdentity(issue), issue]));
-  const currMap = new Map(current.issues.map((issue) => [issueIdentity(issue), issue]));
+  const prevMap = new Map(previous?.issues.map((issue) => [issueIdentityKey(issue), issue]));
+  const currMap = new Map(current.issues.map((issue) => [issueIdentityKey(issue), issue]));
   const newIssues = [];
   const resolvedIssues = [];
   const regressions = [];
@@ -644,7 +647,8 @@ function diffSnapshots(current, previous) {
   }
   return { newIssues, resolvedIssues, regressions, improvements };
 }
-function issueIdentity(issue) {
+function issueIdentityKey(issue) {
+  const normalizedSource = issue.source ?? "dom-only";
   return [
     issue.ruleId,
     issue.title,
@@ -652,7 +656,7 @@ function issueIdentity(issue) {
     issue.summary,
     issue.evidence,
     issue.selector ?? "",
-    issue.source
+    normalizedSource
   ].join("::").toLowerCase();
 }
 function severityWorse(current, previous) {
@@ -1131,6 +1135,63 @@ var aeoCanonicalLink = {
     ];
   }
 };
+var geoTitleIntentMismatch = {
+  id: "geo-title-intent-mismatch",
+  title: "Intent mismatch in title",
+  severity: "low",
+  domain: "geo",
+  evaluate: (context) => {
+    const localeMatch = context.requestUrl.match(/\/(us|uk|ca|au|in|eu|de|fr|es|it|jp|cn)(\/|$)/i);
+    if (!localeMatch) {
+      return [];
+    }
+    const localeCode = localeMatch[1].toLowerCase();
+    const title = context.title.toLowerCase();
+    const localeLabels = {
+      us: ["us", "united states", "usa"],
+      uk: ["uk", "united kingdom", "britain"],
+      ca: ["canada", "ca"],
+      au: ["australia", "au"],
+      in: ["india", "in"],
+      eu: ["europe", "eu"],
+      de: ["germany", "de"],
+      fr: ["france", "fr"],
+      es: ["spain", "es"],
+      it: ["italy", "it"],
+      jp: ["japan", "jp"],
+      cn: ["china", "cn"]
+    };
+    const labels = localeLabels[localeCode] ?? [localeCode];
+    const hasLocaleInTitle = labels.some((label) => title.includes(label));
+    if (hasLocaleInTitle) {
+      return [];
+    }
+    return [
+      createIssue(
+        geoTitleIntentMismatch,
+        "Locale-specific URL path is not reflected in title intent",
+        `Detected locale path "/${localeCode}" but title "${context.title}" lacks locale cue`
+      )
+    ];
+  }
+};
+var wcag22InputAssistance = {
+  id: "wcag22-input-assistance",
+  title: "Error prevention and input assistance checks",
+  severity: "low",
+  domain: "WCAG2.2AA",
+  evaluate: (context) => {
+    return context.formInputs.filter(
+      (field) => field.required && !field.labelText?.trim() && !field.ariaLabel?.trim() && !field.ariaLabelledBy?.trim() && !field.title?.trim()
+    ).map(
+      (field) => createIssue(
+        wcag22InputAssistance,
+        "Required form input lacks assistance or confirmation context",
+        `Required ${field.type} input has no label/aria/title guidance for error prevention`
+      )
+    );
+  }
+};
 var domRules = [
   seoTitleMissing,
   seoTitleShort,
@@ -1152,6 +1213,8 @@ var domRules = [
   uxFormsRequiredLabel,
   aeoAnswerSummary,
   aeoCanonicalLink,
+  geoTitleIntentMismatch,
+  wcag22InputAssistance,
   ...wcagStructuralRules
 ];
 function headingLabel(level) {
@@ -1623,40 +1686,19 @@ var ScanOrchestrator = class {
     };
   }
   enrichBackendRequest(request, recommendation) {
-    const requestWithCategories = this.enrichRuleCategoriesFromAccessibilityProfile(request);
-    if (!requestWithCategories.backend || requestWithCategories.backend.enabled === false) {
-      return requestWithCategories;
+    if (!request.backend || request.backend.enabled === false) {
+      return request;
     }
-    if (requestWithCategories.backend.mode === "stdin" || requestWithCategories.backend.mode === void 0) {
+    if (request.backend.mode === "stdin" || request.backend.mode === void 0) {
       return {
-        ...requestWithCategories,
+        ...request,
         backend: {
-          ...requestWithCategories.backend,
-          engine: requestWithCategories.backend.engine ?? recommendation.engine
+          ...request.backend,
+          engine: request.backend.engine ?? recommendation.engine
         }
       };
     }
-    return requestWithCategories;
-  }
-  enrichRuleCategoriesFromAccessibilityProfile(request) {
-    if (request.ruleCategories?.length || !request.accessibilityProfile) {
-      return request;
-    }
-    const categories = ["accessibility"];
-    const profile = request.accessibilityProfile;
-    if (profile.wcagLevel === "AA" || profile.wcagLevel === "AAA") {
-      categories.push("WCAG2.1AA");
-    }
-    if (profile.wcagLevel === "AAA") {
-      categories.push("WCAG2.2AA");
-    }
-    if (profile.includeBestPractices) {
-      categories.push("ux");
-    }
-    return {
-      ...request,
-      ruleCategories: categories
-    };
+    return request;
   }
   shouldUseBackend(request) {
     if (!request.backend) {
@@ -1689,9 +1731,9 @@ var ScanOrchestrator = class {
   }
   mergeIssues(localIssues, backendIssues) {
     const mergedIssues = [...localIssues];
-    const seenKeys = new Set(localIssues.map((issue) => this.issueMergeKey(issue)));
+    const seenKeys = new Set(localIssues.map((issue) => issueIdentityKey(issue)));
     for (const issue of backendIssues) {
-      const key = this.issueMergeKey(issue);
+      const key = issueIdentityKey(issue);
       if (seenKeys.has(key)) {
         continue;
       }
@@ -1699,9 +1741,6 @@ var ScanOrchestrator = class {
       seenKeys.add(key);
     }
     return mergedIssues;
-  }
-  issueMergeKey(issue) {
-    return [issue.ruleId, issue.domain, issue.severity, issue.selector ?? "", issue.summary].join("|");
   }
   async enrichSecurityHeaderContext(pageContext, requestUrl) {
     if (pageContext.securityHeaders?.observed) {
@@ -1730,11 +1769,16 @@ var ScanOrchestrator = class {
       return void 0;
     }
     try {
-      const response = await this.securityHeaderFetcher(parsedUrl.toString(), {
-        method: "HEAD",
-        redirect: "follow",
-        cache: "no-store"
-      });
+      const response = await fetchWithTimeoutSignal(
+        this.securityHeaderFetcher,
+        parsedUrl.toString(),
+        {
+          method: "HEAD",
+          redirect: "follow",
+          cache: "no-store"
+        },
+        this.deps.timeoutMs ?? 2e3
+      );
       return {
         observed: true,
         contentSecurityPolicy: response.headers.get("content-security-policy"),
@@ -1816,17 +1860,17 @@ var ScanOrchestrator = class {
         errorType: "blocked"
       }));
     }
-    const results = [];
-    for (const node of crawlQueue) {
+    const results = new Array(crawlQueue.length);
+    const concurrency = clamp(this.deps.crawlConcurrency ?? 4, 1, 8);
+    const processNode = async (node) => {
       const safety = validateCrawlTarget(node.url, seedUrl.origin);
       if (!safety.ok) {
-        results.push({
+        return {
           ...node,
           status: "error",
           errorType: "blocked",
           note: safety.reason
-        });
-        continue;
+        };
       }
       const marker = {
         url: node.url,
@@ -1835,10 +1879,10 @@ var ScanOrchestrator = class {
         discoveredFrom: node.discoveredFrom
       };
       try {
-        const response = await withTimeout(
-          this.fetcher(node.url, {
-            method: "HEAD"
-          }),
+        const response = await fetchWithTimeoutSignal(
+          this.fetcher,
+          node.url,
+          { method: "HEAD" },
           this.deps.timeoutMs ?? 2e3
         );
         marker.statusCode = response.status;
@@ -1848,32 +1892,38 @@ var ScanOrchestrator = class {
           marker.status = "error";
           marker.errorType = "blocked";
           marker.note = redirectCheck.reason;
-          results.push(marker);
-          continue;
+          return marker;
         }
         if (!response.ok) {
           marker.status = "error";
           marker.errorType = "other";
           marker.note = `HTTP ${response.status}`;
-          results.push(marker);
-          continue;
+          return marker;
         }
         const contentType = typeof response.headers?.get === "function" ? response.headers.get("content-type") ?? "" : "";
         if (!contentType || !contentType.toLowerCase().includes("text/html")) {
           marker.status = "error";
           marker.errorType = "non_html";
-          results.push(marker);
-          continue;
+          return marker;
         }
         marker.status = "done";
-        results.push(marker);
+        return marker;
       } catch (error) {
         marker.status = "error";
         marker.errorType = classifyError(error);
-        results.push(marker);
+        return marker;
       }
-    }
-    return results;
+    };
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, crawlQueue.length) }, async () => {
+      while (cursor < crawlQueue.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await processNode(crawlQueue[index]);
+      }
+    });
+    await Promise.all(workers);
+    return results.filter(Boolean);
   }
 };
 function buildCrawlIssues(crawlNodes, scanUrl) {
@@ -2037,7 +2087,7 @@ function isPrivateOrRestrictedHost(hostname) {
   return first === 100 && second >= 64 && second <= 127;
 }
 function classifyError(error) {
-  if (error instanceof Error && error.name === "AbortError") {
+  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
     return "timeout";
   }
   const message = (error instanceof Error ? error.message : "").toLowerCase();
@@ -2049,18 +2099,16 @@ function classifyError(error) {
   }
   return "other";
 }
-async function withTimeout(promise, timeoutMs) {
-  let timeoutId;
-  const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(Object.assign(new Error("Timed out"), { name: "AbortError" })), timeoutMs);
-  });
+async function fetchWithTimeoutSignal(fetcher, input, init, timeoutMs) {
+  if (typeof AbortController === "undefined") {
+    return fetcher(input, init);
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const result = await Promise.race([promise, timeout]);
-    return result;
+    return await fetcher(input, { ...init, signal: controller.signal });
   } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
+    clearTimeout(timeoutId);
   }
 }
 function normalizeForCrawl(input) {
@@ -2131,7 +2179,7 @@ var StdinBackendClient = class {
     if (serialized.length > MAX_STDIN_PAYLOAD_BYTES) {
       throw new Error("Stdio backend payload exceeds 64KB limit");
     }
-    const parsed = await withTimeout2(Promise.resolve(this.executor(payload)), this.timeoutMs, "Stdio backend timed out");
+    const parsed = await withTimeout(Promise.resolve(this.executor(payload)), this.timeoutMs, "Stdio backend timed out");
     return assertBackendScanResponse(parsed);
   }
 };
@@ -2261,7 +2309,7 @@ function backendPath(engine) {
   }
   return `${DEFAULT_BACKEND_PATH}/${engine}`;
 }
-function withTimeout2(promise, timeoutMs, message) {
+function withTimeout(promise, timeoutMs, message) {
   let timeoutId;
   return Promise.race([
     promise,
@@ -2436,7 +2484,7 @@ var ScanHistoryManager = class {
   }
   async listSnapshots(origin, limit) {
     const snapshots = await this.storage.loadSnapshots(origin);
-    const normalized = [...snapshots].sort((left, right) => right.timestamp - left.timestamp);
+    const normalized = isNewestFirstByTimestamp(snapshots) ? snapshots : [...snapshots].sort((left, right) => right.timestamp - left.timestamp);
     const max = typeof limit === "number" ? Math.max(1, limit) : normalized.length;
     return normalized.slice(0, max);
   }
@@ -2465,7 +2513,21 @@ function getLatestSnapshot(snapshots) {
   if (!snapshots.length) {
     return void 0;
   }
-  return [...snapshots].sort((left, right) => right.timestamp - left.timestamp)[0];
+  let latest = snapshots[0];
+  for (let index = 1; index < snapshots.length; index += 1) {
+    if (snapshots[index].timestamp > latest.timestamp) {
+      latest = snapshots[index];
+    }
+  }
+  return latest;
+}
+function isNewestFirstByTimestamp(snapshots) {
+  for (let index = 1; index < snapshots.length; index += 1) {
+    if (snapshots[index - 1].timestamp < snapshots[index].timestamp) {
+      return false;
+    }
+  }
+  return true;
 }
 var MemoryHistoryStorage = class {
   buckets = /* @__PURE__ */ new Map();
@@ -2880,7 +2942,10 @@ function toLlmMarkdownExport(bundle) {
     `Generated: ${new Date(bundle.snapshot.timestamp).toISOString()}`,
     "",
     "## Prioritized Issue List",
-    ...bundle.snapshot.issues.map((issue) => `- (${issue.severity}) ${issue.title} \u2014 ${issue.summary}`),
+    ...bundle.snapshot.issues.flatMap((issue) => [
+      `- (${issue.severity}) ${issue.title} \u2014 ${issue.summary}`,
+      `  evidence: ${issue.evidence}`
+    ]),
     ""
   ];
   if (bundle.diff) {
@@ -2960,6 +3025,7 @@ function toMarkdownExport(bundle) {
   for (const issue of bundle.snapshot.issues) {
     const bucket = byDomain.get(issue.domain) ?? [];
     bucket.push(`- [${issue.severity}] **${issue.title}**: ${issue.summary}`);
+    bucket.push(`  - Evidence: ${issue.evidence}`);
     byDomain.set(issue.domain, bucket);
   }
   for (const [domain, bulletPoints] of byDomain.entries()) {
@@ -3163,15 +3229,22 @@ var rulesetStorage = createRulesetCatalogStorage(resolveHistoryStorage(globalRun
 var rulesetManager = new RulesetCatalogManager(rulesetStorage ?? new MemoryRulesetCatalogStorage());
 var knowledgeBaseStorage = createKnowledgeBaseStorage(resolveHistoryStorage(globalRuntime)?.storage?.local);
 var knowledgeBaseManager = new KnowledgeBaseManager(knowledgeBaseStorage ?? new MemoryKnowledgeBaseStorage());
+var axeLoadedTabs = /* @__PURE__ */ new Set();
 async function handleMessage(message) {
   try {
     if (isScanStartMessage(message)) {
       return await withEventLoopTrace("service-worker.scan:start", async () => {
         const pageContext = message.pageContext ?? await resolvePageContextFromActiveTab(message.request.tabId);
         if (!pageContext) {
+          const unsupportedSnapshot = createUnsupportedSnapshot(message.request, await resolveActiveTabUrl(globalRuntime, message.request.tabId));
           return {
-            ok: false,
-            error: createFailure("Page context is missing; provide pageContext or request.tabId with active-tab permissions")
+            ok: true,
+            payload: {
+              snapshot: unsupportedSnapshot,
+              diff: diffSnapshots(unsupportedSnapshot),
+              crawlNodes: [],
+              recommendation: void 0
+            }
           };
         }
         const sanitizedBackendRequest = message.request.backend ? {
@@ -3208,16 +3281,31 @@ async function handleMessage(message) {
           previous,
           catalog
         );
+        const includeAxeChecks = message.request.accessibilityProfile?.includeAxeChecks === true;
+        let mergedSnapshot = result.snapshot;
+        let mergedDiff = result.diff;
         const tabId = message.request.tabId ?? await resolveActiveTabId(globalRuntime);
-        await applyToolbarState(globalRuntime, tabId, result.snapshot);
+        if (includeAxeChecks && typeof tabId === "number") {
+          const axeIssues = await collectAxeIssues(globalRuntime, tabId);
+          if (axeIssues.length > 0) {
+            const mergedIssues = [...result.snapshot.issues, ...axeIssues];
+            mergedSnapshot = {
+              ...result.snapshot,
+              issues: mergedIssues,
+              summary: summarizeIssues(mergedIssues)
+            };
+            mergedDiff = diffSnapshots(mergedSnapshot, previous);
+          }
+        }
+        await applyToolbarState(globalRuntime, tabId, mergedSnapshot);
         if (message.persistHistory) {
-          await historyManager.saveSnapshot(result.snapshot);
+          await historyManager.saveSnapshot(mergedSnapshot);
         }
         return {
           ok: true,
           payload: {
-            snapshot: result.snapshot,
-            diff: result.diff,
+            snapshot: mergedSnapshot,
+            diff: mergedDiff,
             crawlNodes: result.crawlNodes,
             recommendation: result.recommendation
           }
@@ -3357,6 +3445,16 @@ function registerShellEntrypoints(context) {
       await host.sidePanel?.open?.({ tabId: tab.id });
     }
   });
+  host.tabs?.onUpdated?.addListener?.((tabId, changeInfo) => {
+    if (typeof tabId === "number" && changeInfo?.status === "complete") {
+      axeLoadedTabs.delete(tabId);
+    }
+  });
+  host.tabs?.onRemoved?.addListener?.((tabId) => {
+    if (typeof tabId === "number") {
+      axeLoadedTabs.delete(tabId);
+    }
+  });
 }
 function isKnownMessageType(type) {
   return type === "scan:start" || type === "history:list" || type === "history:latest" || type === "history:compare" || type === "issue:highlight" || type === "issue:clear-highlight" || type === "ruleset:get" || type === "ruleset:update" || type === "knowledge-base:get" || type === "knowledge-base:update" || type === "issues:list" || type === "report:build";
@@ -3403,6 +3501,34 @@ async function resolveActiveTabId(context) {
   const activeTab = await pickActiveTabId(runtimeTabs);
   return activeTab?.id;
 }
+async function resolveActiveTabUrl(context, tabId) {
+  const runtimeTabs = resolveRuntimeTabs(context);
+  if (!runtimeTabs) {
+    return void 0;
+  }
+  if (typeof tabId === "number") {
+    if (runtimeTabs.get) {
+      try {
+        const direct = await runtimeTabs.get(tabId);
+        if (typeof direct?.url === "string") {
+          return direct.url;
+        }
+      } catch {
+      }
+    }
+    if (runtimeTabs.query) {
+      const matches = await runtimeTabs.query({ active: true, currentWindow: true });
+      const direct = matches.find((entry) => entry.id === tabId);
+      return typeof direct?.url === "string" ? direct.url : void 0;
+    }
+    return void 0;
+  }
+  if (!runtimeTabs.query) {
+    return void 0;
+  }
+  const activeTab = await pickActiveTabId(runtimeTabs);
+  return typeof activeTab?.url === "string" ? activeTab.url : void 0;
+}
 async function pickActiveTabId(tabs) {
   if (!tabs.query) {
     return void 0;
@@ -3438,6 +3564,150 @@ function resolveBackendStdioExecutor(context) {
     return candidate;
   }
   return void 0;
+}
+async function collectAxeIssues(context, tabId) {
+  const tabs = resolveRuntimeTabs(context);
+  if (!tabs?.sendMessage) {
+    return [];
+  }
+  try {
+    await ensureAxeRuntimeLoaded(tabId);
+    const response = await tabs.sendMessage(tabId, { type: "content:axe-scan" });
+    if (!response || typeof response !== "object") {
+      return [];
+    }
+    const payload = response;
+    if (!payload.ok) {
+      return [];
+    }
+    const violations = payload.payload?.violations ?? [];
+    return mapAxeViolationsToIssues(violations);
+  } catch {
+    return [];
+  }
+}
+async function ensureAxeRuntimeLoaded(tabId) {
+  if (axeLoadedTabs.has(tabId)) {
+    return;
+  }
+  const scripting = globalRuntime.chrome?.scripting ?? globalRuntime.browser?.scripting;
+  if (!scripting?.executeScript) {
+    return;
+  }
+  await scripting.executeScript({
+    target: { tabId },
+    files: ["axe.min.js"]
+  });
+  axeLoadedTabs.add(tabId);
+}
+function mapAxeViolationsToIssues(violations) {
+  const issues = [];
+  for (const violation of violations) {
+    const severity = mapAxeImpactToSeverity(violation.impact);
+    for (const node of violation.nodes) {
+      const selector = node.target[0];
+      const summary = violation.help;
+      const evidence = node.failureSummary ?? node.html ?? violation.description;
+      issues.push({
+        id: `axe-${simpleHash(`${violation.id}|${selector ?? ""}|${evidence}`)}`,
+        ruleId: `axe-${violation.id}`,
+        title: violation.help,
+        severity,
+        domain: "accessibility",
+        summary,
+        evidence,
+        selector,
+        source: "axe"
+      });
+    }
+  }
+  return issues;
+}
+function mapAxeImpactToSeverity(impact) {
+  switch (impact) {
+    case "critical":
+      return "critical";
+    case "serious":
+      return "high";
+    case "moderate":
+      return "medium";
+    default:
+      return "low";
+  }
+}
+function simpleHash(input) {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash).toString(16);
+}
+function createUnsupportedSnapshot(request, tabUrl) {
+  const classInfo = classifyUnsupportedTarget(tabUrl, request.url);
+  const issue = createIssue(
+    {
+      id: `unsupported-page-${classInfo.classId}`,
+      title: "Unsupported page target",
+      severity: "low",
+      domain: "ux"
+    },
+    classInfo.summary,
+    classInfo.education,
+    void 0,
+    "dom-only"
+  );
+  const now = Date.now();
+  const snapshotUrl = classInfo.url ?? "https://unsupported.local/";
+  return {
+    id: `scan-${now}`,
+    origin: resolveSnapshotOrigin(snapshotUrl),
+    url: snapshotUrl,
+    timestamp: now,
+    engine: request.engine,
+    issues: [issue],
+    summary: summarizeIssues([issue])
+  };
+}
+function classifyUnsupportedTarget(tabUrl, requestUrl) {
+  const candidate = (tabUrl?.trim() || requestUrl?.trim() || "").toLowerCase();
+  if (candidate.startsWith("chrome://") || candidate.startsWith("edge://") || candidate.startsWith("about:")) {
+    return {
+      classId: "browser-internal",
+      url: tabUrl ?? requestUrl,
+      summary: "Browser-internal pages cannot be scanned by extension scripts.",
+      education: "Open a standard https:// page and run scan again."
+    };
+  }
+  if (candidate.startsWith("chrome-extension://") || candidate.startsWith("moz-extension://")) {
+    return {
+      classId: "extension-page",
+      url: tabUrl ?? requestUrl,
+      summary: "Extension pages are not valid scan targets.",
+      education: "Switch to a public site tab and re-run the scan."
+    };
+  }
+  if (candidate.startsWith("file://")) {
+    return {
+      classId: "permission-scoped",
+      url: tabUrl ?? requestUrl,
+      summary: "File URLs may be blocked by extension permissions.",
+      education: "Enable file URL access in extension settings or scan an http(s) page."
+    };
+  }
+  return {
+    classId: "injection-blocked",
+    url: tabUrl ?? requestUrl,
+    summary: "Page context could not be extracted for this tab.",
+    education: "Verify host permissions and reload the tab before retrying."
+  };
+}
+function resolveSnapshotOrigin(input) {
+  try {
+    return new URL(input).origin;
+  } catch {
+    return "https://unsupported.local";
+  }
 }
 function resolveRuntimeTabs(context) {
   const chromeTabs = context.chrome?.tabs;

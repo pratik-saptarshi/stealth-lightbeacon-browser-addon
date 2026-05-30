@@ -52,7 +52,9 @@ export class ScanHistoryManager {
 
   async listSnapshots(origin: string, limit?: number): Promise<ScanSnapshot[]> {
     const snapshots = await this.storage.loadSnapshots(origin);
-    const normalized = [...snapshots].sort((left, right) => right.timestamp - left.timestamp);
+    const normalized = isNewestFirstByTimestamp(snapshots)
+      ? snapshots
+      : [...snapshots].sort((left, right) => right.timestamp - left.timestamp);
     const max = typeof limit === 'number' ? Math.max(1, limit) : normalized.length;
     return normalized.slice(0, max);
   }
@@ -88,7 +90,24 @@ function getLatestSnapshot(snapshots: ScanSnapshot[]): ScanSnapshot | undefined 
     return undefined;
   }
 
-  return [...snapshots].sort((left, right) => right.timestamp - left.timestamp)[0];
+  let latest = snapshots[0];
+  for (let index = 1; index < snapshots.length; index += 1) {
+    if (snapshots[index].timestamp > latest.timestamp) {
+      latest = snapshots[index];
+    }
+  }
+
+  return latest;
+}
+
+function isNewestFirstByTimestamp(snapshots: ScanSnapshot[]): boolean {
+  for (let index = 1; index < snapshots.length; index += 1) {
+    if (snapshots[index - 1].timestamp < snapshots[index].timestamp) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export class MemoryHistoryStorage implements HistoryStoragePort {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { POPUP_UI_STATE_STORAGE_KEY } from '../../src/popup/popup-state';
+import { SIDE_PANEL_UI_STATE_STORAGE_KEY } from '../../src/side-panel/side-panel-state';
 
 const snapshot = {
   id: 'scan-123',
@@ -31,7 +31,7 @@ const snapshot = {
 
 function buildShell(): void {
   document.body.innerHTML = `
-    <main id="popup-shell">
+    <main id="side-panel-shell">
       <p id="status-line"></p>
       <div id="status-pill"></div>
       <button id="settings-toggle-button"></button>
@@ -64,7 +64,7 @@ function buildShell(): void {
   `;
 }
 
-describe('popup startup', () => {
+describe('side-panel startup', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -103,7 +103,7 @@ describe('popup startup', () => {
       }
 
       if (message.type === 'scan:start') {
-        throw new Error('popup startup should not auto-scan');
+        throw new Error('side-panel startup should not auto-scan');
       }
 
       throw new Error(`unexpected message: ${message.type}`);
@@ -144,7 +144,7 @@ describe('popup startup', () => {
       }
     };
 
-    await import('../../src/popup/popup');
+    await import('../../src/side-panel/side-panel');
     document.dispatchEvent(new Event('DOMContentLoaded'));
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalled();
@@ -162,7 +162,7 @@ describe('popup startup', () => {
     buildShell();
 
     const storageGet = vi.fn(async () => ({
-      [POPUP_UI_STATE_STORAGE_KEY]: {
+      [SIDE_PANEL_UI_STATE_STORAGE_KEY]: {
         settingsOpen: true,
         scanId: 'scan-123',
         selectedIssueIds: ['issue-1']
@@ -222,7 +222,7 @@ describe('popup startup', () => {
       }
     };
 
-    await import('../../src/popup/popup');
+    await import('../../src/side-panel/side-panel');
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.waitFor(() => {
@@ -241,7 +241,7 @@ describe('popup startup', () => {
 
     const storageSet = vi.fn<(payload: Record<string, unknown>) => Promise<void>>(async () => undefined);
     const storageGet = vi.fn(async () => ({
-      [POPUP_UI_STATE_STORAGE_KEY]: {
+      [SIDE_PANEL_UI_STATE_STORAGE_KEY]: {
         settingsOpen: false,
         scanId: 'scan-123',
         selectedIssueIds: []
@@ -303,7 +303,7 @@ describe('popup startup', () => {
       }
     };
 
-    await import('../../src/popup/popup');
+    await import('../../src/side-panel/side-panel');
     document.dispatchEvent(new Event('DOMContentLoaded'));
     document.getElementById('settings-toggle-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
@@ -315,7 +315,7 @@ describe('popup startup', () => {
     await vi.waitFor(() => {
       expect(
         storageSet.mock.calls.some(([payload]) =>
-          JSON.stringify((payload as Record<string, unknown>)[POPUP_UI_STATE_STORAGE_KEY] ?? {}).includes('"settingsOpen":true')
+          JSON.stringify((payload as Record<string, unknown>)[SIDE_PANEL_UI_STATE_STORAGE_KEY] ?? {}).includes('"settingsOpen":true')
         )
       ).toBe(true);
     });

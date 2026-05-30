@@ -116,4 +116,4 @@ jobs:
       - name: Run Playwright E2E
         run: |
           set -euo pipefail
-          pnpm exec playwright test tests/popup/popup.playwright.spec.ts
+          pnpm exec playwright test tests/side-panel/side-panel.playwright.spec.ts

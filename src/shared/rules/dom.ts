@@ -432,6 +432,75 @@ const aeoCanonicalLink: RuleSpec = {
   }
 };
 
+const geoTitleIntentMismatch: RuleSpec = {
+  id: 'geo-title-intent-mismatch',
+  title: 'Intent mismatch in title',
+  severity: 'low',
+  domain: 'geo',
+  evaluate: (context: RuleContext) => {
+    const localeMatch = context.requestUrl.match(/\/(us|uk|ca|au|in|eu|de|fr|es|it|jp|cn)(\/|$)/i);
+    if (!localeMatch) {
+      return [];
+    }
+
+    const localeCode = localeMatch[1].toLowerCase();
+    const title = context.title.toLowerCase();
+    const localeLabels: Record<string, string[]> = {
+      us: ['us', 'united states', 'usa'],
+      uk: ['uk', 'united kingdom', 'britain'],
+      ca: ['canada', 'ca'],
+      au: ['australia', 'au'],
+      in: ['india', 'in'],
+      eu: ['europe', 'eu'],
+      de: ['germany', 'de'],
+      fr: ['france', 'fr'],
+      es: ['spain', 'es'],
+      it: ['italy', 'it'],
+      jp: ['japan', 'jp'],
+      cn: ['china', 'cn']
+    };
+
+    const labels = localeLabels[localeCode] ?? [localeCode];
+    const hasLocaleInTitle = labels.some((label) => title.includes(label));
+    if (hasLocaleInTitle) {
+      return [];
+    }
+
+    return [
+      createIssue(
+        geoTitleIntentMismatch,
+        'Locale-specific URL path is not reflected in title intent',
+        `Detected locale path "/${localeCode}" but title "${context.title}" lacks locale cue`
+      )
+    ];
+  }
+};
+
+const wcag22InputAssistance: RuleSpec = {
+  id: 'wcag22-input-assistance',
+  title: 'Error prevention and input assistance checks',
+  severity: 'low',
+  domain: 'WCAG2.2AA',
+  evaluate: (context: RuleContext) => {
+    return context.formInputs
+      .filter(
+        (field) =>
+          field.required &&
+          !field.labelText?.trim() &&
+          !field.ariaLabel?.trim() &&
+          !field.ariaLabelledBy?.trim() &&
+          !field.title?.trim()
+      )
+      .map((field) =>
+        createIssue(
+          wcag22InputAssistance,
+          'Required form input lacks assistance or confirmation context',
+          `Required ${field.type} input has no label/aria/title guidance for error prevention`
+        )
+      );
+  }
+};
+
 export const domRules: RuleSpec[] = [
   seoTitleMissing,
   seoTitleShort,
@@ -453,6 +522,8 @@ export const domRules: RuleSpec[] = [
   uxFormsRequiredLabel,
   aeoAnswerSummary,
   aeoCanonicalLink,
+  geoTitleIntentMismatch,
+  wcag22InputAssistance,
   ...wcagStructuralRules
 ];
 

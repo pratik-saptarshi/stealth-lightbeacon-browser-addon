@@ -3,12 +3,12 @@ import {
   buildIssueExportJson,
   buildIssueExportMarkdown,
   buildReportDownloadPath,
-  buildPopupUiState,
-  buildPopupIssuePanelModel,
+  buildSidePanelUiState,
+  buildSidePanelIssuePanelModel,
   collectSelectors,
-  normalizePopupUiState,
+  normalizeSidePanelUiState,
   sortIssuesForPanel
-} from '../../src/popup/popup-state';
+} from '../../src/side-panel/side-panel-state';
 import type { Issue, ScanSnapshot } from '../../src/shared/types';
 
 const issues: Issue[] = [
@@ -71,14 +71,14 @@ const snapshot: ScanSnapshot = {
   }
 };
 
-describe('popup panel state', () => {
+describe('side-panel panel state', () => {
   it('sorts issues by domain, severity, then title', () => {
     const sorted = sortIssuesForPanel(issues);
     expect(sorted.map((issue) => issue.id)).toEqual(['1', '2', '4', '3']);
   });
 
   it('builds grouped issue panel model with delta data', () => {
-    const model = buildPopupIssuePanelModel(
+    const model = buildSidePanelIssuePanelModel(
       snapshot,
       {
         newIssues: [issues[0]],
@@ -102,7 +102,7 @@ describe('popup panel state', () => {
   });
 
   it('groups same-severity issues together and omits delta when absent', () => {
-    const model = buildPopupIssuePanelModel({
+    const model = buildSidePanelIssuePanelModel({
       ...snapshot,
       issues: [
         {
@@ -147,14 +147,14 @@ describe('popup panel state', () => {
   });
 
   it('normalizes popup ui state inputs', () => {
-    expect(normalizePopupUiState(undefined)).toEqual({
+    expect(normalizeSidePanelUiState(undefined)).toEqual({
       settingsOpen: false,
       scanId: undefined,
       selectedIssueIds: []
     });
 
     expect(
-      normalizePopupUiState({
+      normalizeSidePanelUiState({
         settingsOpen: true,
         scanId: '  scan-123  ',
         selectedIssueIds: [' issue-1 ', 'issue-1', '', 4 as never]
@@ -168,7 +168,7 @@ describe('popup panel state', () => {
 
   it('builds popup ui state payloads for persistence', () => {
     expect(
-      buildPopupUiState({
+      buildSidePanelUiState({
         settingsOpen: true,
         scanId: '  scan-456  ',
         selectedIssueIds: new Set([' issue-2 ', 'issue-2', 'issue-3'])
@@ -182,7 +182,7 @@ describe('popup panel state', () => {
 
   it('normalizes empty and non-record popup state inputs', () => {
     expect(
-      buildPopupUiState({
+      buildSidePanelUiState({
         settingsOpen: false,
         scanId: '   ',
         selectedIssueIds: []
@@ -193,7 +193,7 @@ describe('popup panel state', () => {
       selectedIssueIds: []
     });
 
-    expect(normalizePopupUiState(null)).toEqual({
+    expect(normalizeSidePanelUiState(null)).toEqual({
       settingsOpen: false,
       scanId: undefined,
       selectedIssueIds: []

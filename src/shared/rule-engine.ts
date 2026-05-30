@@ -156,9 +156,7 @@ function normalizeIssues(issues: Issue[]): Issue[] {
   const unique: Issue[] = [];
 
   for (const issue of issues) {
-    const key = [issue.ruleId, issue.evidence, issue.selector ?? '']
-      .join('::')
-      .toLowerCase();
+    const key = issueIdentityKey(issue);
 
     if (seen.has(key)) {
       continue;
@@ -172,8 +170,8 @@ function normalizeIssues(issues: Issue[]): Issue[] {
 }
 
 export function diffSnapshots(current: ScanSnapshot, previous?: ScanSnapshot): DiffResult {
-  const prevMap = new Map(previous?.issues.map((issue) => [issueIdentity(issue), issue]));
-  const currMap = new Map(current.issues.map((issue) => [issueIdentity(issue), issue]));
+  const prevMap = new Map(previous?.issues.map((issue) => [issueIdentityKey(issue), issue]));
+  const currMap = new Map(current.issues.map((issue) => [issueIdentityKey(issue), issue]));
 
   const newIssues: Issue[] = [];
   const resolvedIssues: Issue[] = [];
@@ -210,7 +208,8 @@ export function diffSnapshots(current: ScanSnapshot, previous?: ScanSnapshot): D
   return { newIssues, resolvedIssues, regressions, improvements };
 }
 
-function issueIdentity(issue: Issue): string {
+export function issueIdentityKey(issue: Issue): string {
+  const normalizedSource = issue.source ?? 'dom-only';
   return [
     issue.ruleId,
     issue.title,
@@ -218,7 +217,7 @@ function issueIdentity(issue: Issue): string {
     issue.summary,
     issue.evidence,
     issue.selector ?? '',
-    issue.source
+    normalizedSource
   ]
     .join('::')
     .toLowerCase();

@@ -1,6 +1,6 @@
 import type { DiffResult, Issue, ScanSnapshot, Severity } from '../shared/types';
 
-export type PopupScanStatus = 'idle' | 'loading' | 'complete' | 'failed' | 'fallback';
+export type SidePanelScanStatus = 'idle' | 'loading' | 'complete' | 'failed' | 'fallback';
 
 const SEVERITY_ORDER: Record<Severity, number> = {
   critical: 0,
@@ -13,7 +13,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export interface PopupDomainGroup {
+export interface SidePanelDomainGroup {
   domain: string;
   total: number;
   counts: Record<Severity, number>;
@@ -23,15 +23,15 @@ export interface PopupDomainGroup {
   }>;
 }
 
-export interface PopupIssuePanelModel {
+export interface SidePanelIssuePanelModel {
   scanId: string;
-  scanStatus: PopupScanStatus;
+  scanStatus: SidePanelScanStatus;
   origin: string;
   url: string;
   generatedAt: string;
   total: number;
   counts: Record<Severity, number>;
-  domains: PopupDomainGroup[];
+  domains: SidePanelDomainGroup[];
   delta?: {
     newCount: number;
     fixedCount: number;
@@ -39,15 +39,15 @@ export interface PopupIssuePanelModel {
   };
 }
 
-export interface PopupUiState {
+export interface SidePanelUiState {
   settingsOpen: boolean;
   scanId?: string;
   selectedIssueIds: string[];
 }
 
-export const POPUP_UI_STATE_STORAGE_KEY = 'addon_popup_state';
+export const SIDE_PANEL_UI_STATE_STORAGE_KEY = 'addon_side_panel_state';
 
-export const DEFAULT_POPUP_UI_STATE: PopupUiState = {
+export const DEFAULT_SIDE_PANEL_UI_STATE: SidePanelUiState = {
   settingsOpen: false,
   scanId: undefined,
   selectedIssueIds: []
@@ -78,13 +78,13 @@ export function sortIssuesForPanel(issues: Issue[]): Issue[] {
   });
 }
 
-export function buildPopupIssuePanelModel(
+export function buildSidePanelIssuePanelModel(
   snapshot: ScanSnapshot,
   diff?: DiffResult,
-  scanStatus: PopupScanStatus = 'complete'
-): PopupIssuePanelModel {
+  scanStatus: SidePanelScanStatus = 'complete'
+): SidePanelIssuePanelModel {
   const sortedIssues = sortIssuesForPanel(snapshot.issues);
-  const groupedByDomain = new Map<string, PopupDomainGroup>();
+  const groupedByDomain = new Map<string, SidePanelDomainGroup>();
   const counts: Record<Severity, number> = {
     critical: snapshot.summary.bySeverity.critical ?? 0,
     high: snapshot.summary.bySeverity.high ?? 0,
@@ -180,27 +180,27 @@ export function buildIssueExportMarkdown(
   return lines.join('\n');
 }
 
-export function normalizePopupUiState(input: unknown): PopupUiState {
+export function normalizeSidePanelUiState(input: unknown): SidePanelUiState {
   if (!isRecord(input)) {
     return {
-      settingsOpen: DEFAULT_POPUP_UI_STATE.settingsOpen,
-      scanId: DEFAULT_POPUP_UI_STATE.scanId,
-      selectedIssueIds: [...DEFAULT_POPUP_UI_STATE.selectedIssueIds]
+      settingsOpen: DEFAULT_SIDE_PANEL_UI_STATE.settingsOpen,
+      scanId: DEFAULT_SIDE_PANEL_UI_STATE.scanId,
+      selectedIssueIds: [...DEFAULT_SIDE_PANEL_UI_STATE.selectedIssueIds]
     };
   }
 
   return {
-    settingsOpen: typeof input.settingsOpen === 'boolean' ? input.settingsOpen : DEFAULT_POPUP_UI_STATE.settingsOpen,
+    settingsOpen: typeof input.settingsOpen === 'boolean' ? input.settingsOpen : DEFAULT_SIDE_PANEL_UI_STATE.settingsOpen,
     scanId: typeof input.scanId === 'string' && input.scanId.trim() ? input.scanId.trim() : undefined,
     selectedIssueIds: normalizeSelectedIssueIds(input.selectedIssueIds)
   };
 }
 
-export function buildPopupUiState(input: {
+export function buildSidePanelUiState(input: {
   settingsOpen: boolean;
   scanId?: string;
   selectedIssueIds: Iterable<string>;
-}): PopupUiState {
+}): SidePanelUiState {
   return {
     settingsOpen: input.settingsOpen,
     scanId: input.scanId?.trim() || undefined,

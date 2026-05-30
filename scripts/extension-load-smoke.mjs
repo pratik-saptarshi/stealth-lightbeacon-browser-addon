@@ -107,7 +107,7 @@ function validateStaticExtensionAssets(manifestPath, workerPath, baseDir, label)
 function assertPopupSurface(popupPath) {
   const popupHtml = readFileSync(popupPath, 'utf8');
   const requiredIds = [
-    'popup-shell',
+    'side-panel-shell',
     'settings-toggle-button',
     'settings-panel',
     'settings-close-button',
@@ -126,16 +126,6 @@ function assertPopupSurface(popupPath) {
     'show-offline-banner',
     'show-footer',
     'bug-report-link',
-    'backend-settings-section',
-    'backend-enabled',
-    'backend-mode',
-    'backend-endpoint',
-    'backend-port',
-    'backend-secret',
-    'backend-auth-username',
-    'backend-auth-password',
-    'backend-required',
-    'openapi-spec-link',
     'issues-panel'
   ];
 
@@ -233,8 +223,8 @@ async function validateAxeSmoke(extensionDir) {
     }
 
     const runtimeManifest = JSON.parse(readFileSync(sourceManifestPath, 'utf8'));
-    const sidePanelPath = runtimeManifest.side_panel?.default_path ?? 'popup.html';
-    const popupUrl = workers.length
+    const sidePanelPath = runtimeManifest.side_panel?.default_path ?? 'side-panel.html';
+    const sidePanelUrl = workers.length
       ? new URL(sidePanelPath, workers[0].url()).href
       : pathToFileURL(resolve(extensionDir, 'dist', sidePanelPath)).href;
 
@@ -244,23 +234,23 @@ async function validateAxeSmoke(extensionDir) {
       );
     }
     for (const viewport of SMOKE_VIEWPORTS) {
-      const popupPage = await context.newPage();
-      await popupPage.setViewportSize(viewport);
-      await popupPage.goto(popupUrl);
+      const sidePanelPage = await context.newPage();
+      await sidePanelPage.setViewportSize(viewport);
+      await sidePanelPage.goto(sidePanelUrl);
       if (!workers.length) {
-        await popupPage.addScriptTag({ path: resolve(extensionDir, 'dist', 'side-panel.js'), type: 'module' });
-        await popupPage.evaluate(() => {
+        await sidePanelPage.addScriptTag({ path: resolve(extensionDir, 'dist', 'side-panel.js'), type: 'module' });
+        await sidePanelPage.evaluate(() => {
           document.dispatchEvent(new Event('DOMContentLoaded'));
         });
       }
-      await popupPage.waitForSelector('[data-testid="popup-shell"]');
-      await popupPage.waitForSelector('[data-testid="offline-banner"]', { state: 'attached' });
-      await popupPage.click('#settings-toggle-button');
-      await popupPage.waitForSelector('#settings-panel:not(.hidden)');
-      await popupPage.waitForSelector('#theme-background-start');
+      await sidePanelPage.waitForSelector('[data-testid="side-panel-shell"]');
+      await sidePanelPage.waitForSelector('[data-testid="offline-banner"]', { state: 'attached' });
+      await sidePanelPage.click('#settings-toggle-button');
+      await sidePanelPage.waitForSelector('#settings-panel:not(.hidden)');
+      await sidePanelPage.waitForSelector('#theme-background-start');
 
-      const viewportMetrics = await popupPage.evaluate(() => {
-        const shell = document.querySelector('[data-testid="popup-shell"]');
+      const viewportMetrics = await sidePanelPage.evaluate(() => {
+        const shell = document.querySelector('[data-testid="side-panel-shell"]');
         const shellRect = shell?.getBoundingClientRect();
         return {
           clientWidth: document.documentElement.clientWidth,
@@ -285,8 +275,8 @@ async function validateAxeSmoke(extensionDir) {
         );
       }
 
-      await popupPage.addScriptTag({ path: resolve(extensionDir, 'dist', 'axe.min.js') });
-      const axeResults = await popupPage.evaluate(async () => {
+      await sidePanelPage.addScriptTag({ path: resolve(extensionDir, 'dist', 'axe.min.js') });
+      const axeResults = await sidePanelPage.evaluate(async () => {
         const axe = globalThis.axe;
         if (!axe || typeof axe.run !== 'function') {
           throw new Error('axe-core not loaded into popup page');
@@ -326,7 +316,7 @@ async function validateAxeSmoke(extensionDir) {
 }
 
 async function validateJsdomAxeSmoke(extensionDir) {
-  const popupHtmlPath = resolve(extensionDir, 'dist', 'popup.html');
+  const popupHtmlPath = resolve(extensionDir, 'dist', 'side-panel.html');
   const popupHtml = readFileSync(popupHtmlPath, 'utf8');
   const axeSource = readFileSync(resolve(extensionDir, 'dist', 'axe.min.js'), 'utf8');
   const dom = new JSDOM(popupHtml, {

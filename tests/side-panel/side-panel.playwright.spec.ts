@@ -180,8 +180,7 @@ test.beforeEach(async ({ page, context }) => {
                 },
                 visibility: {
                   showControls: true,
-                  showBackendSettings: true,
-                  showSummary: true,
+                                    showSummary: true,
                   showDelta: true,
                   showStatusLine: true,
                   showOfflineBanner: true,
@@ -204,23 +203,23 @@ test.beforeEach(async ({ page, context }) => {
   );
 
   const existingWorker = context.serviceWorkers().find((worker) => worker.url().startsWith('chrome-extension://'));
-  let popupUrl = pathToFileURL(resolve(process.cwd(), 'dist', 'popup.html')).href;
+  let sidePanelUrl = pathToFileURL(resolve(process.cwd(), 'dist', 'side-panel.html')).href;
 
   if (existingWorker) {
-    popupUrl = `${new URL(existingWorker.url()).origin}/popup.html`;
+    sidePanelUrl = `${new URL(existingWorker.url()).origin}/side-panel.html`;
   } else {
     try {
       const extensionWorker = await context.waitForEvent('serviceworker', {
         timeout: 3000
       });
-      popupUrl = `${new URL(extensionWorker.url()).origin}/popup.html`;
+      sidePanelUrl = `${new URL(extensionWorker.url()).origin}/side-panel.html`;
     } catch {
       // Playwright runs without extension bootstrap should still validate popup behavior.
-      popupUrl = pathToFileURL(resolve(process.cwd(), 'dist', 'popup.html')).href;
+      sidePanelUrl = pathToFileURL(resolve(process.cwd(), 'dist', 'side-panel.html')).href;
     }
   }
 
-  await page.goto(popupUrl, { waitUntil: 'domcontentloaded' });
+  await page.goto(sidePanelUrl, { waitUntil: 'domcontentloaded' });
   const statusPill = page.locator('#status-pill');
   const sidePanelModulePathCandidates = [
     resolve(process.cwd(), 'dist', 'side-panel.js'),
@@ -242,20 +241,16 @@ test.beforeEach(async ({ page, context }) => {
   }
 });
 
-test('switches tabs, exposes standalone connection guidance, and renders responsive settings', async ({ page }) => {
+test('switches tabs and renders responsive settings', async ({ page }) => {
   await expect(page.getByRole('tab', { name: 'Results' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#results-panel')).toBeVisible();
   await expect(page.locator('#overview-panel')).toBeHidden();
 
   await page.getByRole('tab', { name: 'Overview' }).click();
   await expect(page.locator('#overview-panel')).toBeVisible();
-  await expect(page.locator('#overview-panel')).toContainText('Connection');
+  await expect(page.locator('#overview-panel')).toContainText('Standalone audit');
   await expect(page.locator('#overview-panel')).toContainText('Results');
   await expect(page.locator('#overview-panel')).toContainText('Settings');
-
-  await page.getByRole('tab', { name: 'Connection' }).click();
-  await expect(page.locator('#connection-panel')).toBeVisible();
-  await expect(page.locator('#connection-summary')).toContainText(/standalone/i);
 
   await page.locator('#settings-toggle-button').click();
   await expect(page.locator('#settings-panel')).toBeVisible();
@@ -297,4 +292,54 @@ test('renders history, toggles result groups, and downloads report formats', asy
   const messages = await page.evaluate(() => (window as Window & { __messages?: Array<Record<string, unknown>> }).__messages ?? []);
   expect(messages.some((message) => message.type === 'history:list')).toBe(true);
   expect(messages.some((message) => message.type === 'report:build')).toBe(true);
+});
+
+test('renders unsupported-page guidance from scan results', async ({ page }) => {
+  await page.evaluate(() => {
+    const runtime = (window as Window & { chrome?: { runtime?: { sendMessage?: (message: Record<string, unknown>) => Promise<unknown> } } }).chrome?.runtime;
+    if (!runtime?.sendMessage) {
+      return;
+    }
+
+    const originalSendMessage = runtime.sendMessage;
+    runtime.sendMessage = async (message: Record<string, unknown>) => {
+      if (message.type === 'scan:start') {
+        return {
+          ok: true,
+          payload: {
+            snapshot: {
+              id: 'scan-unsupported',
+              origin: 'chrome://settings',
+              url: 'chrome://settings/',
+              timestamp: Date.now(),
+              engine: 'dom-lite',
+              issues: [
+                {
+                  id: 'unsupported-1',
+                  ruleId: 'unsupported-page-browser-internal',
+                  title: 'Unsupported target',
+                  severity: 'low',
+                  domain: 'ux',
+                  summary: 'Browser-internal pages cannot be scanned',
+                  evidence: 'Open a standard https:// page and run scan again.',
+                  source: 'dom-only'
+                }
+              ],
+              summary: {
+                total: 1,
+                bySeverity: { critical: 0, high: 0, medium: 0, low: 1 },
+                byDomain: { accessibility: 0, seo: 0, performance: 0, aeo: 0, ux: 1, drupal: 0, geo: 0, 'security-headers': 0, 'WCAG2.1AA': 0, 'WCAG2.2AA': 0 }
+              }
+            },
+            diff: { newIssues: [], resolvedIssues: [], regressions: [], improvements: [] }
+          }
+        };
+      }
+
+      return originalSendMessage(message);
+    };
+  });
+
+  await page.getByRole('button', { name: 'Re-scan this page' }).click();
+  await expect(page.locator('.issue-evidence')).toContainText('Open a standard https:// page and run scan again.');
 });

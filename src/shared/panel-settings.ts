@@ -17,7 +17,6 @@ export interface PanelThemeSettings {
 
 export interface PanelVisibilitySettings {
   showControls: boolean;
-  showBackendSettings: boolean;
   showSummary: boolean;
   showDelta: boolean;
   showStatusLine: boolean;
@@ -29,12 +28,16 @@ export interface PanelSettingsForm {
   theme: PanelThemeSettings;
   visibility: PanelVisibilitySettings;
   accessibility: PanelAccessibilitySettings;
+  statusIndicatorMode: PanelStatusIndicatorMode;
 }
 
 export interface PanelAccessibilitySettings {
   wcagLevel: 'A' | 'AA' | 'AAA';
   includeBestPractices: boolean;
+  includeAxeChecks: boolean;
 }
+
+export type PanelStatusIndicatorMode = 'header-badge' | 'footer-chip';
 
 export const PANEL_SETTINGS_STORAGE_KEY = 'addon_panel_settings';
 export const BUG_REPORT_EMAIL = 'pratik.saptarshi@outlook.com';
@@ -58,7 +61,6 @@ export const DEFAULT_PANEL_THEME: PanelThemeSettings = {
 
 export const DEFAULT_PANEL_VISIBILITY: PanelVisibilitySettings = {
   showControls: true,
-  showBackendSettings: true,
   showSummary: true,
   showDelta: true,
   showStatusLine: true,
@@ -71,8 +73,10 @@ export const DEFAULT_PANEL_SETTINGS: PanelSettingsForm = {
   visibility: { ...DEFAULT_PANEL_VISIBILITY },
   accessibility: {
     wcagLevel: 'AA',
-    includeBestPractices: true
-  }
+    includeBestPractices: true,
+    includeAxeChecks: true
+  },
+  statusIndicatorMode: 'header-badge'
 };
 
 const THEME_KEYS = Object.keys(DEFAULT_PANEL_THEME) as Array<keyof PanelThemeSettings>;
@@ -88,7 +92,8 @@ export function normalizePanelSettings(input: unknown): PanelSettingsForm {
   return {
     theme: normalizeTheme(input.theme),
     visibility: normalizeVisibility(input.visibility),
-    accessibility: normalizeAccessibility(input.accessibility)
+    accessibility: normalizeAccessibility(input.accessibility),
+    statusIndicatorMode: normalizeStatusIndicatorMode(input.statusIndicatorMode)
   };
 }
 
@@ -116,11 +121,10 @@ export function buildBugReportMailto(input: {
 
 export function buildAccessibilityProfileSummary(input: PanelAccessibilitySettings): string {
   const wcagLabel = `WCAG ${input.wcagLevel}`;
-  if (input.includeBestPractices) {
-    return `${wcagLabel} plus best-practice checks for UX-oriented accessibility guardrails.`;
-  }
-
-  return `${wcagLabel} only, without best-practice checks.`;
+  const base = input.includeBestPractices
+    ? `${wcagLabel} plus best-practice checks for UX-oriented accessibility guardrails.`
+    : `${wcagLabel} only, without best-practice checks.`;
+  return input.includeAxeChecks ? `${base} Axe deep checks are enabled.` : `${base} Axe deep checks are disabled.`;
 }
 
 function normalizeTheme(input: unknown): PanelThemeSettings {
@@ -154,11 +158,20 @@ function normalizeAccessibility(input: unknown): PanelAccessibilitySettings {
     typeof source.includeBestPractices === 'boolean'
       ? source.includeBestPractices
       : DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices;
+  const includeAxeChecks =
+    typeof source.includeAxeChecks === 'boolean'
+      ? source.includeAxeChecks
+      : DEFAULT_PANEL_SETTINGS.accessibility.includeAxeChecks;
 
   return {
     wcagLevel,
-    includeBestPractices
+    includeBestPractices,
+    includeAxeChecks
   };
+}
+
+function normalizeStatusIndicatorMode(input: unknown): PanelStatusIndicatorMode {
+  return input === 'footer-chip' ? 'footer-chip' : 'header-badge';
 }
 
 function normalizeHexColor(value: unknown, fallback: string): string {
@@ -184,8 +197,10 @@ function cloneDefaultPanelSettings(): PanelSettingsForm {
     visibility: cloneDefaultVisibility(),
     accessibility: {
       wcagLevel: DEFAULT_PANEL_SETTINGS.accessibility.wcagLevel,
-      includeBestPractices: DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices
-    }
+      includeBestPractices: DEFAULT_PANEL_SETTINGS.accessibility.includeBestPractices,
+      includeAxeChecks: DEFAULT_PANEL_SETTINGS.accessibility.includeAxeChecks
+    },
+    statusIndicatorMode: DEFAULT_PANEL_SETTINGS.statusIndicatorMode
   };
 }
 

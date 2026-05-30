@@ -29,7 +29,7 @@ describe('addon manifest', () => {
       128: 'icons/icon-normal-128.png'
     });
     expect(manifest.action?.default_popup).toBeUndefined();
-    expect(manifest.side_panel?.default_path).toBe('popup.html');
+    expect(manifest.side_panel?.default_path).toBe('side-panel.html');
     expect(() => readFileSync(resolve(process.cwd(), manifest.side_panel?.default_path), 'utf8')).not.toThrow();
     expect(manifest.permissions).toContain('sidePanel');
     expect(manifest.permissions).toContain('contextMenus');

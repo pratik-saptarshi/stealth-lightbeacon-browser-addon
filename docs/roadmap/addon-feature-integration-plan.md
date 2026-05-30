@@ -87,7 +87,7 @@
 ### Verification gate
 - `pnpm run test:unit`
 - `pnpm run test:integration`
-- `pnpm exec vitest --run --coverage --exclude tests/popup/popup.playwright.spec.ts`
+- `pnpm exec vitest --run --coverage --exclude tests/side-panel/side-panel.playwright.spec.ts`
 
 ## Stage D — Highlight UX + History/Compare Flow Uplift
 ### Scope
@@ -124,7 +124,7 @@
 - `pnpm run test:integration`
 - `pnpm run test:e2e`
 - `pnpm run test:ui-load:strict`
-- `pnpm exec vitest --run --coverage --exclude tests/popup/popup.playwright.spec.ts`
+- `pnpm exec vitest --run --coverage --exclude tests/side-panel/side-panel.playwright.spec.ts`
 
 ## Governance Gates
 - Security/data-integrity veto:

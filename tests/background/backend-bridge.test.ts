@@ -78,29 +78,31 @@ describe('backend bridge', () => {
 
     globalThis.fetch = mock as unknown as typeof fetch;
 
-    const request: ScanRequest = {
-      ...baseRequest,
-      backend: {
-        ...baseRequest.backend,
-        engine: 'fast-obscura'
+    try {
+      const request: ScanRequest = {
+        ...baseRequest,
+        backend: {
+          ...baseRequest.backend,
+          engine: 'fast-obscura'
+        }
+      };
+
+      const client = createBackendClient(request.backend, request.backend?.engine);
+      if (!client) {
+        throw new Error('Expected backend client');
       }
-    };
 
-    const client = createBackendClient(request.backend, request.backend?.engine);
-    if (!client) {
-      throw new Error('Expected backend client');
+      const result = (await client.runScan({ ...basePayload, request })) as BackendScanResponse;
+      expect(mock).toHaveBeenCalledTimes(1);
+
+      const calledUrl = mock.mock.calls[0]![0] as string;
+
+      expect(result.snapshot.id).toBe('scan-1');
+      expect(typeof calledUrl).toBe('string');
+      expect(calledUrl).toBe('https://localhost:3000/v1/audit/scan/fast-obscura');
+    } finally {
+      globalThis.fetch = originalFetch;
     }
-
-    const result = (await client.runScan({ ...basePayload, request })) as BackendScanResponse;
-    expect(mock).toHaveBeenCalledTimes(1);
-
-    const calledUrl = mock.mock.calls[0]![0] as string;
-
-    expect(result.snapshot.id).toBe('scan-1');
-    expect(typeof calledUrl).toBe('string');
-    expect(calledUrl).toBe('https://localhost:3000/v1/audit/scan/fast-obscura');
-
-    globalThis.fetch = originalFetch;
   });
 
   it('rejects malformed crawl nodes returned by the backend', async () => {
@@ -181,24 +183,27 @@ describe('backend bridge', () => {
 
     globalThis.fetch = mock as unknown as typeof fetch;
 
-    const request: ScanRequest = {
-      ...baseRequest,
-      backend: {
-        ...baseRequest.backend,
-        requestSigningSecret: 'unit-signing-secret'
+    try {
+      const request: ScanRequest = {
+        ...baseRequest,
+        backend: {
+          ...baseRequest.backend,
+          requestSigningSecret: 'unit-signing-secret'
+        }
+      };
+
+      const client = createBackendClient(request.backend, request.backend?.engine);
+      if (!client) {
+        throw new Error('Expected backend client');
       }
-    };
 
-    const client = createBackendClient(request.backend, request.backend?.engine);
-    if (!client) {
-      throw new Error('Expected backend client');
+      await client.runScan({ ...basePayload, request });
+
+      expect(captured['signature']).toMatch(/^[A-Za-z0-9+/=]+$/);
+      expect(captured['signature'].length).toBeGreaterThan(40);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
-
-    await client.runScan({ ...basePayload, request });
-
-    expect(captured['signature']).toBeTruthy();
-    expect(captured['signature'].length).toBeGreaterThan(10);
-    globalThis.fetch = originalFetch;
   });
 
   it('trims trailing slashes and includes basic auth for HTTP backends', async () => {
@@ -245,7 +250,7 @@ describe('backend bridge', () => {
       await client.runScan({ ...basePayload, request });
 
       expect(captured.url).toBe('https://localhost:3000/v1/audit/scan');
-      expect(captured.authorization).toContain('Basic ');
+      expect(captured.authorization).toBe('Basic bmVvOmxpZ2h0YmVhY29u');
     } finally {
       globalThis.fetch = originalFetch;
     }

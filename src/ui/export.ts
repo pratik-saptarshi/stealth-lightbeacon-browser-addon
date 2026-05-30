@@ -134,7 +134,10 @@ export function toLlmMarkdownExport(bundle: ExportBundle): string {
     `Generated: ${new Date(bundle.snapshot.timestamp).toISOString()}`,
     '',
     '## Prioritized Issue List',
-    ...bundle.snapshot.issues.map((issue) => `- (${issue.severity}) ${issue.title} — ${issue.summary}`),
+    ...bundle.snapshot.issues.flatMap((issue) => [
+      `- (${issue.severity}) ${issue.title} — ${issue.summary}`,
+      `  evidence: ${issue.evidence}`
+    ]),
     ''
   ];
 
@@ -231,6 +234,7 @@ export function toMarkdownExport(bundle: ExportBundle): string {
   for (const issue of bundle.snapshot.issues) {
     const bucket = byDomain.get(issue.domain) ?? [];
     bucket.push(`- [${issue.severity}] **${issue.title}**: ${issue.summary}`);
+    bucket.push(`  - Evidence: ${issue.evidence}`);
     byDomain.set(issue.domain, bucket);
   }
 

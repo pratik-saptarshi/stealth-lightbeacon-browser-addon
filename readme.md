@@ -61,7 +61,7 @@ Run these before release:
 pnpm run build
 pnpm run test:unit
 pnpm run test:integration
-pnpm exec vitest --run --coverage --exclude tests/popup/popup.playwright.spec.ts
+pnpm exec vitest --run --coverage --exclude tests/side-panel/side-panel.playwright.spec.ts
 pnpm run test:e2e
 pnpm run test:ui-load:strict
 ```
@@ -71,7 +71,7 @@ Note: Browser-runtime tests (`test:e2e`, `test:ui-load:strict`) require a launch
 ## Architecture Overview
 - `src/background/`: service worker orchestration, storage/history, backend bridge, host policy
 - `src/content/`: page extraction and in-page highlight behavior
-- `src/popup/`: side panel UI, state model, actions, exports
+- `src/side-panel/`: side panel UI, state model, actions, exports
 - `src/shared/`: contracts, schemas, rule engine, catalog data
 - `src/ui/`: report/export rendering utilities
 - `api/openapi.yaml`: backend contract

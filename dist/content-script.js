@@ -237,6 +237,9 @@ var StealthLightbeaconContentScript = (() => {
   function isContentExtractMessage(message) {
     return !!message && typeof message === "object" && message.type === "content:extract";
   }
+  function isContentAxeScanMessage(message) {
+    return !!message && typeof message === "object" && message.type === "content:axe-scan";
+  }
   function isIssueHighlightMessage(message) {
     return !!message && typeof message === "object" && message.type === "issue:highlight" && typeof message.selector === "string";
   }
@@ -269,7 +272,7 @@ var StealthLightbeaconContentScript = (() => {
       return;
     }
     runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      if (!isContentExtractMessage(message)) {
+      if (!isContentExtractMessage(message) && !isContentAxeScanMessage(message)) {
         if (isIssueHighlightMessage(message)) {
           applyIssueHighlight(message.selector);
           sendResponse({ ok: true });
@@ -282,10 +285,38 @@ var StealthLightbeaconContentScript = (() => {
         }
         return;
       }
+      if (isContentAxeScanMessage(message)) {
+        void runAxeScan().then((payload2) => {
+          sendResponse({ ok: true, payload: payload2 });
+        }).catch((error) => {
+          sendResponse({ ok: false, error: String(error) });
+        });
+        return true;
+      }
       const payload = buildPageContext(document, document.location.href);
       sendResponse({ ok: true, payload });
       return true;
     });
+  }
+  async function runAxeScan() {
+    const host = globalThis;
+    if (!host.axe?.run) {
+      throw new Error("axe runtime is unavailable in content context");
+    }
+    const result = await host.axe.run();
+    const violations = (result.violations ?? []).map((violation) => ({
+      id: violation.id,
+      impact: violation.impact ?? null,
+      help: violation.help ?? violation.id,
+      description: violation.description ?? "",
+      helpUrl: violation.helpUrl ?? "",
+      nodes: (violation.nodes ?? []).map((node) => ({
+        target: Array.isArray(node.target) ? node.target : [],
+        html: node.html ?? "",
+        failureSummary: node.failureSummary ?? null
+      }))
+    }));
+    return { violations };
   }
   bindRuntimeListener();
   return __toCommonJS(content_script_exports);

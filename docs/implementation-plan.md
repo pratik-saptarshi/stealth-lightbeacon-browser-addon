@@ -134,7 +134,7 @@ Deliver browser-addon-lite to match `backlog.md` while keeping deterministic loc
   - `pnpm run test:unit`
   - `pnpm run test:integration`
   - `pnpm run test:e2e`
-  - `pnpm exec vitest --run --coverage --exclude tests/popup/popup.playwright.spec.ts`
+  - `pnpm exec vitest --run --coverage --exclude tests/side-panel/side-panel.playwright.spec.ts`
 - Verification-before-completion gate:
   - Completion or "done" claims are blocked unless fresh command outputs above are captured and green.
 

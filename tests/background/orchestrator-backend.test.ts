@@ -47,7 +47,7 @@ function makeBackendAdapter(snapshot: ScanSnapshot): BackendAdapter {
 }
 
 describe('orchestrator backend integration', () => {
-  it('maps accessibility profile into backend selected categories when ruleCategories are omitted', async () => {
+  it('keeps full-category scan scope when accessibility profile is provided without explicit rule categories', async () => {
     const request: ScanRequest = {
       ...baseRequest,
       requestId: 'backend-profile-1',
@@ -70,7 +70,7 @@ describe('orchestrator backend integration', () => {
 
     await orchestrator.runScan(request, context);
 
-    expect(selectedCategories).toEqual(['accessibility', 'WCAG2.1AA', 'WCAG2.2AA']);
+    expect(selectedCategories).toBeUndefined();
   });
 
   it('uses backend result when backend returns successfully', async () => {
@@ -243,6 +243,8 @@ describe('orchestrator backend integration', () => {
   it('auto-escalates dom-lite to stealth-playwright on trigger conditions and merges local + backend issues', async () => {
     const triggerContext: RuleContext = {
       ...context,
+      metaDescription: '',
+      canonical: null,
       links: Array.from({ length: 36 }, (_, index) => ({
         href: `https://example.com/link-${index}`,
         text: `link-${index}`,
@@ -294,4 +296,5 @@ describe('orchestrator backend integration', () => {
     expect(result.snapshot.issues.some((issue) => issue.source === 'dom-only')).toBe(true);
     expect(result.snapshot.issues.some((issue) => issue.ruleId === 'backend-dynamic-render')).toBe(true);
   });
+
 });

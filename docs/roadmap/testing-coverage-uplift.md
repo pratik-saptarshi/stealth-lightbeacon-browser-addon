@@ -47,7 +47,7 @@ The highest-leverage coverage additions landed in:
 - `tests/background/backend-bridge.test.ts`
 - `tests/background/host-policy.test.ts`
 - `tests/background/service-worker-context.test.ts`
-- `tests/popup/popup-state.test.ts`
+- `tests/side-panel/side-panel-state.test.ts`
 
 ## Next Branch Work
 Branch coverage is the remaining gap. The next round should target:
@@ -56,6 +56,6 @@ Branch coverage is the remaining gap. The next round should target:
 - `src/background/orchestrator.ts`
 - `src/background/backend-bridge.ts`
 - `src/shared/rule-engine.ts`
-- `src/popup/popup.ts`
+- `src/side-panel/side-panel.ts`
 - `src/shared/backend-settings.ts`
 
