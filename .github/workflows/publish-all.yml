@@ -1,0 +1,73 @@
+name: publish-all
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      run_validation:
+        description: Run full validation gate before packaging
+        type: boolean
+        default: true
+      include_crx:
+        description: Generate CRX artifact
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "v*"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+concurrency:
+  group: publish-all-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    uses: ./.github/workflows/release-package.yml
+    secrets:
+      CRX_PRIVATE_KEY_PEM: ${{ secrets.CRX_PRIVATE_KEY_PEM }}
+    with:
+      target_environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+      run_validation: ${{ github.event_name == 'workflow_dispatch' && inputs.run_validation || true }}
+      include_crx: ${{ github.event_name == 'workflow_dispatch' && inputs.include_crx || true }}
+
+  publish-firefox:
+    needs: package
+    uses: ./.github/workflows/publish-firefox.yml
+    with:
+      target_environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+    secrets:
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      AMO_METADATA_JSON: ${{ secrets.AMO_METADATA_JSON }}
+
+  publish-chrome:
+    needs: package
+    uses: ./.github/workflows/publish-chrome.yml
+    with:
+      target_environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+    secrets:
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+      CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+      CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+
+  publish-edge:
+    needs: package
+    uses: ./.github/workflows/publish-edge.yml
+    with:
+      target_environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
+    secrets:
+      EDGE_TENANT_ID: ${{ secrets.EDGE_TENANT_ID }}
+      EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+      EDGE_CLIENT_SECRET: ${{ secrets.EDGE_CLIENT_SECRET }}
+      EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}

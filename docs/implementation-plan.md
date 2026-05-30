@@ -138,6 +138,31 @@ Deliver browser-addon-lite to match `backlog.md` while keeping deterministic loc
 - Verification-before-completion gate:
   - Completion or "done" claims are blocked unless fresh command outputs above are captured and green.
 
+## Phase 13 — Multi-Store Publish Automation (GitHub Actions)
+- BEAD-0027: Deterministic release packaging pipeline producing:
+  - canonical store upload zip (`dist` payload),
+  - signed Firefox `.xpi` via `web-ext sign`,
+  - `.crx` bundle for Chromium-family sideload/enterprise use.
+- BEAD-0028: Automated store submission/publish lanes:
+  - Chrome Web Store API publish for existing item ID.
+  - Microsoft Edge Add-ons REST API publish for existing product ID.
+  - Firefox AMO listed-channel submission via `web-ext sign`.
+- BEAD-0029: Environment and secret governance:
+  - GitHub environments (`staging`, `production`) with required reviewers.
+  - Store credentials as environment-scoped secrets.
+  - OIDC where supported; short-lived tokens preferred over long-lived secrets.
+- Validation (must run before completion claim):
+  - `pnpm run build`
+  - `pnpm run test:unit`
+  - `pnpm run test:integration`
+  - `pnpm run test:e2e`
+  - `pnpm run test:ui-load:strict`
+  - Dry-run publish workflow to staging lanes only.
+  - Production publish from signed tag only.
+- Documentation:
+  - `docs/roadmap/store-publish-automation.md`
+  - release runbook updates with rollback and re-submit paths per store.
+
 ## Current Execution Outcome
 - Phases 1-10 and PR-11 are complete under this repo scope.
 - Remaining implementation debt is explicitly deferred or tracked in `backlog.md`:

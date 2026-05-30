@@ -37,5 +37,10 @@
   },
   "side_panel": {
     "default_path": "side-panel.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "stealth-lightbeacon-addon-lite@pratiksaptarshi.dev"
+    }
   }
 }
