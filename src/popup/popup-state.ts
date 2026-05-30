@@ -218,6 +218,20 @@ export function collectSelectors(issues: Issue[]): string[] {
   );
 }
 
+export function buildReportDownloadPath(
+  snapshot: ScanSnapshot,
+  format: 'json' | 'markdown' | 'html' | 'pdf'
+): string {
+  const domain = toDomainSlug(snapshot.origin || snapshot.url);
+  const utcTimestamp = new Date(snapshot.timestamp).toISOString().replace(/[:.]/g, '-');
+  const score = computeSnapshotScore(snapshot);
+  const success = snapshot.summary.total === 0;
+  const result = success ? 'passed' : 'failed';
+  const extension = format === 'markdown' ? 'md' : format;
+  const fileName = `${domain}_report_${utcTimestamp}_score_${score}_result_${result}_success_${success ? 'true' : 'false'}.${extension}`;
+  return `${domain}/${fileName}`;
+}
+
 function normalizeSelectedIssueIds(input: unknown): string[] {
   const values = toIterableArray(input);
   if (!values.length) {
@@ -244,4 +258,20 @@ function toIterableArray(input: unknown): unknown[] {
   }
 
   return [];
+}
+
+function toDomainSlug(value: string): string {
+  try {
+    const host = new URL(value).hostname.replace(/^www\./, '').toLowerCase();
+    const slug = host.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug || 'unknown-domain';
+  } catch {
+    return 'unknown-domain';
+  }
+}
+
+function computeSnapshotScore(snapshot: ScanSnapshot): number {
+  const bySeverity = snapshot.summary.bySeverity;
+  const penalty = bySeverity.critical * 25 + bySeverity.high * 10 + bySeverity.medium * 5 + bySeverity.low;
+  return Math.max(0, 100 - penalty);
 }

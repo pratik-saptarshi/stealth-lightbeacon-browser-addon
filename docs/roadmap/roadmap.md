@@ -77,6 +77,17 @@ This summary points to the durable plan in `docs/roadmap/playwright-test-plan.md
 | Workspace watcher mode | planned | `stealth-lightbeacon-browser-addon-zca.6.10`. |
 | Deeper remote engine parity | planned | `stealth-lightbeacon-browser-addon-zca.6.12`. |
 
+## Addon Import Plan (Reference Addons)
+- A dedicated integration plan is now tracked in:
+  - `docs/roadmap/addon-feature-integration-plan.md`
+- Strategic direction:
+  - Make this addon side panel-first (`side_panel.default_path`).
+  - Keep deterministic local-first execution and strict verification gates.
+  - Import relevant feature patterns only (not wholesale architecture copy).
+- Mandatory delivery discipline:
+  - Test-driven development for each BEAD (red -> green -> refactor).
+  - Verification-before-completion for all success claims and phase closure.
+
 ## Outcome Priority
 1. Prove offline-only validation with no network dependency.
 2. Close accessibility parity gaps that most directly change defect detection quality.

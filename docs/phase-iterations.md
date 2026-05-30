@@ -48,6 +48,8 @@ Exit criteria:
   families.
 - Accessibility and security findings render deterministically in-browser.
 - Offline browser smoke remains stable.
+- Side panel-first shell is active (`side_panel.default_path`) with click and
+  context-menu open flow validated in automated browser tests.
 
 Release signal:
 - This is the earliest sensible minor release boundary once the validation
@@ -57,6 +59,8 @@ Current execution slice:
 - See `docs/iteration-2-plan.md` for the browser-shell and accessibility work
   that is starting now.
 - The security-header evaluator is queued as the immediate follow-on slice.
+- See `docs/roadmap/addon-feature-integration-plan.md` for staged import of
+  relevant reference-addon capabilities into this repo.
 
 ## Iteration 3: Content-Intent Depth And Governance
 

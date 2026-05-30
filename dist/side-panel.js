@@ -352,6 +352,16 @@ function collectSelectors(issues) {
     )
   );
 }
+function buildReportDownloadPath(snapshot, format) {
+  const domain = toDomainSlug(snapshot.origin || snapshot.url);
+  const utcTimestamp = new Date(snapshot.timestamp).toISOString().replace(/[:.]/g, "-");
+  const score = computeSnapshotScore(snapshot);
+  const success = snapshot.summary.total === 0;
+  const result = success ? "passed" : "failed";
+  const extension = format === "markdown" ? "md" : format;
+  const fileName = `${domain}_report_${utcTimestamp}_score_${score}_result_${result}_success_${success ? "true" : "false"}.${extension}`;
+  return `${domain}/${fileName}`;
+}
 function normalizeSelectedIssueIds(input) {
   const values = toIterableArray(input);
   if (!values.length) {
@@ -371,6 +381,20 @@ function toIterableArray(input) {
     return Array.from(input);
   }
   return [];
+}
+function toDomainSlug(value) {
+  try {
+    const host = new URL(value).hostname.replace(/^www\./, "").toLowerCase();
+    const slug = host.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return slug || "unknown-domain";
+  } catch {
+    return "unknown-domain";
+  }
+}
+function computeSnapshotScore(snapshot) {
+  const bySeverity = snapshot.summary.bySeverity;
+  const penalty = bySeverity.critical * 25 + bySeverity.high * 10 + bySeverity.medium * 5 + bySeverity.low;
+  return Math.max(0, 100 - penalty);
 }
 
 // src/ui/export.ts
@@ -1715,12 +1739,12 @@ async function exportCurrentSelection(format) {
   if (format === "pdf") {
     const { buildIssuesPdfBlob: buildIssuesPdfBlob2 } = await Promise.resolve().then(() => (init_pdf(), pdf_exports));
     const blob = buildIssuesPdfBlob2(state.snapshot, selectedIssues);
-    downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
+    downloadBlob(blob, buildReportDownloadPath(state.snapshot, "pdf"));
     return;
   }
   const payload = format === "json" ? buildIssueExportJson(selectedIssues, metadata) : buildIssueExportMarkdown(selectedIssues, metadata);
-  const extension = format === "json" ? "json" : "md";
-  downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
+  const fileFormat = format === "json" ? "json" : "markdown";
+  downloadText(payload, buildReportDownloadPath(state.snapshot, fileFormat));
 }
 async function downloadCurrentReport(format) {
   if (!state.snapshot) {
@@ -1738,7 +1762,7 @@ async function downloadReportForSnapshot(snapshot, format, diff) {
       snapshot,
       diff
     });
-    downloadBlob(blob2, `stealth-lightbeacon-${snapshot.id}.pdf`);
+    downloadBlob(blob2, buildReportDownloadPath(snapshot, "pdf"));
     return;
   }
   const report = runtime?.runtime?.sendMessage ? await buildReportFromRuntime(snapshot, format, diff, runtime.runtime.sendMessage) : buildReport(
@@ -1749,11 +1773,10 @@ async function downloadReportForSnapshot(snapshot, format, diff) {
     },
     format
   );
-  const extension = format === "html" ? "html" : format === "json" ? "json" : "md";
   const blob = new Blob([report], {
     type: format === "html" ? "text/html;charset=utf-8" : "text/plain;charset=utf-8"
   });
-  downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.${extension}`);
+  downloadBlob(blob, buildReportDownloadPath(snapshot, format));
 }
 async function buildReportFromRuntime(snapshot, format, diff, sendMessage) {
   try {

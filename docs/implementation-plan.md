@@ -112,6 +112,32 @@ Deliver browser-addon-lite to match `backlog.md` while keeping deterministic loc
   - `tests/background/backend-failure-integration.test.ts`
   - `api/openapi.yaml`
 
+## Phase 11 — Side Panel-First Shell Migration (TDD Required)
+- BEAD-0020: Convert shell to side panel-first by adding `side_panel.default_path` and keeping popup compatibility during migration.
+- BEAD-0021: Add click/context-menu open flow in service worker for active tab side-panel launch.
+- BEAD-0022: Add side-panel HTML entrypoint and state bootstrap wiring from existing popup state model.
+- Validation (must run before completion claim):
+  - `pnpm run test:unit` (new shell + runtime contract tests)
+  - `pnpm run test:integration` (message flow + history + export wiring)
+  - `pnpm run test:e2e` (side panel open flow and action/context-menu behavior)
+  - `pnpm run test:ui-load:strict` (runtime smoke, no jsdom fallback)
+- TDD gate:
+  - For each BEAD, write failing test first, verify red, then implement minimal pass.
+  - No production code for side-panel migration without a preceding failing test.
+
+## Phase 12 — Imported Addon Capability Integration (TDD + Verification-First)
+- BEAD-0023: Accessibility scan profile uplift from reference addon patterns (axe tag/profile configurability, deterministic violations pipeline).
+- BEAD-0024: SEO/AI-visibility extraction uplift from reference addon patterns (headings hierarchy, canonical/url/link/image metadata depth).
+- BEAD-0025: Highlight and issue-focus UX parity (stable selector targeting and clear-highlight flows).
+- BEAD-0026: History/compare UX upgrades in side panel (snapshot compare surface and export continuity).
+- Validation (must run before completion claim):
+  - `pnpm run test:unit`
+  - `pnpm run test:integration`
+  - `pnpm run test:e2e`
+  - `pnpm exec vitest --run --coverage`
+- Verification-before-completion gate:
+  - Completion or "done" claims are blocked unless fresh command outputs above are captured and green.
+
 ## Current Execution Outcome
 - Phases 1-10 and PR-11 are complete under this repo scope.
 - Remaining implementation debt is explicitly deferred or tracked in `backlog.md`:

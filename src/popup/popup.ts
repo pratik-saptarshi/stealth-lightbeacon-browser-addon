@@ -1,6 +1,7 @@
 import {
   buildIssueExportJson,
   buildIssueExportMarkdown,
+  buildReportDownloadPath,
   buildPopupUiState,
   buildPopupIssuePanelModel,
   collectSelectors,
@@ -1273,7 +1274,7 @@ async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Prom
   if (format === 'pdf') {
     const { buildIssuesPdfBlob } = await import('../ui/pdf');
     const blob = buildIssuesPdfBlob(state.snapshot, selectedIssues);
-    downloadBlob(blob, `stealth-lightbeacon-${state.snapshot.id}.pdf`);
+    downloadBlob(blob, buildReportDownloadPath(state.snapshot, 'pdf'));
     return;
   }
 
@@ -1282,8 +1283,8 @@ async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Prom
       ? buildIssueExportJson(selectedIssues, metadata)
       : buildIssueExportMarkdown(selectedIssues, metadata);
 
-  const extension = format === 'json' ? 'json' : 'md';
-  downloadText(payload, `stealth-lightbeacon-${state.snapshot.id}.${extension}`);
+  const fileFormat = format === 'json' ? 'json' : 'markdown';
+  downloadText(payload, buildReportDownloadPath(state.snapshot, fileFormat));
 }
 
 async function downloadCurrentReport(format: 'json' | 'markdown' | 'html' | 'pdf'): Promise<void> {
@@ -1309,7 +1310,7 @@ async function downloadReportForSnapshot(
       snapshot,
       diff
     });
-    downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.pdf`);
+    downloadBlob(blob, buildReportDownloadPath(snapshot, 'pdf'));
     return;
   }
 
@@ -1325,11 +1326,10 @@ async function downloadReportForSnapshot(
           format
         );
 
-  const extension = format === 'html' ? 'html' : format === 'json' ? 'json' : 'md';
   const blob = new Blob([report], {
     type: format === 'html' ? 'text/html;charset=utf-8' : 'text/plain;charset=utf-8'
   });
-  downloadBlob(blob, `stealth-lightbeacon-${snapshot.id}.${extension}`);
+  downloadBlob(blob, buildReportDownloadPath(snapshot, format));
 }
 
 async function buildReportFromRuntime(

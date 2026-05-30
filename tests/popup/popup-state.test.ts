@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildIssueExportJson,
   buildIssueExportMarkdown,
+  buildReportDownloadPath,
   buildPopupUiState,
   buildPopupIssuePanelModel,
   collectSelectors,
@@ -197,5 +198,23 @@ describe('popup panel state', () => {
       scanId: undefined,
       selectedIssueIds: []
     });
+  });
+
+  it('builds domain-scoped report download paths with UTC timestamp score and result', () => {
+    const reportPath = buildReportDownloadPath(snapshot, 'html');
+    expect(reportPath).toBe('example-com/example-com_report_2023-11-14T22-13-20-000Z_score_59_result_failed_success_false.html');
+
+    const cleanSnapshot: ScanSnapshot = {
+      ...snapshot,
+      origin: 'https://www.docs.example.org',
+      summary: {
+        ...snapshot.summary,
+        total: 0,
+        bySeverity: { critical: 0, high: 0, medium: 0, low: 0 }
+      }
+    };
+    expect(buildReportDownloadPath(cleanSnapshot, 'pdf')).toBe(
+      'docs-example-org/docs-example-org_report_2023-11-14T22-13-20-000Z_score_100_result_passed_success_true.pdf'
+    );
   });
 });
