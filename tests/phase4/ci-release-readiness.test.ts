@@ -36,8 +36,8 @@ describe('stage e ci and release-readiness contracts', () => {
     expect(workflow).toContain('command: pnpm run test:ci:issues:policy');
     expect(workflow).toContain('label: required-backend-hard-fail');
     expect(workflow).toContain('command: pnpm run test:ci:required-backend-hard-fail');
-    expect(workflow).toContain('run: pnpm run test:ui-load:strict');
-    expect(workflow).toContain('run: pnpm exec playwright test tests/popup/popup.playwright.spec.ts');
+    expect(workflow).toContain('pnpm run test:ui-load:strict');
+    expect(workflow).toContain('pnpm exec playwright test tests/popup/popup.playwright.spec.ts');
   });
 
   it('documents coverage gate with playwright spec excluded', () => {

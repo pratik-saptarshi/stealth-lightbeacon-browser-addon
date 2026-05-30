@@ -3,6 +3,13 @@
 ## Unreleased
 - Ongoing roadmap and validation follow-ups remain tracked in `docs/roadmap/`.
 
+## 0.1.10 — 2026-05-30
+- Fixed standalone scan regression so side-panel scans can proceed when active tab metadata omits URL and the service worker resolves canonical URL from extracted page context.
+- Updated side-panel runtime status messaging to remove popup-first wording and reflect side-panel-only behavior.
+- Upgraded HTML and Markdown report rendering to executive-style structure aligned to fidelity sample output (summary banner, score/verdict, domain distribution, issue tables, diff section).
+- Refreshed release metadata to `0.1.10` in `package.json` and `manifest.json`.
+- Kept GitHub Actions hardening current with least-privilege workflow defaults and stricter job execution settings.
+
 ## 0.1.9 — 2026-05-29
 - Migrated to side-panel-only default shell by removing `action.default_popup` from the extension manifest.
 - Stabilized Playwright runtime launch strategy to prefer default Chromium launch semantics with explicit fallback behavior.

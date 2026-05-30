@@ -187,9 +187,11 @@ export async function handleMessage(message: ClientMessage): Promise<MessageResp
 
         const previous = message.persistHistory ? await historyManager.getLatest(new URL(pageContext.requestUrl).origin) : undefined;
         const catalog = await rulesetManager.getCatalog();
+        const requestUrl = resolveScanRequestUrl(message.request.url, pageContext.requestUrl);
         const result = await orchestrator.runScan(
           {
             ...message.request,
+            url: requestUrl,
             backend: backendRequest
           },
           pageContext,
@@ -547,6 +549,22 @@ function applyBackendHostPolicy(
     ...backend,
     enabled: false
   };
+}
+
+function resolveScanRequestUrl(requestUrl: string, pageContextUrl: string): string {
+  const normalized = requestUrl?.trim();
+  if (normalized) {
+    try {
+      const parsed = new URL(normalized);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return parsed.toString();
+      }
+    } catch {
+      // fall through to page-context URL
+    }
+  }
+
+  return pageContextUrl;
 }
 
 function isRuntimeMessageResponse(input: unknown): input is RuntimeMessageResponse {

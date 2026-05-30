@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BACKEND_SETTINGS_STORAGE_KEY } from '../../src/shared/backend-settings';
 import { POPUP_UI_STATE_STORAGE_KEY } from '../../src/popup/popup-state';
-import { PANEL_SETTINGS_STORAGE_KEY } from '../../src/shared/panel-settings';
+import { DEFAULT_PANEL_SETTINGS, PANEL_SETTINGS_STORAGE_KEY } from '../../src/shared/panel-settings';
 
 const cachedSnapshot = {
   id: 'scan-cached',
@@ -593,5 +593,106 @@ describe('popup interactions', () => {
       expect(execCommand).toHaveBeenCalledWith('copy');
     });
     expect(clipboardWrite).toHaveBeenCalled();
+  });
+
+  it('can rescan when active tab URL is unavailable', async () => {
+    buildShell();
+
+    const storageGet = vi.fn(async () => ({
+      [BACKEND_SETTINGS_STORAGE_KEY]: {
+        enabled: false,
+        mode: 'stdin',
+        endpoint: '',
+        port: '',
+        requestSigningSecret: '',
+        authUsername: '',
+        authPassword: '',
+        required: false
+      },
+      [PANEL_SETTINGS_STORAGE_KEY]: {
+        ...DEFAULT_PANEL_SETTINGS
+      }
+    }));
+    const storageSet = vi.fn(async () => undefined);
+    const query = vi.fn(async () => [{ id: 7 }]);
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'history:compare') {
+        return {
+          ok: true,
+          payload: {
+            latest: undefined,
+            previous: undefined,
+            diff: {
+              newIssues: [],
+              resolvedIssues: [],
+              regressions: [],
+              improvements: []
+            }
+          }
+        };
+      }
+
+      if (message.type === 'history:list') {
+        return { ok: true, payload: { snapshots: [] } };
+      }
+
+      if (message.type === 'scan:start') {
+        return {
+          ok: true,
+          payload: {
+            snapshot: scannedSnapshot,
+            diff: {
+              newIssues: [],
+              resolvedIssues: [],
+              regressions: [],
+              improvements: []
+            },
+            recommendation: {
+              engine: 'mcp',
+              confidence: 0.4,
+              reason: 'Fallback recommendation'
+            }
+          }
+        };
+      }
+
+      return { ok: false, error: 'unexpected message' };
+    });
+
+    (globalThis as typeof globalThis & { chrome?: any }).chrome = {
+      runtime: {
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        getManifest: () => ({ version: '1.0.0' })
+      },
+      storage: {
+        local: {
+          get: storageGet,
+          set: storageSet
+        }
+      },
+      tabs: {
+        query
+      }
+    };
+
+    await import('../../src/popup/popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+
+    document.getElementById('rescan-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'scan:start',
+          request: expect.objectContaining({
+            tabId: 7,
+            url: ''
+          })
+        })
+      );
+    });
+
+    expect(document.getElementById('status-pill')?.dataset.status).toBe('fallback');
   });
 });

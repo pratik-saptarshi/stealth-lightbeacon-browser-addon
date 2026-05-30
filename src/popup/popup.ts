@@ -292,7 +292,7 @@ export async function initialize(): Promise<void> {
       state.note = 'Runtime unavailable';
       render({
         offline: true,
-        statusLine: 'Popup shell loaded outside the extension runtime.',
+        statusLine: 'Side panel shell loaded outside the extension runtime.',
         lightweight: true
       });
       return;
@@ -344,10 +344,6 @@ async function startScan(manual: boolean): Promise<void> {
         throw new Error('No active tab available for scan');
       }
 
-      if (!activeTab.url) {
-        throw new Error('Unable to resolve active tab URL');
-      }
-
       state.tabId = activeTab.id;
       state.tabUrl = activeTab.url;
       state.scanId = createScanId();
@@ -357,7 +353,9 @@ async function startScan(manual: boolean): Promise<void> {
         request: {
           requestId: state.scanId,
           tabId: activeTab.id,
-          url: activeTab.url,
+          // URL can be missing in side-panel flows without `tabs` permission grant.
+          // Service worker resolves canonical URL from extracted page context.
+          url: activeTab.url ?? '',
           engine: 'dom-lite',
           ruleCategories: buildRuleCategoriesFromAccessibilityProfile(),
           accessibilityProfile: { ...state.panelSettings.accessibility },

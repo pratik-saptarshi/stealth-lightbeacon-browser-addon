@@ -12,11 +12,17 @@ concurrency:
   group: test-matrix-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     name: test (${{ matrix.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -50,13 +56,19 @@ jobs:
           version: 11.4.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm run build
+        run: |
+          set -euo pipefail
+          pnpm run build
 
       - name: Run test leg (${{ matrix.label }})
-        run: ${{ matrix.command }}
+        run: |
+          set -euo pipefail
+          ${{ matrix.command }}
 
   playwright-e2e:
     name: playwright-e2e
@@ -82,16 +94,26 @@ jobs:
           version: 11.4.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          pnpm exec playwright install --with-deps chromium
 
       - name: Build
-        run: pnpm run build
+        run: |
+          set -euo pipefail
+          pnpm run build
 
       - name: Run extension runtime smoke (strict Playwright mode)
-        run: pnpm run test:ui-load:strict
+        run: |
+          set -euo pipefail
+          pnpm run test:ui-load:strict
 
       - name: Run Playwright E2E
-        run: pnpm exec playwright test tests/popup/popup.playwright.spec.ts
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test tests/popup/popup.playwright.spec.ts

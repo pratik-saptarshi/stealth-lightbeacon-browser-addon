@@ -426,6 +426,26 @@ it('fails when scan start has no page context and no active tab context is avail
   }
 });
 
+it('falls back to extracted page-context URL when request URL is blank', async () => {
+  const reply = (await handleMessage({
+    type: 'scan:start',
+    request: {
+      requestId: 'blank-request-url',
+      url: '',
+      engine: 'dom-lite'
+    },
+    pageContext: extractedContext
+  } as const)) as ScanStartReply;
+
+  expect(reply.ok).toBe(true);
+  if (!reply.ok) {
+    throw new Error(reply.error);
+  }
+
+  expect(reply.payload.snapshot.url).toBe(extractedContext.requestUrl);
+  expect(reply.payload.snapshot.origin).toBe('https://example.com');
+});
+
 it('disables an optional backend blocked by host policy', async () => {
   const reply = (await handleMessage({
     type: 'scan:start',
