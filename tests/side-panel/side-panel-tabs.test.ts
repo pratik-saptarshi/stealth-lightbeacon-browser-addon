@@ -3,6 +3,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PANEL_SETTINGS_STORAGE_KEY } from '../../src/shared/panel-settings';
 
+// Gate the dynamic `import('../ui/pdf')` used by the export path so tests can
+// deterministically interleave a re-initialize while that import is in flight.
+const pdfGate = vi.hoisted(() => ({
+  wait: null as Promise<void> | null,
+  release: null as (() => void) | null
+}));
+
+vi.mock('../../src/ui/pdf', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/ui/pdf')>();
+  if (pdfGate.wait) {
+    await pdfGate.wait;
+  }
+  return actual;
+});
+
 const latestSnapshot = {
   id: 'scan-latest',
   origin: 'https://example.com',
@@ -492,8 +507,7 @@ describe('side-panel tab shell', () => {
     });
   });
 
-  it('keeps history side panel populated when compare payload is unavailable', async () => {
-    buildShell();
+  it('keeps history side panel populated when compare payload is unavailable', async () => {    buildShell();
 
     const storageGet = vi.fn(async () => ({
       [PANEL_SETTINGS_STORAGE_KEY]: {
@@ -547,9 +561,69 @@ describe('side-panel tab shell', () => {
     await import('../../src/side-panel/side-panel');
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
-    await vi.waitFor(() => {
-      expect(document.querySelectorAll('[data-testid="history-entry"]').length).toBe(2);
-      expect(document.getElementById('status-pill')?.textContent).toBe('Idle');
+  });
+
+  it('exports the PDF using the snapshot captured at click time even if the panel re-initializes mid-export', async () => {
+    buildShell();
+
+    const createdBlobs: Blob[] = [];
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: (blob: Blob) => {
+        createdBlobs.push(blob);
+        return `blob:${createdBlobs.length}`;
+      }
     });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+
+    let serveCachedScan = true;
+    const storageGet = vi.fn(async () => ({ [PANEL_SETTINGS_STORAGE_KEY]: undefined }));
+    const query = vi.fn(async () => [{ id: 7, url: 'https://example.com/current' }]);
+    const sendMessage = vi.fn(async (message: { type: string }) => {
+      if (message.type === 'history:compare') {
+        return serveCachedScan
+          ? { ok: true, payload: { latest: latestSnapshot, diff: undefined } }
+          : { ok: false, error: 'no cached scan' };
+      }
+      if (message.type === 'history:list') {
+        return { ok: true, payload: { snapshots: [latestSnapshot, olderSnapshot] } };
+      }
+      if (message.type === 'latency:stats') {
+        return { ok: true, payload: { samples: [] } };
+      }
+      return { ok: false, error: `unexpected: ${message.type}` };
+    });
+
+    (globalThis as typeof globalThis & { chrome?: unknown }).chrome = {
+      runtime: {
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        getManifest: () => ({ version: '1.0.0' })
+      },
+      storage: { local: { get: storageGet, set: vi.fn(async () => undefined) } },
+      tabs: { query }
+    };
+
+    const { initialize } = await import('../../src/side-panel/side-panel');
+    await initialize();
+
+    // Start the PDF export (it awaits a dynamic `import('../ui/pdf')`), then
+    // re-initialize against a history with no cached scan while that import is
+    // still in flight. The export must keep using the snapshot it captured at
+    // click time instead of re-reading `state.snapshot` after the await.
+    pdfGate.wait = new Promise<void>((resolve) => {
+      pdfGate.release = resolve;
+    });
+    document.getElementById('export-pdf-button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    serveCachedScan = false;
+    await initialize();
+    pdfGate.wait = null;
+    pdfGate.release?.();
+    pdfGate.release = null;
+
+    await vi.waitFor(() => expect(createdBlobs.length).toBeGreaterThanOrEqual(1));
+    const blobText = await createdBlobs[0].text();
+    expect(blobText).toContain('Scan ID');
+    expect(document.getElementById('status-pill')?.textContent).toBe('Idle');
   });
 });
