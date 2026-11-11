@@ -1232,22 +1232,23 @@ function getSelectedIssues(): Issue[] {
 
 async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Promise<void> {
   const issues = getSelectedIssues();
-  const selectedIssues = issues.length ? issues : state.snapshot?.issues ?? [];
-  if (!selectedIssues.length || !state.snapshot) {
+  const snapshot = state.snapshot;
+  const selectedIssues = issues.length ? issues : snapshot?.issues ?? [];
+  if (!selectedIssues.length || !snapshot) {
     return;
   }
 
   const metadata = {
-    scanId: state.snapshot.id,
-    origin: state.snapshot.origin,
-    url: state.snapshot.url,
-    generatedAt: new Date(state.snapshot.timestamp).toISOString()
+    scanId: snapshot.id,
+    origin: snapshot.origin,
+    url: snapshot.url,
+    generatedAt: new Date(snapshot.timestamp).toISOString()
   };
 
   if (format === 'pdf') {
     const { buildIssuesPdfBlob } = await import('../ui/pdf');
-    const blob = buildIssuesPdfBlob(state.snapshot, selectedIssues);
-    downloadBlob(blob, buildReportDownloadPath(state.snapshot, 'pdf'));
+    const blob = buildIssuesPdfBlob(snapshot, selectedIssues);
+    downloadBlob(blob, buildReportDownloadPath(snapshot, 'pdf'));
     return;
   }
 
@@ -1257,7 +1258,7 @@ async function exportCurrentSelection(format: 'json' | 'markdown' | 'pdf'): Prom
       : buildIssueExportMarkdown(selectedIssues, metadata);
 
   const fileFormat = format === 'json' ? 'json' : 'markdown';
-  downloadText(payload, buildReportDownloadPath(state.snapshot, fileFormat));
+  downloadText(payload, buildReportDownloadPath(snapshot, fileFormat));
 }
 
 async function downloadCurrentReport(format: 'json' | 'markdown' | 'html' | 'pdf'): Promise<void> {
