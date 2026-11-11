@@ -8,17 +8,32 @@
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["src/shared/*"],
-      "@bg/*": ["src/background/*"],
-      "@ui/*": ["src/ui/*"],
-      "@content/*": ["src/content/*"]
+      "@shared/*": [
+        "./src/shared/*"
+      ],
+      "@bg/*": [
+        "./src/background/*"
+      ],
+      "@ui/*": [
+        "./src/ui/*"
+      ],
+      "@content/*": [
+        "./src/content/*"
+      ]
     },
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "noEmit": false,
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }
