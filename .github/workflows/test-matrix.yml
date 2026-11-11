@@ -22,7 +22,7 @@ defaults:
 jobs:
   test:
     name: test (${{ matrix.label }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -75,7 +75,7 @@ jobs:
 
   playwright-e2e:
     name: playwright-e2e
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read

@@ -1802,25 +1802,26 @@ function getSelectedIssues() {
 }
 async function exportCurrentSelection(format) {
   const issues = getSelectedIssues();
-  const selectedIssues = issues.length ? issues : state.snapshot?.issues ?? [];
-  if (!selectedIssues.length || !state.snapshot) {
+  const snapshot = state.snapshot;
+  const selectedIssues = issues.length ? issues : snapshot?.issues ?? [];
+  if (!selectedIssues.length || !snapshot) {
     return;
   }
   const metadata = {
-    scanId: state.snapshot.id,
-    origin: state.snapshot.origin,
-    url: state.snapshot.url,
-    generatedAt: new Date(state.snapshot.timestamp).toISOString()
+    scanId: snapshot.id,
+    origin: snapshot.origin,
+    url: snapshot.url,
+    generatedAt: new Date(snapshot.timestamp).toISOString()
   };
   if (format === "pdf") {
     const { buildIssuesPdfBlob: buildIssuesPdfBlob2 } = await Promise.resolve().then(() => (init_pdf(), pdf_exports));
-    const blob = buildIssuesPdfBlob2(state.snapshot, selectedIssues);
-    downloadBlob(blob, buildReportDownloadPath(state.snapshot, "pdf"));
+    const blob = buildIssuesPdfBlob2(snapshot, selectedIssues);
+    downloadBlob(blob, buildReportDownloadPath(snapshot, "pdf"));
     return;
   }
   const payload = format === "json" ? buildIssueExportJson(selectedIssues, metadata) : buildIssueExportMarkdown(selectedIssues, metadata);
   const fileFormat = format === "json" ? "json" : "markdown";
-  downloadText(payload, buildReportDownloadPath(state.snapshot, fileFormat));
+  downloadText(payload, buildReportDownloadPath(snapshot, fileFormat));
 }
 async function downloadCurrentReport(format) {
   if (!state.snapshot) {
