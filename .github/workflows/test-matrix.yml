@@ -8,9 +8,6 @@ on:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 concurrency:
   group: test-matrix-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -47,6 +44,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify Node runtime policy
+        run: bash scripts/evals/node-version-gate.sh
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -55,7 +55,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26.13.1
           cache: pnpm
 
       - name: Install dependencies
@@ -85,6 +85,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify Node runtime policy
+        run: bash scripts/evals/node-version-gate.sh
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -93,7 +96,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26.13.1
           cache: pnpm
 
       - name: Install dependencies
