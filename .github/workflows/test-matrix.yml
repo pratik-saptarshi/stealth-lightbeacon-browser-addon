@@ -44,9 +44,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify Node runtime policy
-        run: bash scripts/evals/node-version-gate.sh
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -57,6 +54,11 @@ jobs:
         with:
           node-version: 26.13.1
           cache: pnpm
+
+      - name: Verify Node runtime policy
+        env:
+          GATE_REQUIRE_RUNTIME: "1"
+        run: bash scripts/evals/node-version-gate.sh
 
       - name: Install dependencies
         run: |
@@ -85,9 +87,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify Node runtime policy
-        run: bash scripts/evals/node-version-gate.sh
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -98,6 +97,11 @@ jobs:
         with:
           node-version: 26.13.1
           cache: pnpm
+
+      - name: Verify Node runtime policy
+        env:
+          GATE_REQUIRE_RUNTIME: "1"
+        run: bash scripts/evals/node-version-gate.sh
 
       - name: Install dependencies
         run: |
