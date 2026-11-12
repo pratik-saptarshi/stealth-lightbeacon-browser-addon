@@ -89,4 +89,35 @@ describe('ruleset catalog manager', () => {
 
     expect(storage).toBeDefined();
   });
+
+  it('persists and loads catalogs through the chrome storage adapter', async () => {
+    const values: Record<string, unknown> = {};
+    const storage = createRulesetCatalogStorage({
+      get: vi.fn(async (keys: string[]) => Object.fromEntries(keys.filter((key) => key in values).map((key) => [key, values[key]]))),
+      set: vi.fn(async (payload: Record<string, unknown>) => {
+        Object.assign(values, payload);
+      })
+    } as never);
+
+    const baseline = loadEmbeddedCatalog();
+    await storage?.save(baseline);
+    await expect(storage?.load()).resolves.toEqual(baseline);
+  });
+
+  it('keeps existing category fields when an update omits them', async () => {
+    const storage = makeStorage(loadEmbeddedCatalog());
+    const catalogManager = new RulesetCatalogManager(storage);
+    const loadedCatalog = await catalogManager.getCatalog();
+    const targetCategory = loadedCatalog.categories[0];
+    const originalRules = targetCategory.rules;
+    const originalEnabled = targetCategory.enabled;
+
+    await catalogManager.updateCategory(targetCategory.category, {
+      category: targetCategory.category
+    } as never);
+
+    expect(loadedCatalog.categories[0].rules).toBe(originalRules);
+    expect(loadedCatalog.categories[0].enabled).toBe(originalEnabled);
+    expect(storage.save).toHaveBeenCalledTimes(1);
+  });
 });

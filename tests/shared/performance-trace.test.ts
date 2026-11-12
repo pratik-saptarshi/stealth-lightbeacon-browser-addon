@@ -25,6 +25,29 @@ describe('event loop trace', () => {
     expect(clock.mark).toHaveBeenCalledWith('popup.render:end');
   });
 
+  it('uses the runtime performance clock when no clock is supplied', () => {
+    const sink = {
+      debug: vi.fn(),
+      warn: vi.fn()
+    };
+
+    const trace = startEventLoopTrace('default.clock', sink);
+    trace.end();
+
+    expect(sink.debug).toHaveBeenCalledTimes(1);
+    expect(sink.debug.mock.calls[0][0]).toMatch(/^\[perf\] default\.clock \d+\.\d{2}ms$/);
+  });
+
+  it('wraps async work with the runtime performance clock when no clock is supplied', async () => {
+    const sink = {
+      debug: vi.fn(),
+      warn: vi.fn()
+    };
+
+    await expect(withEventLoopTrace('default.clock.async', () => 'ok', sink)).resolves.toBe('ok');
+    expect(sink.debug).toHaveBeenCalledTimes(1);
+  });
+
   it('wraps async work and returns the task result', async () => {
     const sink = {
       debug: vi.fn(),

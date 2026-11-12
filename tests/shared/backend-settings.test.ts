@@ -108,4 +108,9 @@ describe('backend settings helpers', () => {
 
     expect(extractBackendEngine({ ...DEFAULT_BACKEND_SETTINGS, mode: 'stdin' })).toBe('mcp');
   });
+
+  it('returns no backend request or engine when disabled or using http mode', () => {
+    expect(buildBackendRequestFromSettings({ ...DEFAULT_BACKEND_SETTINGS, enabled: false })).toBeUndefined();
+    expect(extractBackendEngine({ ...DEFAULT_BACKEND_SETTINGS, mode: 'http' })).toBeUndefined();
+  });
 });

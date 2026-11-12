@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addonRulesetSchema,
+  assertAddonRuleset,
   assertBackendScanResponse,
   assertScanRequest,
   assertScanResult,
@@ -228,6 +229,49 @@ describe('contracts', () => {
     expect(() => issueSchema.parse({ ...issue, selector: 'button.primary' })).not.toThrow();
     expect(() => backendRulesetCategorySchema.parse(bundle.categories)).not.toThrow();
     expect(() => addonRulesetSchema.parse(bundle)).not.toThrow();
+  });
+
+  it('accepts crawl nodes with every optional field and optional result sections', () => {
+    expect(() => assertScanResult({ requestId: 'r-sparse', snapshot: validSnapshot })).not.toThrow();
+
+    expect(() =>
+      assertBackendScanResponse({
+        snapshot: validSnapshot,
+        crawlNodes: [
+          {
+            url: 'https://example.com/a',
+            depth: 1,
+            status: 'error',
+            errorType: 'timeout',
+            discoveredFrom: 'https://example.com/',
+            finalUrl: 'https://example.com/final',
+            statusCode: 504,
+            note: 'upstream timed out'
+          }
+        ]
+      })
+    ).not.toThrow();
+  });
+
+  it('accepts ruleset payloads that omit optional enabled flags', () => {
+    expect(() =>
+      assertAddonRuleset({
+        version: '1.0.0',
+        generatedAt: '2026-05-27T00:00:00Z',
+        categories: [
+          {
+            category: 'seo',
+            rules: [
+              {
+                id: 'seo-title-missing',
+                title: 'Title missing',
+                severity: 'high'
+              }
+            ]
+          }
+        ]
+      })
+    ).not.toThrow();
   });
 
   it('rejects invalid request field values for backend configuration', () => {
