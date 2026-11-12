@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest",
+    "audit": "pnpm audit --audit-level=high",
     "eval:node-version": "bash scripts/evals/node-version-gate.sh",
     "eval:node-version:test": "bash scripts/evals/node-version-gate.test.sh",
     "build": "tsc -p tsconfig.json && node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true });\" && mkdir -p dist/api && cp manifest.json dist/manifest.json && cp side-panel.html dist/side-panel.html && cp side-panel.css dist/side-panel.css && cp api/openapi.yaml dist/api/openapi.yaml && cp node_modules/axe-core/axe.min.js dist/axe.min.js && node scripts/prepare-dist-manifest.mjs && node scripts/generate-icons.mjs && esbuild src/background/service-worker.ts --bundle --platform=browser --format=esm --outfile=service-worker.js && esbuild src/content/content-script.ts --bundle --platform=browser --format=iife --global-name=StealthLightbeaconContentScript --outfile=content-script.js && esbuild src/side-panel/side-panel.ts --bundle --platform=browser --format=esm --outfile=side-panel.js && cp service-worker.js dist/service-worker.js && cp content-script.js dist/content-script.js && cp side-panel.js dist/side-panel.js",
@@ -28,11 +29,12 @@
     "@playwright/test": "^1.64.1",
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^26.6.6",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@vitest/coverage-v8": "^4.1.12",
     "axe-core": "^4.14.0",
     "esbuild": "^0.28.2",
     "jsdom": "^30.1.3",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.7"
+    "vite": "^8.1.6",
+    "vitest": "^4.1.12"
   }
 }
