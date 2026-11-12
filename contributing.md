@@ -2,6 +2,11 @@
 
 This repository is maintained as a release-oriented browser extension. Keep changes small, reviewable, and validated before they are published.
 
+## Prerequisites
+
+- Node.js `>=26.13.1 <27`
+- pnpm `11.4.0` (see `packageManager` in `package.json`)
+
 ## Workflow
 1. Create a topic branch from `main`.
 2. Make the smallest coherent change set that fits the request.

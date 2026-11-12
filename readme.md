@@ -27,6 +27,9 @@ Current package version: `0.1.11`
 - Firefox (developer/unpacked flow)
 
 ## Quick Start (Development)
+
+Requires Node.js `>=26.13.1 <27` and pnpm `11.4.0` (see `package.json`).
+
 1. Install dependencies:
 ```bash
 pnpm install
