@@ -121,4 +121,32 @@ describe('scan history manager', () => {
     expect(compare.latest?.id).toBe('s-3');
     expect(compare.previous?.id).toBe('s-2');
   });
+
+  it('rejects snapshots without an id or origin', async () => {
+    const history = new ScanHistoryManager(new MemoryHistoryStorage());
+
+    await expect(history.saveSnapshot({ ...mkSnapshot(1), id: '' })).rejects.toThrow('Snapshot must include id and origin');
+    await expect(history.saveSnapshot({ ...mkSnapshot(1), origin: '' })).rejects.toThrow('Snapshot must include id and origin');
+  });
+
+  it('returns an empty comparison for an unknown origin', async () => {
+    const history = new ScanHistoryManager(new MemoryHistoryStorage());
+
+    await expect(history.compareLatest('https://unknown.example')).resolves.toEqual({
+      latest: undefined,
+      previous: undefined,
+      diff: { newIssues: [], resolvedIssues: [], regressions: [], improvements: [] }
+    });
+  });
+
+  it('finds the newest stored snapshot when storage order is oldest-first', async () => {
+    const history = new ScanHistoryManager(
+      new StaticHistoryStorage([mkSnapshot(1), mkSnapshot(2)]),
+      { maxSnapshotsPerOrigin: 10 }
+    );
+
+    const saved = await history.saveSnapshot(mkSnapshot(3));
+
+    expect(saved.previousSnapshot?.id).toBe('s-2');
+  });
 });

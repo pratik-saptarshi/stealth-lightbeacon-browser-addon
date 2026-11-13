@@ -128,4 +128,50 @@ describe('anti-bot engine recommendation', () => {
     expect(recommendation.reason).toContain('High-complexity page surface');
     expect(recommendation.confidence).toBe(0.9);
   });
+
+  it('scores moderately dense crawl-lite link sets without escalating to mcp', () => {
+    const request: ScanRequest = {
+      ...baseRequest,
+      requestId: 'r-anti-5',
+      engine: 'crawl-lite'
+    };
+
+    const recommendation = recommendEngine(request, {
+      ...baseContext,
+      links: Array.from({ length: 30 }).map((_, index) => ({
+        href: `https://example.com/page-${index}`,
+        text: 'l',
+        rel: '',
+        target: '',
+        isInternal: true
+      }))
+    });
+
+    expect(recommendation.engine).toBe('fast-obscura');
+    expect(recommendation.confidence).toBe(0.45);
+  });
+
+  it('clamps dom-lite confidence at one for maximally complex pages', () => {
+    const recommendation = recommendEngine(baseRequest, {
+      ...baseContext,
+      metaDescription: null,
+      canonical: null,
+      lang: null,
+      headings: { h1: 1, h2: 1, h3: 9 },
+      links: Array.from({ length: 46 }).map((_, index) => ({
+        href: `https://example.com/page-${index}`,
+        text: 'l',
+        rel: '',
+        target: '',
+        isInternal: true
+      })),
+      images: Array.from({ length: 21 }).map((_, index) => ({
+        src: `https://example.com/image-${index}.png`,
+        alt: null
+      }))
+    });
+
+    expect(recommendation.engine).toBe('http');
+    expect(recommendation.confidence).toBe(1);
+  });
 });

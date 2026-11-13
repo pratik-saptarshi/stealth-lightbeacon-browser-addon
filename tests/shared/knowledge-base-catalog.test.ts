@@ -86,4 +86,27 @@ describe('shared knowledge base catalog helpers', () => {
     expect(filterKnowledgeBaseCategories(catalog, ['geo']).map((category) => category.category)).toEqual([]);
     expect(filterKnowledgeBaseCategories(catalog, ['seo']).map((category) => category.category)).toEqual(['seo']);
   });
+
+  it('treats categories without an explicit enabled flag as enabled', () => {
+    const catalog: KnowledgeBaseStorageCatalog = {
+      version: '1.0.0',
+      generatedAt: '2026-01-01T00:00:00.000Z',
+      categories: [
+        {
+          category: 'seo',
+          entries: [
+            {
+              id: 'seo-entry',
+              title: 'SEO',
+              summary: 'SEO note',
+              notes: []
+            }
+          ]
+        }
+      ]
+    };
+
+    expect(filterKnowledgeBaseCategories(catalog).map((category) => category.category)).toEqual(['seo']);
+    expect(filterKnowledgeBaseCategories(catalog, ['seo']).map((category) => category.category)).toEqual(['seo']);
+  });
 });

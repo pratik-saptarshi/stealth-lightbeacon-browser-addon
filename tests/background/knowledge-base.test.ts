@@ -104,4 +104,18 @@ describe('knowledge base manager', () => {
 
     expect(storage).toBeDefined();
   });
+
+  it('persists and loads catalogs through the chrome storage adapter', async () => {
+    const values: Record<string, unknown> = {};
+    const storage = createKnowledgeBaseStorage({
+      get: vi.fn(async (keys: string[]) => Object.fromEntries(keys.filter((key) => key in values).map((key) => [key, values[key]]))),
+      set: vi.fn(async (payload: Record<string, unknown>) => {
+        Object.assign(values, payload);
+      })
+    } as never);
+
+    const baseline = loadEmbeddedKnowledgeBase();
+    await storage?.save(baseline);
+    await expect(storage?.load()).resolves.toEqual(baseline);
+  });
 });

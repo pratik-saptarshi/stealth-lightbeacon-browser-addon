@@ -34,4 +34,12 @@ describe('chrome history storage adapter', () => {
     expect(createChromeHistoryStorage({ storage: { local: { get: vi.fn() as never } } } as never)).toBeUndefined();
     expect(createChromeHistoryStorage({ storage: { local: { set: vi.fn() as never } } } as never)).toBeUndefined();
   });
+
+  it('returns an adapter when the chrome storage area is complete', () => {
+    const storage = createChromeHistoryStorage({
+      storage: { local: { get: vi.fn(), set: vi.fn() } }
+    } as never);
+
+    expect(storage).toBeInstanceOf(ChromeHistoryStorage);
+  });
 });
