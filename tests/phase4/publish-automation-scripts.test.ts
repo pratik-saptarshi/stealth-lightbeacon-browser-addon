@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -197,6 +197,8 @@ describe('publish automation scripts', () => {
     expect(payload.version).toBe('3.0.0');
     expect(payload.artifacts.crx.path).toBe('artifacts/addon-signed.crx');
     expect(readdirSync(root).filter((entry) => entry.endsWith('.pem'))).toEqual([]);
+    expect(readdirSync(repoRoot).filter((entry) => entry.endsWith('.pem'))).toEqual([]);
+    expect(existsSync(join(repoRoot, 'web-extension.zip'))).toBe(false);
   });
 
   it('packageStoreArtifacts requires a built dist directory', async () => {
