@@ -25,6 +25,7 @@
     "test:ci:issues:policy": "vitest --run --exclude tests/side-panel/side-panel.playwright.spec.ts --testNamePattern 'issues:policy' --passWithNoTests",
     "test:ci:required-backend-hard-fail": "vitest --run --exclude tests/side-panel/side-panel.playwright.spec.ts --testNamePattern 'required-backend-hard-fail' --passWithNoTests",
     "package:store": "node scripts/package-store-artifacts.mjs",
+    "prepare:firefox": "node scripts/prepare-firefox-dist.mjs",
     "publish:chrome": "node scripts/publish-chrome.mjs",
     "publish:edge": "node scripts/publish-edge.mjs"
   },

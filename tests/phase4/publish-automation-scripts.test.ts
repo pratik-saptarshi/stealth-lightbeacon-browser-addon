@@ -10,6 +10,18 @@ import { packageStoreArtifacts } from '../../scripts/package-store-artifacts.mjs
 
 const repoRoot = resolve(__dirname, '..', '..');
 
+const publishWorkflows = [
+  'publish-all.yml',
+  'publish-chrome.yml',
+  'publish-edge.yml',
+  'publish-firefox.yml',
+  'release-package.yml'
+] as const;
+
+function readWorkflow(name: (typeof publishWorkflows)[number]): string {
+  return readFileSync(resolve(repoRoot, '.github', 'workflows', name), 'utf8');
+}
+
 function jsonResponse(
   body: unknown,
   init: { ok?: boolean; status?: number; location?: string } = {}
@@ -389,5 +401,197 @@ describe('publish automation scripts', () => {
         fetchImpl
       )
     ).rejects.toThrow('Edge upload did not return operation location header.');
+  });
+});
+
+describe('publish workflow semantics', () => {
+  it('never reads a secret inside an if expression', () => {
+    for (const workflow of publishWorkflows) {
+      const lines = readWorkflow(workflow).split('\n');
+      for (const line of lines) {
+        if (/^\s*(?:-\s*)?if:/.test(line)) {
+          expect(line, `${workflow} puts a secret in an if`).not.toContain('secrets.');
+        }
+      }
+    }
+  });
+
+  it('never defaults a boolean gate with || true', () => {
+    for (const workflow of publishWorkflows) {
+      expect(readWorkflow(workflow), `${workflow} defaults a gate with || true`).not.toMatch(
+        /\|\|\s*true/
+      );
+    }
+  });
+
+  it('passes dispatch booleans through without overriding false', () => {
+    const publishAll = readWorkflow('publish-all.yml');
+
+    expect(publishAll).toContain(
+      "run_validation: ${{ github.event_name != 'workflow_dispatch' || inputs.run_validation }}"
+    );
+    expect(publishAll).toContain(
+      "include_crx: ${{ github.event_name != 'workflow_dispatch' || inputs.include_crx }}"
+    );
+  });
+
+  it('installs Playwright Chromium before the e2e and UI validation', () => {
+    const workflow = readWorkflow('release-package.yml');
+    const installIndex = workflow.indexOf('pnpm exec playwright install --with-deps chromium');
+    const e2eIndex = workflow.indexOf('pnpm run test:e2e');
+    const uiIndex = workflow.indexOf('pnpm run test:ui-load:strict');
+    const dependenciesIndex = workflow.indexOf('pnpm install --frozen-lockfile');
+
+    expect(installIndex).toBeGreaterThan(-1);
+    expect(dependenciesIndex).toBeGreaterThan(-1);
+    expect(installIndex).toBeGreaterThan(dependenciesIndex);
+    expect(e2eIndex).toBeGreaterThan(installIndex);
+    expect(uiIndex).toBeGreaterThan(installIndex);
+  });
+
+  it('declares a target_environment choice for every publish dispatch', () => {
+    for (const workflow of [
+      'publish-chrome.yml',
+      'publish-edge.yml',
+      'publish-firefox.yml'
+    ] as const) {
+      const text = readWorkflow(workflow);
+      const start = text.indexOf('workflow_dispatch:');
+      const end = text.indexOf('\njobs:');
+      expect(start, `${workflow} has no workflow_dispatch trigger`).toBeGreaterThan(-1);
+      expect(end, `${workflow} has no jobs block`).toBeGreaterThan(start);
+
+      const dispatch = text.slice(start, end);
+      expect(dispatch, `${workflow} is missing target_environment`).toContain('target_environment:');
+      expect(dispatch).toContain('type: choice');
+      expect(dispatch).toMatch(/options:\s*\n\s*-\s*staging\s*\n\s*-\s*production/);
+      expect(dispatch).toContain('default: staging');
+    }
+  });
+
+  it('aligns every publish workflow with the main runtime pins', () => {
+    for (const workflow of publishWorkflows) {
+      const text = readWorkflow(workflow);
+
+      expect(text, `${workflow} does not pin ubuntu-24.04`).toContain('runs-on: ubuntu-24.04');
+      expect(text, `${workflow} does not use checkout@v7`).toContain('actions/checkout@v7');
+      expect(text, `${workflow} does not use setup-node@v7`).toContain('actions/setup-node@v7');
+      expect(text, `${workflow} does not pin Node 26.13.1`).toContain('node-version: 26.13.1');
+      expect(text, `${workflow} does not force the Node 26 actions runtime`).toContain(
+        'FORCE_JAVASCRIPT_ACTIONS_TO_NODE26'
+      );
+      expect(text, `${workflow} runs no audit step`).toContain('pnpm run audit');
+
+      expect(text, `${workflow} still forces the Node 24 actions runtime`).not.toContain(
+        'FORCE_JAVASCRIPT_ACTIONS_TO_NODE24'
+      );
+      expect(text, `${workflow} still uses ubuntu-latest`).not.toContain('runs-on: ubuntu-latest');
+      expect(text, `${workflow} still uses checkout@v6`).not.toContain('actions/checkout@v6');
+      expect(text, `${workflow} still uses setup-node@v6`).not.toContain('actions/setup-node@v6');
+      expect(text, `${workflow} still pins Node 22`).not.toContain('node-version: 22');
+    }
+  });
+
+  it('guards the optional AMO metadata with job env instead of a secret if', () => {
+    const workflow = readWorkflow('publish-firefox.yml');
+
+    expect(workflow).toContain('AMO_METADATA_JSON: ${{ secrets.AMO_METADATA_JSON }}');
+    expect(workflow).toContain("if: env.AMO_METADATA_JSON != ''");
+    expect(workflow).toContain(`printf '%s' "$AMO_METADATA_JSON" > artifacts/amo-metadata.json`);
+
+    const secretReferences = workflow.match(/\$\{\{ secrets\.AMO_METADATA_JSON \}\}/g) ?? [];
+    expect(secretReferences).toHaveLength(1);
+    expect(workflow).not.toContain("<<'EOF'");
+  });
+
+  it('builds and signs the Firefox manifest variant instead of the Chrome dist', () => {
+    const workflow = readWorkflow('publish-firefox.yml');
+    const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(packageJson.scripts['prepare:firefox']).toBe(
+      'node scripts/prepare-firefox-dist.mjs'
+    );
+    expect(workflow).toContain('pnpm run prepare:firefox');
+    expect(workflow).toContain('--source-dir=artifacts/firefox');
+    expect(workflow).not.toContain('--source-dir=dist');
+  });
+});
+
+describe('firefox dist variant', () => {
+  const tempPaths: string[] = [];
+
+  afterEach(() => {
+    for (const path of tempPaths) {
+      rmSync(path, { recursive: true, force: true });
+    }
+    tempPaths.length = 0;
+  });
+
+  function seedChromeDist(root: string): void {
+    mkdirSync(join(root, 'dist', 'icons'), { recursive: true });
+    writeFileSync(
+      join(root, 'dist', 'manifest.json'),
+      JSON.stringify({
+        manifest_version: 3,
+        name: 'Stealth Lightbeacon (Addon Lite)',
+        version: '0.1.11',
+        permissions: ['storage', 'activeTab', 'scripting', 'sidePanel', 'contextMenus'],
+        side_panel: { default_path: 'side-panel.html' },
+        background: { service_worker: 'service-worker.js', type: 'module' }
+      })
+    );
+    writeFileSync(join(root, 'dist', 'side-panel.html'), '<!doctype html>');
+    writeFileSync(join(root, 'dist', 'icons', 'icon-normal-16.png'), 'png');
+  }
+
+  it('prepare-firefox-dist writes a signed manifest variant', () => {
+    const root = resolve(tmpdir(), `slt-firefox-dist-${Date.now()}`);
+    tempPaths.push(root);
+    seedChromeDist(root);
+
+    const result = spawnSync(
+      process.execPath,
+      [join(repoRoot, 'scripts', 'prepare-firefox-dist.mjs')],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: { ...process.env, PUBLISH_REPO_ROOT: root }
+      }
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+
+    const firefoxDir = join(root, 'artifacts', 'firefox');
+    const manifest = JSON.parse(readFileSync(join(firefoxDir, 'manifest.json'), 'utf8'));
+    expect(manifest.sidebar_action).toEqual({
+      default_panel: 'side-panel.html',
+      default_title: 'Stealth Lightbeacon'
+    });
+    expect(manifest.browser_specific_settings.gecko.id).toBe(
+      'stealth-lightbeacon@pratik-saptarshi.github.io'
+    );
+    expect(manifest.side_panel).toBeUndefined();
+    expect(manifest.permissions).not.toContain('sidePanel');
+    expect(manifest.permissions).toContain('storage');
+
+    expect(existsSync(join(firefoxDir, 'side-panel.html'))).toBe(true);
+    expect(existsSync(join(firefoxDir, 'icons', 'icon-normal-16.png'))).toBe(true);
+    expect(existsSync(join(firefoxDir, 'manifest.json'))).toBe(true);
+  });
+
+  it('prepareFirefoxDist requires a built dist directory', async () => {
+    const root = resolve(tmpdir(), `slt-firefox-missing-${Date.now()}`);
+    tempPaths.push(root);
+    mkdirSync(root, { recursive: true });
+
+    const { prepareFirefoxDist } = await import('../../scripts/prepare-firefox-dist.mjs');
+
+    await expect(prepareFirefoxDist({ PUBLISH_REPO_ROOT: root })).rejects.toThrow(
+      'dist directory is missing'
+    );
   });
 });

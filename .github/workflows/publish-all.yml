@@ -27,21 +27,53 @@ permissions:
   packages: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE26: "true"
 
 concurrency:
   group: publish-all-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.13.1
+          cache: pnpm
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: |
+          set -euo pipefail
+          pnpm run audit
+
   package:
+    needs: gate
     uses: ./.github/workflows/release-package.yml
     secrets:
       CRX_PRIVATE_KEY_PEM: ${{ secrets.CRX_PRIVATE_KEY_PEM }}
     with:
       target_environment: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}
-      run_validation: ${{ github.event_name == 'workflow_dispatch' && inputs.run_validation || true }}
-      include_crx: ${{ github.event_name == 'workflow_dispatch' && inputs.include_crx || true }}
+      run_validation: ${{ github.event_name != 'workflow_dispatch' || inputs.run_validation }}
+      include_crx: ${{ github.event_name != 'workflow_dispatch' || inputs.include_crx }}
 
   publish-firefox:
     needs: package
