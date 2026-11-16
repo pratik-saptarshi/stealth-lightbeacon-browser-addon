@@ -7,11 +7,9 @@ on:
         type: string
         default: staging
     secrets:
-      EDGE_TENANT_ID:
-        required: false
-      EDGE_CLIENT_ID:
+      EDGE_API_KEY:
         required: true
-      EDGE_CLIENT_SECRET:
+      EDGE_CLIENT_ID:
         required: true
       EDGE_PRODUCT_ID:
         required: true
@@ -24,6 +22,10 @@ on:
           - staging
           - production
         default: staging
+      run_id:
+        description: Packaging run ID (required for standalone dispatch)
+        required: true
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE26: "true"
@@ -34,6 +36,7 @@ jobs:
     environment: ${{ inputs.target_environment }}
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -66,12 +69,13 @@ jobs:
         with:
           name: release-artifacts
           path: artifacts
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Edge Add-ons update
         env:
-          EDGE_TENANT_ID: ${{ secrets.EDGE_TENANT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
           EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
-          EDGE_CLIENT_SECRET: ${{ secrets.EDGE_CLIENT_SECRET }}
           EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
           EDGE_ZIP_PATH: artifacts/addon-store.zip
         run: pnpm run publish:edge

@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchAccessToken, publishChrome } from '../../scripts/publish-chrome.mjs';
-import { getEdgeAccessToken, pollOperation, publishEdge } from '../../scripts/publish-edge.mjs';
+import { getEdgeAuthHeaders, pollOperation, publishEdge } from '../../scripts/publish-edge.mjs';
 import { packageStoreArtifacts } from '../../scripts/package-store-artifacts.mjs';
 
 const repoRoot = resolve(__dirname, '..', '..');
@@ -91,8 +91,59 @@ describe('publish automation scripts', () => {
     expect(calls.some((url) => url.includes(':fetchStatus'))).toBe(true);
   });
 
-  it('getEdgeAccessToken requires edge client credentials', async () => {
-    await expect(getEdgeAccessToken({} as NodeJS.ProcessEnv, fetch)).rejects.toThrow('EDGE_CLIENT_ID');
+  it('publishChrome waits for an in-progress upload before publishing', async () => {
+    const root = resolve(tmpdir(), `slt-publish-chrome-wait-${Date.now()}`);
+    tempPaths.push(root);
+    mkdirSync(join(root, 'artifacts'), { recursive: true });
+    writeFileSync(join(root, 'artifacts', 'addon-store.zip'), 'zip');
+
+    const calls: string[] = [];
+    let statusCalls = 0;
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
+      const target = String(url);
+      calls.push(target);
+      if (target.includes('/token')) {
+        return jsonResponse({ access_token: 'token' });
+      }
+      if (target.includes(':upload')) {
+        return jsonResponse({ uploadState: 'UPLOAD_IN_PROGRESS' });
+      }
+      if (target.includes(':fetchStatus')) {
+        statusCalls += 1;
+        return jsonResponse(
+          statusCalls === 1
+            ? { lastAsyncSubmissionState: { state: 'IN_PROGRESS' } }
+            : { lastAsyncSubmissionState: { state: 'SUCCESS' } }
+        );
+      }
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+
+    await publishChrome(
+      {
+        CWS_CLIENT_ID: 'id',
+        CWS_CLIENT_SECRET: 'secret',
+        CWS_REFRESH_TOKEN: 'refresh',
+        CWS_PUBLISHER_ID: 'pub',
+        CWS_EXTENSION_ID: 'ext',
+        CWS_ZIP_PATH: join(root, 'artifacts', 'addon-store.zip'),
+        CWS_POLL_INTERVAL_MS: '1'
+      } as NodeJS.ProcessEnv,
+      fetchImpl
+    );
+
+    const firstStatus = calls.findIndex((target) => target.includes(':fetchStatus'));
+    const publish = calls.findIndex((target) => target.includes(':publish'));
+    expect(firstStatus).toBeGreaterThan(-1);
+    expect(publish).toBeGreaterThan(firstStatus);
+    expect(statusCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('getEdgeAuthHeaders requires the API key and client ID', () => {
+    expect(() => getEdgeAuthHeaders({} as NodeJS.ProcessEnv)).toThrow('EDGE_API_KEY');
+    expect(() => getEdgeAuthHeaders({ EDGE_API_KEY: 'key' } as NodeJS.ProcessEnv)).toThrow(
+      'EDGE_CLIENT_ID'
+    );
   });
 
   it('pollOperation resolves when status succeeds', async () => {
@@ -113,6 +164,8 @@ describe('publish automation scripts', () => {
     mkdirSync(join(root, 'dist'), { recursive: true });
     writeFileSync(join(root, 'dist', 'manifest.json'), JSON.stringify({ version: '1.2.3' }));
     writeFileSync(join(root, 'dist', 'service-worker.js'), 'console.log("ok");');
+    mkdirSync(join(root, 'dist', 'icons'), { recursive: true });
+    writeFileSync(join(root, 'dist', 'icons', 'icon.png'), 'png');
 
     const writes: string[] = [];
     const spawnSyncImpl = vi.fn((_command: string, args: string[]) => {
@@ -141,6 +194,7 @@ describe('publish automation scripts', () => {
     const payload = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(payload.version).toBe('1.2.3');
     expect(payload.artifacts.zip.path).toBe('artifacts/addon-store.zip');
+    expect(payload.releaseFiles).toContain('icons/icon.png');
   });
 
   it('packageStoreArtifacts signs a CRX3 file with the provided key', async () => {
@@ -295,28 +349,13 @@ describe('publish automation scripts', () => {
     ).rejects.toThrow('Chrome upload failed: 500');
   });
 
-  it('getEdgeAccessToken surfaces token endpoint failures', async () => {
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({ error: 'invalid_client' }, { ok: false, status: 401 })
-    ) as unknown as typeof fetch;
-
-    await expect(
-      getEdgeAccessToken(
-        { EDGE_CLIENT_ID: 'id', EDGE_CLIENT_SECRET: 'secret' } as NodeJS.ProcessEnv,
-        fetchImpl
-      )
-    ).rejects.toThrow('Edge token fetch failed: 401');
-  });
-
-  it('getEdgeAccessToken rejects a response without an access token', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({})) as unknown as typeof fetch;
-
-    await expect(
-      getEdgeAccessToken(
-        { EDGE_CLIENT_ID: 'id', EDGE_CLIENT_SECRET: 'secret' } as NodeJS.ProcessEnv,
-        fetchImpl
-      )
-    ).rejects.toThrow('Edge token response missing access_token.');
+  it('getEdgeAuthHeaders uses the v1.1 ApiKey and X-ClientID headers', () => {
+    expect(
+      getEdgeAuthHeaders({ EDGE_API_KEY: 'key', EDGE_CLIENT_ID: 'client' } as NodeJS.ProcessEnv)
+    ).toEqual({
+      authorization: 'ApiKey key',
+      'x-clientid': 'client'
+    });
   });
 
   it('pollOperation throws when the operation fails', async () => {
@@ -349,9 +388,6 @@ describe('publish automation scripts', () => {
     const fetchImpl = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
       const target = String(url);
       calls.push(`${init?.method ?? 'GET'} ${target}`);
-      if (target.includes('/oauth2/v2.0/token')) {
-        return jsonResponse({ access_token: 'edge-token' });
-      }
       if (target.endsWith('/submissions/draft/package')) {
         return jsonResponse({}, { location: 'https://edge.test/operations/upload' });
       }
@@ -363,8 +399,8 @@ describe('publish automation scripts', () => {
 
     await publishEdge(
       {
+        EDGE_API_KEY: 'key',
         EDGE_CLIENT_ID: 'id',
-        EDGE_CLIENT_SECRET: 'secret',
         EDGE_PRODUCT_ID: 'product',
         EDGE_ZIP_PATH: join(root, 'artifacts', 'addon-store.zip')
       } as NodeJS.ProcessEnv,
@@ -383,18 +419,13 @@ describe('publish automation scripts', () => {
     mkdirSync(join(root, 'artifacts'), { recursive: true });
     writeFileSync(join(root, 'artifacts', 'addon-store.zip'), 'zip');
 
-    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => {
-      if (String(url).includes('/oauth2/v2.0/token')) {
-        return jsonResponse({ access_token: 'edge-token' });
-      }
-      return jsonResponse({});
-    }) as unknown as typeof fetch;
+    const fetchImpl = vi.fn(async () => jsonResponse({})) as unknown as typeof fetch;
 
     await expect(
       publishEdge(
         {
+          EDGE_API_KEY: 'key',
           EDGE_CLIENT_ID: 'id',
-          EDGE_CLIENT_SECRET: 'secret',
           EDGE_PRODUCT_ID: 'product',
           EDGE_ZIP_PATH: join(root, 'artifacts', 'addon-store.zip')
         } as NodeJS.ProcessEnv,
@@ -405,6 +436,15 @@ describe('publish automation scripts', () => {
 });
 
 describe('publish workflow semantics', () => {
+  it('standalone publish workflows can download a prior packaging run', () => {
+    for (const workflow of ['publish-chrome.yml', 'publish-edge.yml', 'publish-firefox.yml'] as const) {
+      const text = readWorkflow(workflow);
+      expect(text).toMatch(/run_id:/);
+      expect(text).toMatch(/run-id: \$\{\{ inputs\.run_id \|\| github\.run_id \}\}/);
+      expect(text).toMatch(/actions: read/);
+    }
+  });
+
   it('never reads a secret inside an if expression', () => {
     for (const workflow of publishWorkflows) {
       const lines = readWorkflow(workflow).split('\n');

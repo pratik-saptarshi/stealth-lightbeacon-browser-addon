@@ -22,6 +22,10 @@ on:
           - staging
           - production
         default: staging
+      run_id:
+        description: Packaging run ID (required for standalone dispatch)
+        required: true
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE26: "true"
@@ -32,6 +36,7 @@ jobs:
     environment: ${{ inputs.target_environment }}
     permissions:
       contents: read
+      actions: read
     env:
       AMO_METADATA_JSON: ${{ secrets.AMO_METADATA_JSON }}
     steps:
@@ -66,6 +71,8 @@ jobs:
         with:
           name: dist-release-payload
           path: dist
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Firefox manifest variant
         run: |

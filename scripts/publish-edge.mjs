@@ -8,33 +8,13 @@ function getRequired(name, env = process.env) {
   return value;
 }
 
-export async function getEdgeAccessToken(env = process.env, fetchImpl = fetch) {
-  const tenantId = env.EDGE_TENANT_ID ?? 'common';
-  const tokenUrl = env.EDGE_TOKEN_URL ?? `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
-  const scope = env.EDGE_SCOPE ?? 'https://api.addons.microsoftedge.microsoft.com/.default';
-
-  const body = new URLSearchParams({
-    client_id: getRequired('EDGE_CLIENT_ID', env),
-    client_secret: getRequired('EDGE_CLIENT_SECRET', env),
-    scope,
-    grant_type: 'client_credentials'
-  });
-
-  const response = await fetchImpl(tokenUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: body.toString()
-  });
-  if (!response.ok) {
-    throw new Error(`Edge token fetch failed: ${response.status} ${await response.text()}`);
-  }
-
-  const json = await response.json();
-  if (!json.access_token) {
-    throw new Error('Edge token response missing access_token.');
-  }
-
-  return json.access_token;
+// The Edge Add-ons Update API v1.1 uses an API key and Client ID in the
+// request headers. The v1 bearer-token flow ended on 2024-12-31.
+export function getEdgeAuthHeaders(env = process.env) {
+  return {
+    authorization: `ApiKey ${getRequired('EDGE_API_KEY', env)}`,
+    'x-clientid': getRequired('EDGE_CLIENT_ID', env)
+  };
 }
 
 export async function pollOperation(operationUrl, headers, fetchImpl = fetch, timeoutMs = 300000) {
@@ -63,10 +43,7 @@ export async function publishEdge(env = process.env, fetchImpl = fetch) {
   const zipPath = env.EDGE_ZIP_PATH ?? 'artifacts/addon-store.zip';
   const publishNotes = env.EDGE_PUBLISH_NOTES ?? `Automated publish from ${env.GITHUB_SHA ?? 'local'}`;
 
-  const token = await getEdgeAccessToken(env, fetchImpl);
-  const headers = {
-    authorization: `Bearer ${token}`
-  };
+  const headers = getEdgeAuthHeaders(env);
 
   const uploadRes = await fetchImpl(`${baseApi}/v1/products/${productId}/submissions/draft/package`, {
     method: 'POST',

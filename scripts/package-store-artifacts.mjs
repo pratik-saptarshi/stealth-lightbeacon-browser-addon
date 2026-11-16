@@ -16,15 +16,19 @@ import writeCRX3File from 'crx3';
 
 export function listFilesRecursively(basePath) {
   const files = [];
-  for (const entry of readdirSync(basePath)) {
-    const entryPath = join(basePath, entry);
-    const entryStat = statSync(entryPath);
-    if (entryStat.isDirectory()) {
-      files.push(...listFilesRecursively(entryPath));
-      continue;
+  const root = basePath;
+  function walk(dir) {
+    for (const entry of readdirSync(dir)) {
+      const entryPath = join(dir, entry);
+      const entryStat = statSync(entryPath);
+      if (entryStat.isDirectory()) {
+        walk(entryPath);
+        continue;
+      }
+      files.push(relative(root, entryPath));
     }
-    files.push(relative(basePath, entryPath));
   }
+  walk(root);
   return files.sort();
 }
 

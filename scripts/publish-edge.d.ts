@@ -1,4 +1,7 @@
-export function getEdgeAccessToken(env?: NodeJS.ProcessEnv, fetchImpl?: typeof fetch): Promise<string>;
+export function getEdgeAuthHeaders(env?: NodeJS.ProcessEnv): {
+  authorization: string;
+  'x-clientid': string;
+};
 export function pollOperation(
   operationUrl: string,
   headers: Record<string, string>,

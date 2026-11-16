@@ -32,6 +32,29 @@ export async function fetchAccessToken(env = process.env, fetchImpl = fetch) {
   return json.access_token;
 }
 
+async function waitForUpload(headers, resourceName, fetchImpl, timeoutMs = 300000, intervalMs = 5000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const res = await fetchImpl(`https://chromewebstore.googleapis.com/v2/${resourceName}:fetchStatus`, {
+      method: 'GET',
+      headers
+    });
+    if (!res.ok) {
+      throw new Error(`Chrome upload status failed: ${res.status} ${await res.text()}`);
+    }
+    const payload = await res.json();
+    const state = payload.lastAsyncSubmissionState?.state ?? payload.uploadState;
+    if (state === 'SUCCESS') {
+      return payload;
+    }
+    if (state === 'FAILED' || state === 'UPLOAD_FAILED') {
+      throw new Error(`Chrome upload failed: ${JSON.stringify(payload)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`Chrome upload timed out after ${timeoutMs}ms`);
+}
+
 export async function publishChrome(env = process.env, fetchImpl = fetch) {
   const publisherId = requireEnv('CWS_PUBLISHER_ID', env);
   const extensionId = requireEnv('CWS_EXTENSION_ID', env);
@@ -52,6 +75,20 @@ export async function publishChrome(env = process.env, fetchImpl = fetch) {
   });
   if (!uploadRes.ok) {
     throw new Error(`Chrome upload failed: ${uploadRes.status} ${await uploadRes.text()}`);
+  }
+
+  const upload = await uploadRes.json().catch(() => ({}));
+  const uploadState = upload.uploadState ?? upload.lastAsyncSubmissionState?.state;
+  if (uploadState === 'UPLOAD_IN_PROGRESS' || uploadState === 'IN_PROGRESS') {
+    await waitForUpload(
+      authHeaders,
+      resourceName,
+      fetchImpl,
+      300000,
+      Number(env.CWS_POLL_INTERVAL_MS ?? 5000)
+    );
+  } else if (uploadState && uploadState !== 'SUCCESS') {
+    throw new Error(`Chrome upload did not succeed: ${uploadState}`);
   }
 
   const publishRes = await fetchImpl(`https://chromewebstore.googleapis.com/v2/${resourceName}:publish`, {
