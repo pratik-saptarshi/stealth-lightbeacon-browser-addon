@@ -575,6 +575,11 @@ describe('firefox dist variant', () => {
       'stealth-lightbeacon@pratik-saptarshi.github.io'
     );
     expect(manifest.side_panel).toBeUndefined();
+    expect(manifest.background).toEqual({
+      scripts: ['service-worker.js'],
+      type: 'module'
+    });
+    expect(manifest.background.service_worker).toBeUndefined();
     expect(manifest.permissions).not.toContain('sidePanel');
     expect(manifest.permissions).toContain('storage');
 

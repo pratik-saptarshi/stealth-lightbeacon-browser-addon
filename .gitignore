@@ -6,5 +6,6 @@ coverage/
 test-results/
 tmp/
 .tmp/
+artifacts/
 *.pem
 *.crx

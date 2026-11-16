@@ -85,7 +85,7 @@ jobs:
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
           set -euo pipefail
-          npx web-ext sign \
+          pnpm exec web-ext sign \
             --channel=listed \
             --source-dir=artifacts/firefox \
             --artifacts-dir=artifacts/firefox \

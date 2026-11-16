@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export const FIREFOX_EXTENSION_ID = 'stealth-lightbeacon@pratik-saptarshi.github.io';
 
@@ -11,6 +12,12 @@ export function buildFirefoxManifest(manifest) {
   const { side_panel: _sidePanel, ...rest } = manifest;
   const firefoxManifest = {
     ...rest,
+    // Firefox MV3 does not implement background.service_worker; use an event
+    // page instead so the sidebar/background logic actually loads.
+    background: {
+      scripts: ['service-worker.js'],
+      type: manifest.background?.type ?? 'module'
+    },
     sidebar_action: {
       default_panel: 'side-panel.html',
       default_title: 'Stealth Lightbeacon'
@@ -56,6 +63,6 @@ export async function prepareFirefoxDist(env = process.env) {
   console.log(`[prepare:firefox] wrote ${relative(repoRoot, firefoxDir)}/manifest.json`);
 }
 
-if (import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await prepareFirefoxDist();
 }
