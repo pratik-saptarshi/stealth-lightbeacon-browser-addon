@@ -1,10 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchAccessToken, publishChrome } from '../../scripts/publish-chrome.mjs';
 import { getEdgeAccessToken, pollOperation, publishEdge } from '../../scripts/publish-edge.mjs';
 import { packageStoreArtifacts } from '../../scripts/package-store-artifacts.mjs';
+
+const repoRoot = resolve(__dirname, '..', '..');
 
 function jsonResponse(
   body: unknown,
@@ -127,35 +131,72 @@ describe('publish automation scripts', () => {
     expect(payload.artifacts.zip.path).toBe('artifacts/addon-store.zip');
   });
 
-  it('packageStoreArtifacts packs a CRX when a private key is provided', async () => {
+  it('packageStoreArtifacts signs a CRX3 file with the provided key', async () => {
     const root = resolve(tmpdir(), `slt-package-crx-${Date.now()}`);
     tempPaths.push(root);
     mkdirSync(join(root, 'dist'), { recursive: true });
-    writeFileSync(join(root, 'dist', 'manifest.json'), JSON.stringify({ version: '2.0.0' }));
+    writeFileSync(join(root, 'dist', 'manifest.json'), JSON.stringify({ manifest_version: 3, version: '2.0.0' }));
 
-    const load = vi.fn(async (_distDir: string) => undefined);
-    const pack = vi.fn(async () => Buffer.from('crx-bytes'));
-    class FakeCrx {
-      constructor(readonly options: { privateKey: string }) {}
-      load = load;
-      pack = pack;
-    }
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+
     const spawnSyncImpl = vi.fn((_command: string, args: string[]) => {
       writeFileSync(args[1], 'zip-bytes');
       return { status: 0 };
     }) as unknown as typeof import('node:child_process').spawnSync;
 
     await packageStoreArtifacts(
-      { PUBLISH_REPO_ROOT: root, CRX_PRIVATE_KEY_PEM: 'test-pem' } as NodeJS.ProcessEnv,
-      { spawnSyncImpl, CrxImpl: FakeCrx }
+      { PUBLISH_REPO_ROOT: root, CRX_PRIVATE_KEY_PEM: privateKeyPem } as NodeJS.ProcessEnv,
+      { spawnSyncImpl }
     );
 
-    expect(load).toHaveBeenCalledWith(join(root, 'dist'));
-    expect(pack).toHaveBeenCalled();
-    const crxPath = join(root, 'artifacts', 'addon-signed.crx');
-    expect(existsSync(crxPath)).toBe(true);
+    const crx = readFileSync(join(root, 'artifacts', 'addon-signed.crx'));
+    expect(crx.subarray(0, 4).toString('latin1')).toBe('Cr24');
     const payload = JSON.parse(readFileSync(join(root, 'artifacts', 'publish-manifest.json'), 'utf8'));
     expect(payload.artifacts.crx.path).toBe('artifacts/addon-signed.crx');
+  });
+
+  it('package-store-artifacts CLI writes a Cr24 CRX with a generated key', () => {
+    const root = resolve(tmpdir(), `slt-package-crx-cli-${Date.now()}`);
+    tempPaths.push(root);
+    mkdirSync(join(root, 'dist'), { recursive: true });
+    writeFileSync(
+      join(root, 'dist', 'manifest.json'),
+      JSON.stringify({ manifest_version: 3, version: '3.0.0' })
+    );
+    writeFileSync(join(root, 'dist', 'service-worker.js'), 'console.log("ok");');
+
+    const keyDir = mkdtempSync(join(tmpdir(), 'slt-crx-key-'));
+    tempPaths.push(keyDir);
+    const keyPath = join(keyDir, 'test-key.pem');
+    const generated = spawnSync('openssl', ['genrsa', '-out', keyPath, '2048'], { encoding: 'utf8' });
+    expect(generated.status).toBe(0);
+
+    const result = spawnSync(
+      process.execPath,
+      [join(repoRoot, 'scripts', 'package-store-artifacts.mjs')],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PUBLISH_REPO_ROOT: root,
+          CRX_PRIVATE_KEY_PEM: readFileSync(keyPath, 'utf8')
+        }
+      }
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+
+    const crx = readFileSync(join(root, 'artifacts', 'addon-signed.crx'));
+    expect(crx.subarray(0, 4).toString('latin1')).toBe('Cr24');
+
+    const payload = JSON.parse(readFileSync(join(root, 'artifacts', 'publish-manifest.json'), 'utf8'));
+    expect(payload.version).toBe('3.0.0');
+    expect(payload.artifacts.crx.path).toBe('artifacts/addon-signed.crx');
+    expect(readdirSync(root).filter((entry) => entry.endsWith('.pem'))).toEqual([]);
   });
 
   it('packageStoreArtifacts requires a built dist directory', async () => {

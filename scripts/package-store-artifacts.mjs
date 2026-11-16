@@ -1,8 +1,18 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { Crx } from 'crx3';
+import writeCRX3File from 'crx3';
 
 export function listFilesRecursively(basePath) {
   const files = [];
@@ -24,6 +34,23 @@ export function sha256(path) {
   return hash.digest('hex');
 }
 
+// crx3@2 exports `writeCRX3File(files, { keyPath, crxPath, zipPath })` as its
+// default export. `zipPath: ''` disables crx3's default zip copy in the CWD.
+// The PEM never touches the repo: it is staged in a temp key file and removed afterwards.
+async function writeCrx({ distDir, fileList, crxPath, privateKeyPem }) {
+  const keyDir = mkdtempSync(join(tmpdir(), 'slt-crx-key-'));
+  const keyPath = join(keyDir, 'signing-key.pem');
+  try {
+    writeFileSync(keyPath, privateKeyPem);
+    await writeCRX3File(
+      fileList.map((file) => join(distDir, file)),
+      { keyPath, crxPath, zipPath: '' }
+    );
+  } finally {
+    rmSync(keyDir, { recursive: true, force: true });
+  }
+}
+
 export async function packageStoreArtifacts(env = process.env, deps = {}) {
   const {
     existsSyncImpl = existsSync,
@@ -31,8 +58,7 @@ export async function packageStoreArtifacts(env = process.env, deps = {}) {
     readFileSyncImpl = readFileSync,
     writeFileSyncImpl = writeFileSync,
     rmSyncImpl = rmSync,
-    spawnSyncImpl = spawnSync,
-    CrxImpl = Crx
+    spawnSyncImpl = spawnSync
   } = deps;
 
   const repoRoot = env.PUBLISH_REPO_ROOT ?? process.cwd();
@@ -62,9 +88,7 @@ export async function packageStoreArtifacts(env = process.env, deps = {}) {
 
   const crxPrivateKeyPem = env.CRX_PRIVATE_KEY_PEM;
   if (crxPrivateKeyPem) {
-    const crx = new CrxImpl({ privateKey: crxPrivateKeyPem });
-    const crxBuffer = await crx.load(distDir).then(() => crx.pack());
-    writeFileSyncImpl(crxPath, crxBuffer);
+    await writeCrx({ distDir, fileList, crxPath, privateKeyPem: crxPrivateKeyPem });
   }
 
   const publishManifest = {
