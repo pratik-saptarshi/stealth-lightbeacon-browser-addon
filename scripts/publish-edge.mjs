@@ -17,6 +17,15 @@ export function getEdgeAuthHeaders(env = process.env) {
   };
 }
 
+function operationIdFromLocation(location) {
+  const trimmed = String(location).replace(/\/+$/, '');
+  const operationId = trimmed.split('/').pop();
+  if (!operationId) {
+    throw new Error('Edge operation location has no operation ID.');
+  }
+  return operationId;
+}
+
 export async function pollOperation(operationUrl, headers, fetchImpl = fetch, timeoutMs = 300000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -56,11 +65,16 @@ export async function publishEdge(env = process.env, fetchImpl = fetch) {
   if (!uploadRes.ok) {
     throw new Error(`Edge upload failed: ${uploadRes.status} ${await uploadRes.text()}`);
   }
-  const uploadOperation = uploadRes.headers.get('location');
-  if (!uploadOperation) {
+  const uploadLocation = uploadRes.headers.get('location');
+  if (!uploadLocation) {
     throw new Error('Edge upload did not return operation location header.');
   }
-  await pollOperation(uploadOperation, headers, fetchImpl);
+  const uploadOperationId = operationIdFromLocation(uploadLocation);
+  await pollOperation(
+    `${baseApi}/v1/products/${productId}/submissions/draft/package/operations/${uploadOperationId}`,
+    headers,
+    fetchImpl
+  );
 
   const publishRes = await fetchImpl(`${baseApi}/v1/products/${productId}/submissions`, {
     method: 'POST',
@@ -74,11 +88,16 @@ export async function publishEdge(env = process.env, fetchImpl = fetch) {
     throw new Error(`Edge publish trigger failed: ${publishRes.status} ${await publishRes.text()}`);
   }
 
-  const publishOperation = publishRes.headers.get('location');
-  if (!publishOperation) {
+  const publishLocation = publishRes.headers.get('location');
+  if (!publishLocation) {
     throw new Error('Edge publish did not return operation location header.');
   }
-  const finalStatus = await pollOperation(publishOperation, headers, fetchImpl);
+  const publishOperationId = operationIdFromLocation(publishLocation);
+  const finalStatus = await pollOperation(
+    `${baseApi}/v1/products/${productId}/submissions/operations/${publishOperationId}`,
+    headers,
+    fetchImpl
+  );
   console.log('[publish:edge] publish accepted');
   console.log(JSON.stringify(finalStatus, null, 2));
 }

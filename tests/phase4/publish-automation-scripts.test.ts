@@ -389,10 +389,10 @@ describe('publish automation scripts', () => {
       const target = String(url);
       calls.push(`${init?.method ?? 'GET'} ${target}`);
       if (target.endsWith('/submissions/draft/package')) {
-        return jsonResponse({}, { location: 'https://edge.test/operations/upload' });
+        return jsonResponse({}, { location: 'upload-operation-id' });
       }
       if (target.endsWith('/submissions')) {
-        return jsonResponse({}, { location: 'https://edge.test/operations/publish' });
+        return jsonResponse({}, { location: 'publish-operation-id' });
       }
       return jsonResponse({ status: 'succeeded' });
     }) as unknown as typeof fetch;
@@ -409,8 +409,12 @@ describe('publish automation scripts', () => {
 
     expect(calls).toContain('POST https://api.addons.microsoftedge.microsoft.com/v1/products/product/submissions/draft/package');
     expect(calls).toContain('POST https://api.addons.microsoftedge.microsoft.com/v1/products/product/submissions');
-    expect(calls).toContain('GET https://edge.test/operations/upload');
-    expect(calls).toContain('GET https://edge.test/operations/publish');
+    expect(calls).toContain(
+      'GET https://api.addons.microsoftedge.microsoft.com/v1/products/product/submissions/draft/package/operations/upload-operation-id'
+    );
+    expect(calls).toContain(
+      'GET https://api.addons.microsoftedge.microsoft.com/v1/products/product/submissions/operations/publish-operation-id'
+    );
   });
 
   it('publishEdge rejects an upload without an operation location', async () => {
