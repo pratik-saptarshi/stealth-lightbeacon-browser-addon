@@ -1,0 +1,106 @@
+name: publish-firefox
+
+on:
+  workflow_call:
+    inputs:
+      target_environment:
+        type: string
+        default: staging
+    secrets:
+      AMO_JWT_ISSUER:
+        required: true
+      AMO_JWT_SECRET:
+        required: true
+      AMO_METADATA_JSON:
+        required: false
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: GitHub environment name
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      run_id:
+        description: Packaging run ID (required for standalone dispatch)
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE26: "true"
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.target_environment }}
+    permissions:
+      contents: read
+      actions: read
+    env:
+      AMO_METADATA_JSON: ${{ secrets.AMO_METADATA_JSON }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.13.1
+          cache: pnpm
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: |
+          set -euo pipefail
+          pnpm run audit
+
+      - name: Download dist payload artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-release-payload
+          path: dist
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Firefox manifest variant
+        run: |
+          set -euo pipefail
+          pnpm run prepare:firefox
+
+      - name: Prepare AMO metadata (optional)
+        if: env.AMO_METADATA_JSON != ''
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          printf '%s' "$AMO_METADATA_JSON" > artifacts/amo-metadata.json
+
+      - name: Sign and submit listed add-on
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          pnpm exec web-ext sign \
+            --channel=listed \
+            --source-dir=artifacts/firefox \
+            --artifacts-dir=artifacts/firefox \
+            $([[ -f artifacts/amo-metadata.json ]] && echo "--amo-metadata=artifacts/amo-metadata.json")
+
+      - name: Upload firefox artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-artifacts
+          path: artifacts/firefox
+          if-no-files-found: error

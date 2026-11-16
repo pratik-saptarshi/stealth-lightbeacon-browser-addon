@@ -64,6 +64,9 @@ type RuntimeContext = {
     sidePanel?: {
       open?: (details: { tabId?: number; windowId?: number }) => Promise<void> | void;
     };
+    sidebarAction?: {
+      open?: () => Promise<void> | void;
+    };
     contextMenus?: {
       create?: (details: { id: string; title: string; contexts: string[] }) => void;
       onClicked?: {
@@ -122,6 +125,9 @@ type RuntimeContext = {
     };
     sidePanel?: {
       open?: (details: { tabId?: number; windowId?: number }) => Promise<void> | void;
+    };
+    sidebarAction?: {
+      open?: () => Promise<void> | void;
     };
     contextMenus?: {
       create?: (details: { id: string; title: string; contexts: string[] }) => void;
@@ -390,6 +396,22 @@ export function startRuntimeListeners(): void {
   });
 }
 
+type ShellHost = NonNullable<RuntimeContext['chrome'] | RuntimeContext['browser']>;
+
+async function openSidebar(
+  host: ShellHost,
+  details: { tabId?: number; windowId?: number }
+): Promise<void> {
+  if (host.sidePanel?.open) {
+    await host.sidePanel.open(details);
+    return;
+  }
+  // Firefox has no chrome.sidePanel; sidebar_action is opened via sidebarAction.
+  if (host.sidebarAction?.open) {
+    await host.sidebarAction.open();
+  }
+}
+
 function registerShellEntrypoints(context: RuntimeContext): void {
   const host = context.chrome ?? context.browser;
   if (!host) {
@@ -399,12 +421,12 @@ function registerShellEntrypoints(context: RuntimeContext): void {
   host.action?.onClicked?.addListener(async (tab) => {
     const tabId = tab.id;
     if (typeof tabId === 'number') {
-      await host.sidePanel?.open?.({ tabId });
+      await openSidebar(host, { tabId });
       return;
     }
 
     if (typeof tab.windowId === 'number') {
-      await host.sidePanel?.open?.({ windowId: tab.windowId });
+      await openSidebar(host, { windowId: tab.windowId });
     }
   });
 
@@ -420,7 +442,7 @@ function registerShellEntrypoints(context: RuntimeContext): void {
     }
 
     if (typeof tab?.id === 'number') {
-      await host.sidePanel?.open?.({ tabId: tab.id });
+      await openSidebar(host, { tabId: tab.id });
     }
   });
 

@@ -1,0 +1,81 @@
+name: publish-edge
+
+on:
+  workflow_call:
+    inputs:
+      target_environment:
+        type: string
+        default: staging
+    secrets:
+      EDGE_API_KEY:
+        required: true
+      EDGE_CLIENT_ID:
+        required: true
+      EDGE_PRODUCT_ID:
+        required: true
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: GitHub environment name
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      run_id:
+        description: Packaging run ID (required for standalone dispatch)
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE26: "true"
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.target_environment }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.13.1
+          cache: pnpm
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: |
+          set -euo pipefail
+          pnpm run audit
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Edge Add-ons update
+        env:
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_ZIP_PATH: artifacts/addon-store.zip
+        run: pnpm run publish:edge

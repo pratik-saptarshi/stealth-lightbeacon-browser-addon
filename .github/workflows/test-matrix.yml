@@ -64,6 +64,12 @@ jobs:
         if: matrix.label == 'unit'
         run: pnpm run eval:node-version:test
 
+      - name: Secret scan
+        if: matrix.label == 'unit'
+        run: |
+          set -euo pipefail
+          bash scripts/secret-scan.sh
+
       - name: Install dependencies
         run: |
           set -euo pipefail

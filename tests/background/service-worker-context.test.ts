@@ -48,6 +48,9 @@ type ChromeLikeRuntime = {
   sidePanel?: {
     open: ReturnType<typeof vi.fn>;
   };
+  sidebarAction?: {
+    open: ReturnType<typeof vi.fn>;
+  };
 };
 
 const extractedContext = {
@@ -141,6 +144,24 @@ it('registers side panel shell listeners and handles action/context-menu opens',
 
   await contextMenuHandler?.({ menuItemId: 'stealth-lightbeacon-open-side-panel' }, { id: 77 });
   expect(chrome.sidePanel?.open).toHaveBeenCalledWith({ tabId: 77 });
+});
+
+it('opens the Firefox sidebar through sidebarAction when sidePanel is absent', async () => {
+  const browser = currentWindowRuntime.chrome as ChromeLikeRuntime;
+  delete browser.sidePanel;
+  browser.sidebarAction = { open: vi.fn(async () => undefined) };
+  currentWindowRuntime.browser = browser;
+  delete currentWindowRuntime.chrome;
+
+  registerRuntime();
+
+  const actionHandler = browser.action?.onClicked?.addListener.mock.calls[0]?.[0] as
+    | ((tab: { id?: number; windowId?: number }) => Promise<void>)
+    | undefined;
+  expect(actionHandler).toBeTypeOf('function');
+
+  await actionHandler?.({ id: 77, windowId: 9 });
+  expect(browser.sidebarAction?.open).toHaveBeenCalledTimes(1);
 });
 
 afterEach(() => {
