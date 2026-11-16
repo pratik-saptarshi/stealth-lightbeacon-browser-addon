@@ -43,7 +43,10 @@ async function waitForUpload(headers, resourceName, fetchImpl, timeoutMs = 30000
       throw new Error(`Chrome upload status failed: ${res.status} ${await res.text()}`);
     }
     const payload = await res.json();
-    const state = payload.lastAsyncSubmissionState?.state ?? payload.uploadState;
+    const state =
+      payload.lastAsyncUploadState ??
+      payload.lastAsyncSubmissionState?.state ??
+      payload.uploadState;
     if (state === 'SUCCESS') {
       return payload;
     }

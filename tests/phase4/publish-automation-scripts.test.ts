@@ -112,8 +112,8 @@ describe('publish automation scripts', () => {
         statusCalls += 1;
         return jsonResponse(
           statusCalls === 1
-            ? { lastAsyncSubmissionState: { state: 'IN_PROGRESS' } }
-            : { lastAsyncSubmissionState: { state: 'SUCCESS' } }
+            ? { lastAsyncUploadState: 'IN_PROGRESS' }
+            : { lastAsyncUploadState: 'SUCCESS' }
         );
       }
       return jsonResponse({});
