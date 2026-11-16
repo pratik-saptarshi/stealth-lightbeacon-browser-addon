@@ -1,0 +1,76 @@
+name: publish-firefox
+
+on:
+  workflow_call:
+    inputs:
+      target_environment:
+        type: string
+        default: staging
+    secrets:
+      AMO_JWT_ISSUER:
+        required: true
+      AMO_JWT_SECRET:
+        required: true
+      AMO_METADATA_JSON:
+        required: false
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download dist payload artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-release-payload
+          path: dist
+
+      - name: Prepare AMO metadata (optional)
+        if: ${{ secrets.AMO_METADATA_JSON != '' }}
+        run: |
+          mkdir -p artifacts
+          cat > artifacts/amo-metadata.json <<'EOF'
+          ${{ secrets.AMO_METADATA_JSON }}
+          EOF
+
+      - name: Sign and submit listed add-on
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          npx web-ext sign \
+            --channel=listed \
+            --source-dir=dist \
+            --artifacts-dir=artifacts/firefox \
+            $([[ -f artifacts/amo-metadata.json ]] && echo "--amo-metadata=artifacts/amo-metadata.json")
+
+      - name: Upload firefox artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-artifacts
+          path: artifacts/firefox
+          if-no-files-found: error

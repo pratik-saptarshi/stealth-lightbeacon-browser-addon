@@ -1,0 +1,92 @@
+name: release-package
+
+on:
+  workflow_call:
+    inputs:
+      target_environment:
+        type: string
+        default: staging
+      run_validation:
+        type: boolean
+        default: true
+      include_crx:
+        type: boolean
+        default: false
+    secrets:
+      CRX_PRIVATE_KEY_PEM:
+        required: false
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: GitHub environment name
+        type: choice
+        options: [staging, production]
+        default: staging
+      run_validation:
+        description: Run full validation gate before packaging
+        type: boolean
+        default: true
+      include_crx:
+        description: Build CRX artifact when private key is available
+        type: boolean
+        default: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validation gate
+        if: ${{ inputs.run_validation }}
+        run: |
+          set -euo pipefail
+          pnpm run build
+          pnpm run test:unit
+          pnpm run test:integration
+          pnpm run test:e2e
+          pnpm run test:ui-load:strict
+
+      - name: Build (packaging precondition)
+        if: ${{ !inputs.run_validation }}
+        run: pnpm run build
+
+      - name: Package store artifacts
+        env:
+          CRX_PRIVATE_KEY_PEM: ${{ inputs.include_crx && secrets.CRX_PRIVATE_KEY_PEM || '' }}
+        run: pnpm run package:store
+
+      - name: Upload dist payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-release-payload
+          path: dist
+          if-no-files-found: error
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts
+          if-no-files-found: error
